@@ -16,6 +16,7 @@ import Dashboard from "@/pages/Dashboard";
 import Tasks from "@/pages/Tasks";
 import TaskNew from "@/pages/TaskNew";
 import Workspaces from "@/pages/Workspaces";
+import WorkspaceNew from "@/pages/WorkspaceNew";
 import WorkspaceDetail from "@/pages/WorkspaceDetail";
 import Profile from "@/pages/Profile";
 import Settings from "@/pages/Settings";
@@ -29,140 +30,149 @@ import { UserRole } from "./types";
 const queryClient = new QueryClient();
 
 const App = () => (
-  <React.StrictMode>
-    <QueryClientProvider client={queryClient}>
-      <TooltipProvider>
-        <BrowserRouter>
-          <AuthProvider>
-            <Toaster />
-            <Sonner />
-            <Routes>
-              {/* Public Routes */}
-              <Route path="/" element={<LandingPage />} />
-              <Route path="/login" element={<Login />} />
-              <Route path="/register" element={<Register />} />
-              <Route path="/unauthorized" element={<Unauthorized />} />
+  <QueryClientProvider client={queryClient}>
+    <TooltipProvider>
+      <BrowserRouter>
+        <AuthProvider>
+          <Toaster />
+          <Sonner />
+          <Routes>
+            {/* Public Routes */}
+            <Route path="/" element={<LandingPage />} />
+            <Route path="/login" element={<Login />} />
+            <Route path="/register" element={<Register />} />
+            <Route path="/unauthorized" element={<Unauthorized />} />
 
-              {/* Protected Routes */}
-              <Route
-                path="/dashboard"
-                element={
-                  <ProtectedRoute>
-                    <Layout>
-                      <Dashboard />
-                    </Layout>
-                  </ProtectedRoute>
-                }
-              />
+            {/* Protected Routes */}
+            <Route
+              path="/dashboard"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <Dashboard />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
 
-              <Route
-                path="/tasks"
-                element={
-                  <ProtectedRoute>
-                    <Layout>
-                      <Tasks />
-                    </Layout>
-                  </ProtectedRoute>
-                }
-              />
-              
-              <Route
-                path="/workspaces/:id/tasks/new"
-                element={
-                  <ProtectedRoute>
-                    <Layout>
-                      <TaskNew />
-                    </Layout>
-                  </ProtectedRoute>
-                }
-              />
-              
-              <Route
-                path="/workspaces"
-                element={
-                  <ProtectedRoute>
-                    <Layout>
-                      <Workspaces />
-                    </Layout>
-                  </ProtectedRoute>
-                }
-              />
-              
-              <Route
-                path="/workspaces/:id"
-                element={
-                  <ProtectedRoute>
-                    <Layout>
-                      <WorkspaceDetail />
-                    </Layout>
-                  </ProtectedRoute>
-                }
-              />
+            <Route
+              path="/tasks"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <Tasks />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            
+            <Route
+              path="/workspaces/:id/tasks/new"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <TaskNew />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            
+            <Route
+              path="/workspaces"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <Workspaces />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
 
-              <Route
-                path="/profile"
-                element={
-                  <ProtectedRoute>
-                    <Layout>
-                      <Profile />
-                    </Layout>
-                  </ProtectedRoute>
-                }
-              />
+            <Route
+              path="/workspaces/new"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <WorkspaceNew />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            
+            <Route
+              path="/workspaces/:id"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <WorkspaceDetail />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
 
-              <Route
-                path="/settings"
-                element={
-                  <ProtectedRoute>
-                    <Layout>
-                      <Settings />
-                    </Layout>
-                  </ProtectedRoute>
-                }
-              />
+            <Route
+              path="/profile"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <Profile />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
 
-              <Route
-                path="/payments"
-                element={
-                  <ProtectedRoute>
-                    <Layout>
-                      <Payments />
-                    </Layout>
-                  </ProtectedRoute>
-                }
-              />
+            <Route
+              path="/settings"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <Settings />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
 
-              <Route
-                path="/reports"
-                element={
-                  <ProtectedRoute>
-                    <Layout>
-                      <Reports />
-                    </Layout>
-                  </ProtectedRoute>
-                }
-              />
+            <Route
+              path="/payments"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <Payments />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
 
-              {/* Author/Admin Only Routes */}
-              <Route
-                path="/employees"
-                element={
-                  <ProtectedRoute allowedRoles={[UserRole.AUTHOR]}>
-                    <Layout>
-                      <div className="p-4">Employees Management (Admin Only)</div>
-                    </Layout>
-                  </ProtectedRoute>
-                }
-              />
+            <Route
+              path="/reports"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <Reports />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
 
-              {/* Fallback */}
-              <Route path="*" element={<NotFound />} />
-            </Routes>
-          </AuthProvider>
-        </BrowserRouter>
-      </TooltipProvider>
-    </QueryClientProvider>
-  </React.StrictMode>
+            {/* Author/Admin Only Routes */}
+            <Route
+              path="/employees"
+              element={
+                <ProtectedRoute allowedRoles={[UserRole.AUTHOR]}>
+                  <Layout>
+                    <div className="p-4">Employees Management (Admin Only)</div>
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+
+            {/* Fallback */}
+            <Route path="*" element={<NotFound />} />
+          </Routes>
+        </AuthProvider>
+      </BrowserRouter>
+    </TooltipProvider>
+  </QueryClientProvider>
 );
 
 export default App;
