@@ -13,6 +13,7 @@ import Login from "@/pages/Login";
 import Register from "@/pages/Register";
 import Dashboard from "@/pages/Dashboard";
 import Tasks from "@/pages/Tasks";
+import WorkspaceDetail from "@/pages/WorkspaceDetail";
 import Unauthorized from "@/pages/Unauthorized";
 import NotFound from "@/pages/NotFound";
 import { UserRole } from "./types";
@@ -51,6 +52,17 @@ const App = () => (
                 <ProtectedRoute>
                   <Layout>
                     <Tasks />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            
+            <Route
+              path="/workspaces/:id"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <WorkspaceDetail />
                   </Layout>
                 </ProtectedRoute>
               }

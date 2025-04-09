@@ -3,6 +3,7 @@ import React, { ReactNode } from 'react';
 import Navbar from './Navbar';
 import Sidebar from './Sidebar';
 import { useAuth } from '@/context/AuthContext';
+import ThemeToggle from '../theme/ThemeToggle';
 
 interface LayoutProps {
   children: ReactNode;
