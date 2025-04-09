@@ -1,5 +1,5 @@
 
-import { UserRole, TaskStatus, PaymentStatus, User, Workspace, Task, UserStats } from '@/types';
+import { UserRole, TaskStatus, PaymentStatus, User, Workspace, Task, TaskPriority, TaskLevel, UserStats } from '@/types';
 
 // Mock Users
 export const mockUsers: User[] = [
@@ -81,6 +81,8 @@ export const mockTasks: Task[] = [
     dueDate: new Date('2025-04-05'),
     createdAt: new Date('2025-03-20'),
     completedAt: new Date('2025-04-02'),
+    priority: TaskPriority.HIGH,
+    level: TaskLevel.SENIOR,
     payment: {
       amount: 250,
       status: PaymentStatus.PAID,
@@ -97,6 +99,8 @@ export const mockTasks: Task[] = [
     createdBy: '1',
     dueDate: new Date('2025-04-15'),
     createdAt: new Date('2025-03-25'),
+    priority: TaskPriority.MEDIUM,
+    level: TaskLevel.MID,
     payment: {
       amount: 350,
       status: PaymentStatus.PENDING
@@ -113,6 +117,8 @@ export const mockTasks: Task[] = [
     dueDate: new Date('2025-04-08'),
     createdAt: new Date('2025-03-22'),
     completedAt: new Date('2025-04-07'),
+    priority: TaskPriority.MEDIUM,
+    level: TaskLevel.SENIOR,
     payment: {
       amount: 200,
       status: PaymentStatus.PAID,
@@ -129,6 +135,8 @@ export const mockTasks: Task[] = [
     createdBy: '1',
     dueDate: new Date('2025-04-20'),
     createdAt: new Date('2025-03-30'),
+    priority: TaskPriority.LOW,
+    level: TaskLevel.JUNIOR,
     payment: {
       amount: 300,
       status: PaymentStatus.PENDING
@@ -144,6 +152,8 @@ export const mockTasks: Task[] = [
     createdBy: '1',
     dueDate: new Date('2025-04-11'),
     createdAt: new Date('2025-04-01'),
+    priority: TaskPriority.HIGH,
+    level: TaskLevel.MID,
     payment: {
       amount: 150,
       status: PaymentStatus.PENDING
@@ -160,6 +170,8 @@ export const mockTasks: Task[] = [
     dueDate: new Date('2025-04-05'),
     createdAt: new Date('2025-03-15'),
     completedAt: new Date('2025-04-03'),
+    priority: TaskPriority.MEDIUM,
+    level: TaskLevel.JUNIOR,
     payment: {
       amount: 200,
       status: PaymentStatus.PENDING
@@ -175,6 +187,8 @@ export const mockTasks: Task[] = [
     createdBy: '1',
     dueDate: new Date('2025-04-25'),
     createdAt: new Date('2025-04-05'),
+    priority: TaskPriority.LOW,
+    level: TaskLevel.MID,
     payment: {
       amount: 250,
       status: PaymentStatus.PENDING
@@ -191,6 +205,8 @@ export const mockTasks: Task[] = [
     dueDate: new Date('2025-04-02'),
     createdAt: new Date('2025-03-20'),
     completedAt: new Date('2025-04-01'),
+    priority: TaskPriority.MEDIUM,
+    level: TaskLevel.JUNIOR,
     payment: {
       amount: 100,
       status: PaymentStatus.PAID,
@@ -245,4 +261,25 @@ export const getWorkspaceById = (workspaceId: string): Workspace | undefined => 
 
 export const getTaskById = (taskId: string): Task | undefined => {
   return mockTasks.find(task => task.id === taskId);
+};
+
+// Add updateTaskStatus function
+export const updateTaskStatus = (taskId: string, newStatus: TaskStatus): Task => {
+  const taskIndex = mockTasks.findIndex(task => task.id === taskId);
+  
+  if (taskIndex === -1) {
+    throw new Error(`Task with id ${taskId} not found`);
+  }
+  
+  // Create a copy of the task with the updated status
+  const updatedTask = {
+    ...mockTasks[taskIndex],
+    status: newStatus,
+    ...(newStatus === TaskStatus.COMPLETED ? { completedAt: new Date() } : {})
+  };
+  
+  // Update the task in the mock data
+  mockTasks[taskIndex] = updatedTask;
+  
+  return updatedTask;
 };
