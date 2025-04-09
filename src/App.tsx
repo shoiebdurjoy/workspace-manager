@@ -14,8 +14,13 @@ import Login from "@/pages/Login";
 import Register from "@/pages/Register";
 import Dashboard from "@/pages/Dashboard";
 import Tasks from "@/pages/Tasks";
+import TaskNew from "@/pages/TaskNew";
 import Workspaces from "@/pages/Workspaces";
 import WorkspaceDetail from "@/pages/WorkspaceDetail";
+import Profile from "@/pages/Profile";
+import Settings from "@/pages/Settings";
+import Payments from "@/pages/Payments";
+import Reports from "@/pages/Reports";
 import Unauthorized from "@/pages/Unauthorized";
 import NotFound from "@/pages/NotFound";
 import { UserRole } from "./types";
@@ -62,6 +67,17 @@ const App = () => (
               />
               
               <Route
+                path="/workspaces/:id/tasks/new"
+                element={
+                  <ProtectedRoute>
+                    <Layout>
+                      <TaskNew />
+                    </Layout>
+                  </ProtectedRoute>
+                }
+              />
+              
+              <Route
                 path="/workspaces"
                 element={
                   <ProtectedRoute>
@@ -83,6 +99,50 @@ const App = () => (
                 }
               />
 
+              <Route
+                path="/profile"
+                element={
+                  <ProtectedRoute>
+                    <Layout>
+                      <Profile />
+                    </Layout>
+                  </ProtectedRoute>
+                }
+              />
+
+              <Route
+                path="/settings"
+                element={
+                  <ProtectedRoute>
+                    <Layout>
+                      <Settings />
+                    </Layout>
+                  </ProtectedRoute>
+                }
+              />
+
+              <Route
+                path="/payments"
+                element={
+                  <ProtectedRoute>
+                    <Layout>
+                      <Payments />
+                    </Layout>
+                  </ProtectedRoute>
+                }
+              />
+
+              <Route
+                path="/reports"
+                element={
+                  <ProtectedRoute>
+                    <Layout>
+                      <Reports />
+                    </Layout>
+                  </ProtectedRoute>
+                }
+              />
+
               {/* Author/Admin Only Routes */}
               <Route
                 path="/employees"
@@ -94,9 +154,6 @@ const App = () => (
                   </ProtectedRoute>
                 }
               />
-
-              {/* 404 Page for payments */}
-              <Route path="/payments" element={<NotFound />} />
 
               {/* Fallback */}
               <Route path="*" element={<NotFound />} />
