@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 import { toast } from '@/components/ui/use-toast';
+import { createWorkspace } from '@/services/mockData';
 
 const WorkspaceNew: React.FC = () => {
   const navigate = useNavigate();
@@ -21,22 +22,40 @@ const WorkspaceNew: React.FC = () => {
     e.preventDefault();
     
     if (!currentUser) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "You must be logged in to create a workspace.",
+      });
       return;
     }
 
     setIsSubmitting(true);
 
-    // In a real app, we would make an API call here
-    // For now, just simulate workspace creation with a delay
-    setTimeout(() => {
+    try {
+      const newWorkspace = createWorkspace({
+        name,
+        description,
+        createdBy: currentUser.id,
+        members: [currentUser.id],
+      });
+      
       toast({
         title: "Workspace created!",
         description: `Workspace "${name}" has been created successfully.`,
       });
       
+      navigate(`/workspaces/${newWorkspace.id}`);
+    } catch (error) {
+      console.error('Error creating workspace:', error);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Failed to create workspace. Please try again.",
+      });
+    } finally {
       setIsSubmitting(false);
-      navigate('/workspaces');
-    }, 1000);
+    }
   };
 
   return (

@@ -17,7 +17,7 @@ import {
   sortableKeyboardCoordinates,
   verticalListSortingStrategy
 } from '@dnd-kit/sortable';
-import { ArrowLeft, Plus, Settings } from 'lucide-react';
+import { ArrowLeft, Plus, Settings, Check } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { 
   Card,
@@ -27,11 +27,21 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { Table, TableHeader, TableRow, TableHead, TableCell, TableBody } from '@/components/ui/table';
+import { Badge } from '@/components/ui/badge';
 import KanbanColumn from '@/components/kanban/KanbanColumn';
 import TaskCard from '@/components/kanban/TaskCard';
 import { useAuth } from '@/context/AuthContext';
-import { Task, TaskStatus, KanbanColumn as KanbanColumnType } from '@/types';
-import { getWorkspaceById, getTasksForWorkspace, updateTaskStatus } from '@/services/mockData';
+import { Task, TaskStatus, KanbanColumn as KanbanColumnType, PaymentStatus } from '@/types';
+import { 
+  getWorkspaceById, 
+  getTasksForWorkspace, 
+  updateTaskStatus, 
+  updateTaskPaymentStatus, 
+  getUserById,
+  saveTasksToLocalStorage
+} from '@/services/mockData';
+import { toast } from '@/components/ui/use-toast';
 
 const WorkspaceDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -141,36 +151,86 @@ const WorkspaceDetail: React.FC = () => {
     const destinationColumn = columns.find(col => col.id === destinationColumnId);
     
     if (task && destinationColumn && task.status !== destinationColumn.status) {
-      // Update task status in mock API
-      const updatedTask = updateTaskStatus(task.id, destinationColumn.status);
-      
-      // Update local state
-      const updatedTasks = tasks.map(t => t.id === taskId ? updatedTask : t);
-      setTasks(updatedTasks);
-      
-      // Update columns
-      const updatedColumns = columns.map(column => {
-        // Remove task from source column
-        if (column.tasks.some(t => t.id === taskId)) {
-          return {
-            ...column,
-            tasks: column.tasks.filter(t => t.id !== taskId)
-          };
-        }
-        // Add task to destination column
-        if (column.id === destinationColumnId) {
-          return {
-            ...column,
-            tasks: [...column.tasks, updatedTask]
-          };
-        }
-        return column;
-      });
-      
-      setColumns(updatedColumns);
+      try {
+        // Update task status in mock API
+        const updatedTask = updateTaskStatus(task.id, destinationColumn.status);
+        
+        // Update local state
+        const updatedTasks = tasks.map(t => t.id === taskId ? updatedTask : t);
+        setTasks(updatedTasks);
+        
+        // Update columns
+        const updatedColumns = columns.map(column => {
+          // Remove task from source column
+          if (column.tasks.some(t => t.id === taskId)) {
+            return {
+              ...column,
+              tasks: column.tasks.filter(t => t.id !== taskId)
+            };
+          }
+          // Add task to destination column
+          if (column.id === destinationColumnId) {
+            return {
+              ...column,
+              tasks: [...column.tasks, updatedTask]
+            };
+          }
+          return column;
+        });
+        
+        setColumns(updatedColumns);
+        
+        // Save changes to localStorage
+        saveTasksToLocalStorage();
+        
+        toast({
+          title: "Task updated",
+          description: `Task "${task.title}" moved to ${destinationColumn.title}`,
+        });
+      } catch (error) {
+        console.error('Error updating task status:', error);
+        toast({
+          variant: "destructive",
+          title: "Error",
+          description: "Failed to update task. Please try again.",
+        });
+      }
     }
     
     setActiveTask(null);
+  };
+
+  const handlePaymentStatusToggle = (taskId: string, currentStatus: PaymentStatus) => {
+    try {
+      const newStatus = currentStatus === PaymentStatus.PAID ? PaymentStatus.PENDING : PaymentStatus.PAID;
+      const updatedTask = updateTaskPaymentStatus(taskId, newStatus);
+      
+      // Update tasks state
+      setTasks(tasks.map(task => task.id === taskId ? updatedTask : task));
+      
+      // Update columns to reflect the change
+      setColumns(columns.map(column => {
+        return {
+          ...column,
+          tasks: column.tasks.map(task => task.id === taskId ? updatedTask : task)
+        };
+      }));
+      
+      // Save changes to localStorage
+      saveTasksToLocalStorage();
+      
+      toast({
+        title: "Payment status updated",
+        description: `Task payment marked as ${newStatus === PaymentStatus.PAID ? 'paid' : 'pending'}`,
+      });
+    } catch (error) {
+      console.error('Error updating payment status:', error);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Failed to update payment status. Please try again.",
+      });
+    }
   };
 
   if (!workspace) {
@@ -207,7 +267,7 @@ const WorkspaceDetail: React.FC = () => {
         <TabsList className="mb-4">
           <TabsTrigger value="kanban">Kanban Board</TabsTrigger>
           <TabsTrigger value="list">List View</TabsTrigger>
-          <TabsTrigger value="calendar">Calendar</TabsTrigger>
+          <TabsTrigger value="payments">Payments</TabsTrigger>
           <TabsTrigger value="members">Team Members</TabsTrigger>
         </TabsList>
         
@@ -250,22 +310,102 @@ const WorkspaceDetail: React.FC = () => {
           <Card>
             <CardHeader>
               <CardTitle>Task List</CardTitle>
-              <CardDescription>View all tasks in list format</CardDescription>
+              <CardDescription>All tasks in list format</CardDescription>
             </CardHeader>
             <CardContent>
-              <p>List view coming soon...</p>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Title</TableHead>
+                    <TableHead>Assignee</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Due Date</TableHead>
+                    <TableHead>Priority</TableHead>
+                    <TableHead>Level</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {tasks.map(task => {
+                    const assignee = getUserById(task.assignedTo);
+                    return (
+                      <TableRow key={task.id}>
+                        <TableCell className="font-medium">{task.title}</TableCell>
+                        <TableCell>{assignee?.name || 'Unassigned'}</TableCell>
+                        <TableCell>
+                          <Badge variant="outline">{task.status.replace(/_/g, ' ')}</Badge>
+                        </TableCell>
+                        <TableCell>{new Date(task.dueDate).toLocaleDateString()}</TableCell>
+                        <TableCell>
+                          <Badge variant={task.priority === TaskPriority.HIGH ? "destructive" : 
+                                         task.priority === TaskPriority.MEDIUM ? "default" : "outline"}>
+                            {task.priority}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>{task.level}</TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
             </CardContent>
           </Card>
         </TabsContent>
         
-        <TabsContent value="calendar">
+        <TabsContent value="payments">
           <Card>
             <CardHeader>
-              <CardTitle>Calendar View</CardTitle>
-              <CardDescription>View tasks by due date</CardDescription>
+              <CardTitle>Payment Tracking</CardTitle>
+              <CardDescription>Track and manage task payments</CardDescription>
             </CardHeader>
             <CardContent>
-              <p>Calendar view coming soon...</p>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Task</TableHead>
+                    <TableHead>Assignee</TableHead>
+                    <TableHead>Amount</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Date Paid</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {tasks.map(task => {
+                    const assignee = getUserById(task.assignedTo);
+                    return (
+                      <TableRow key={task.id}>
+                        <TableCell className="font-medium">{task.title}</TableCell>
+                        <TableCell>{assignee?.name || 'Unassigned'}</TableCell>
+                        <TableCell>${task.payment.amount}</TableCell>
+                        <TableCell>
+                          <Badge variant={task.payment.status === PaymentStatus.PAID ? "success" : "outline"}>
+                            {task.payment.status}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          {task.payment.paidAt ? new Date(task.payment.paidAt).toLocaleDateString() : '-'}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {currentUser?.role === UserRole.AUTHOR && (
+                            <Button 
+                              variant={task.payment.status === PaymentStatus.PAID ? "outline" : "default"}
+                              size="sm"
+                              onClick={() => handlePaymentStatusToggle(task.id, task.payment.status)}
+                            >
+                              {task.payment.status === PaymentStatus.PAID ? 'Mark Unpaid' : (
+                                <>
+                                  <Check className="mr-1 h-3 w-3" />
+                                  Mark Paid
+                                </>
+                              )}
+                            </Button>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
             </CardContent>
           </Card>
         </TabsContent>
@@ -277,7 +417,33 @@ const WorkspaceDetail: React.FC = () => {
               <CardDescription>Manage workspace members</CardDescription>
             </CardHeader>
             <CardContent>
-              <p>Team members management coming soon...</p>
+              <div className="space-y-4">
+                {workspace.members.map(memberId => {
+                  const member = getUserById(memberId);
+                  if (!member) return null;
+                  
+                  return (
+                    <div key={memberId} className="flex items-center justify-between p-3 border rounded-md">
+                      <div className="flex items-center gap-3">
+                        <Avatar>
+                          {member.avatarUrl ? (
+                            <AvatarImage src={member.avatarUrl} alt={member.name} />
+                          ) : (
+                            <AvatarFallback>
+                              {member.name.split(' ').map(n => n[0]).join('')}
+                            </AvatarFallback>
+                          )}
+                        </Avatar>
+                        <div>
+                          <p className="font-medium">{member.name}</p>
+                          <p className="text-sm text-muted-foreground">{member.email}</p>
+                        </div>
+                      </div>
+                      <Badge>{member.role}</Badge>
+                    </div>
+                  );
+                })}
+              </div>
             </CardContent>
           </Card>
         </TabsContent>

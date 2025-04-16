@@ -8,7 +8,7 @@ export enum TaskStatus {
   TODO = "TODO",
   IN_PROGRESS = "IN_PROGRESS",
   COMPLETED = "COMPLETED",
-  // New Kanban statuses
+  // Kanban workflow statuses
   NEW_REQUEST = "NEW_REQUEST",
   ASSIGNED = "ASSIGNED",
   IN_EDIT = "IN_EDIT",

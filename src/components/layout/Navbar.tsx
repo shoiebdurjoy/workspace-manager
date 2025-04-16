@@ -13,6 +13,7 @@ import {
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu';
 import { useAuth } from '@/context/AuthContext';
+import ThemeToggle from '../theme/ThemeToggle';
 
 const Navbar = () => {
   const { currentUser, logout } = useAuth();
@@ -42,6 +43,7 @@ const Navbar = () => {
         </nav>
         
         <div className="flex items-center gap-4">
+          <ThemeToggle />
           <Button variant="ghost" size="icon">
             <Bell className="h-5 w-5" />
           </Button>

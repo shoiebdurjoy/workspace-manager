@@ -146,7 +146,7 @@ const App = () => (
             <Route
               path="/reports"
               element={
-                <ProtectedRoute>
+                <ProtectedRoute allowedRoles={[UserRole.AUTHOR]}>
                   <Layout>
                     <Reports />
                   </Layout>
@@ -154,7 +154,7 @@ const App = () => (
               }
             />
 
-            {/* Author/Admin Only Routes */}
+            {/* Author Only Routes */}
             <Route
               path="/employees"
               element={

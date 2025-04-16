@@ -2,7 +2,7 @@
 import React, { createContext, useContext, useState, ReactNode, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { User, UserRole } from '@/types';
-import { toast } from '@/hooks/use-toast';
+import { toast } from '@/components/ui/use-toast';
 
 // Mock users for demonstration
 const MOCK_USERS = [
@@ -76,6 +76,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           title: "Login successful",
           description: `Welcome back, ${userWithoutPassword.name}!`
         });
+        navigate('/dashboard');
         return true;
       } else {
         toast({
@@ -153,6 +154,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         description: `Welcome, ${name}!`,
       });
       
+      navigate('/dashboard');
       return true;
     } catch (error) {
       console.error('Registration error:', error);
