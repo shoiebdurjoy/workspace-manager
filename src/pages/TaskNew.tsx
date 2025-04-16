@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
@@ -25,7 +24,7 @@ import {
 } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
 import { cn } from '@/lib/utils';
-import { TaskPriority, TaskLevel, User } from '@/types';
+import { TaskPriority, TaskLevel, User, PaymentStatus } from '@/types';
 
 const TaskNew: React.FC = () => {
   const { id: workspaceId } = useParams<{ id: string }>();
@@ -105,7 +104,7 @@ const TaskNew: React.FC = () => {
         level,
         payment: {
           amount: payment,
-          status: TaskPriority.PENDING,
+          status: PaymentStatus.PENDING,
         }
       });
       

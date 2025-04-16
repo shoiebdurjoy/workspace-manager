@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { 
@@ -29,10 +28,11 @@ import {
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Table, TableHeader, TableRow, TableHead, TableCell, TableBody } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
+import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import KanbanColumn from '@/components/kanban/KanbanColumn';
 import TaskCard from '@/components/kanban/TaskCard';
 import { useAuth } from '@/context/AuthContext';
-import { Task, TaskStatus, KanbanColumn as KanbanColumnType, PaymentStatus } from '@/types';
+import { Task, TaskStatus, KanbanColumn as KanbanColumnType, PaymentStatus, UserRole, TaskPriority } from '@/types';
 import { 
   getWorkspaceById, 
   getTasksForWorkspace, 
