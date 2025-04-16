@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { 
@@ -30,7 +31,8 @@ import { Table, TableHeader, TableRow, TableHead, TableCell, TableBody } from '@
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import KanbanColumn from '@/components/kanban/KanbanColumn';
-import TaskCard from '@/components/kanban/TaskCard';
+import TaskRow from '@/components/kanban/TaskRow';
+import TaskDetail from '@/components/kanban/TaskDetail';
 import { useAuth } from '@/context/AuthContext';
 import { Task, TaskStatus, KanbanColumn as KanbanColumnType, PaymentStatus, UserRole, TaskPriority } from '@/types';
 import { 
@@ -52,6 +54,8 @@ const WorkspaceDetail: React.FC = () => {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [columns, setColumns] = useState<KanbanColumnType[]>([]);
   const [activeTask, setActiveTask] = useState<Task | null>(null);
+  const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+  const [isTaskDetailOpen, setIsTaskDetailOpen] = useState(false);
   
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -233,6 +237,11 @@ const WorkspaceDetail: React.FC = () => {
     }
   };
 
+  const handleTaskClick = (task: Task) => {
+    setSelectedTask(task);
+    setIsTaskDetailOpen(true);
+  };
+
   if (!workspace) {
     return <div>Loading...</div>;
   }
@@ -279,7 +288,7 @@ const WorkspaceDetail: React.FC = () => {
               onDragStart={handleDragStart}
               onDragEnd={handleDragEnd}
             >
-              <div className="flex gap-4 min-w-max">
+              <div className="flex gap-2 min-w-max">
                 {columns.map(column => (
                   <SortableContext
                     key={column.id}
@@ -291,14 +300,15 @@ const WorkspaceDetail: React.FC = () => {
                       title={column.title}
                       tasks={column.tasks}
                       status={column.status}
+                      onTaskClick={handleTaskClick}
                     />
                   </SortableContext>
                 ))}
               </div>
               <DragOverlay>
                 {activeTask ? (
-                  <div className="transform-none">
-                    <TaskCard task={activeTask} />
+                  <div className="transform-none w-[270px]">
+                    <TaskRow task={activeTask} onClick={() => {}} />
                   </div>
                 ) : null}
               </DragOverlay>
@@ -328,7 +338,7 @@ const WorkspaceDetail: React.FC = () => {
                   {tasks.map(task => {
                     const assignee = getUserById(task.assignedTo);
                     return (
-                      <TableRow key={task.id}>
+                      <TableRow key={task.id} className="cursor-pointer hover:bg-muted/50" onClick={() => handleTaskClick(task)}>
                         <TableCell className="font-medium">{task.title}</TableCell>
                         <TableCell>{assignee?.name || 'Unassigned'}</TableCell>
                         <TableCell>
@@ -373,7 +383,7 @@ const WorkspaceDetail: React.FC = () => {
                   {tasks.map(task => {
                     const assignee = getUserById(task.assignedTo);
                     return (
-                      <TableRow key={task.id}>
+                      <TableRow key={task.id} className="cursor-pointer hover:bg-muted/50" onClick={() => handleTaskClick(task)}>
                         <TableCell className="font-medium">{task.title}</TableCell>
                         <TableCell>{assignee?.name || 'Unassigned'}</TableCell>
                         <TableCell>${task.payment.amount}</TableCell>
@@ -390,7 +400,10 @@ const WorkspaceDetail: React.FC = () => {
                             <Button 
                               variant={task.payment.status === PaymentStatus.PAID ? "outline" : "default"}
                               size="sm"
-                              onClick={() => handlePaymentStatusToggle(task.id, task.payment.status)}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handlePaymentStatusToggle(task.id, task.payment.status);
+                              }}
                             >
                               {task.payment.status === PaymentStatus.PAID ? 'Mark Unpaid' : (
                                 <>
@@ -448,6 +461,13 @@ const WorkspaceDetail: React.FC = () => {
           </Card>
         </TabsContent>
       </Tabs>
+
+      {/* Task Detail Sidebar */}
+      <TaskDetail 
+        task={selectedTask}
+        open={isTaskDetailOpen}
+        onOpenChange={setIsTaskDetailOpen}
+      />
     </div>
   );
 };

@@ -2,17 +2,19 @@
 import React from 'react';
 import { useDroppable } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import { Task, TaskStatus } from '@/types';
-import TaskCard from './TaskCard';
+import TaskRow from './TaskRow';
 
 interface KanbanColumnProps {
   id: string;
   title: string;
   tasks: Task[];
   status: TaskStatus;
+  onTaskClick: (task: Task) => void;
 }
 
-const KanbanColumn: React.FC<KanbanColumnProps> = ({ id, title, tasks, status }) => {
+const KanbanColumn: React.FC<KanbanColumnProps> = ({ id, title, tasks, status, onTaskClick }) => {
   const { setNodeRef } = useDroppable({
     id,
     data: { status }
@@ -34,27 +36,34 @@ const KanbanColumn: React.FC<KanbanColumnProps> = ({ id, title, tasks, status })
   return (
     <div 
       ref={setNodeRef}
-      className={`flex flex-col w-80 rounded-md border ${columnColors[status]} shadow-sm`}
+      className={`flex flex-col w-72 rounded-md border ${columnColors[status]} shadow-sm`}
     >
-      <div className="p-3 border-b font-medium flex items-center justify-between">
-        <h3>{title}</h3>
+      <div className="p-2 border-b font-medium flex items-center justify-between sticky top-0 bg-inherit z-10">
+        <h3 className="text-sm font-medium">{title}</h3>
         <div className="bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-full text-xs font-medium">
           {tasks.length}
         </div>
       </div>
-      <div className="flex-1 p-2 overflow-y-auto max-h-[calc(100vh-240px)] space-y-2">
-        <SortableContext items={tasks.map(task => task.id)} strategy={verticalListSortingStrategy}>
-          {tasks.map(task => (
-            <TaskCard key={task.id} task={task} />
-          ))}
-        </SortableContext>
-        
-        {tasks.length === 0 && (
-          <div className="flex items-center justify-center h-20 border border-dashed rounded-md border-slate-200 dark:border-slate-700">
-            <p className="text-sm text-muted-foreground">No tasks</p>
-          </div>
-        )}
-      </div>
+      
+      <ScrollArea className="h-[calc(100vh-240px)]">
+        <div className="p-1">
+          <SortableContext items={tasks.map(task => task.id)} strategy={verticalListSortingStrategy}>
+            {tasks.map(task => (
+              <TaskRow 
+                key={task.id} 
+                task={task} 
+                onClick={() => onTaskClick(task)}
+              />
+            ))}
+          </SortableContext>
+          
+          {tasks.length === 0 && (
+            <div className="flex items-center justify-center h-16 border border-dashed rounded-md border-slate-200 dark:border-slate-700 m-1">
+              <p className="text-xs text-muted-foreground">No tasks</p>
+            </div>
+          )}
+        </div>
+      </ScrollArea>
     </div>
   );
 };
