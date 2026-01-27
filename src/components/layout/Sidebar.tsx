@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { cn } from '@/lib/utils';
@@ -9,9 +8,13 @@ import {
   CreditCard,
   Home,
   Users,
+  ChevronLeft,
+  ChevronRight,
+  Sparkles,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/context/AuthContext';
+import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
 
 interface SidebarNavProps {
   isCollapsed: boolean;
@@ -64,30 +67,55 @@ const SidebarNav: React.FC<SidebarNavProps> = ({ isCollapsed }) => {
   ];
 
   return (
-    <div className={cn(
-      "flex",
-      isCollapsed ? "flex-col items-center space-y-4" : "flex-col space-y-1"
-    )}>
-      {routes.map((route) => (
-        <Button
-          key={route.label}
-          variant={route.active ? "secondary" : "ghost"}
-          className={cn(
-            "justify-start",
-            isCollapsed ? "w-10 px-0 justify-center" : "w-full"
-          )}
-          asChild
-        >
-          <Link to={route.href}>
-            <route.icon className={cn(
-              "h-5 w-5",
-              isCollapsed ? "mr-0" : "mr-2"
-            )} />
-            {!isCollapsed && <span>{route.label}</span>}
-          </Link>
-        </Button>
-      ))}
-    </div>
+    <TooltipProvider delayDuration={0}>
+      <div className={cn(
+        "flex flex-col gap-1",
+        isCollapsed ? "items-center" : ""
+      )}>
+        {routes.map((route) => {
+          const NavButton = (
+            <Button
+              key={route.label}
+              variant="ghost"
+              className={cn(
+                "justify-start h-11 transition-all duration-200",
+                isCollapsed ? "w-11 px-0 justify-center" : "w-full px-3",
+                route.active 
+                  ? "bg-primary/10 text-primary hover:bg-primary/15 shadow-soft" 
+                  : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+              )}
+              asChild
+            >
+              <Link to={route.href}>
+                <route.icon className={cn(
+                  "h-5 w-5 transition-transform duration-200",
+                  route.active && "scale-110",
+                  isCollapsed ? "mr-0" : "mr-3"
+                )} />
+                {!isCollapsed && (
+                  <span className="font-medium">{route.label}</span>
+                )}
+              </Link>
+            </Button>
+          );
+
+          if (isCollapsed) {
+            return (
+              <Tooltip key={route.label}>
+                <TooltipTrigger asChild>
+                  {NavButton}
+                </TooltipTrigger>
+                <TooltipContent side="right" className="font-medium">
+                  {route.label}
+                </TooltipContent>
+              </Tooltip>
+            );
+          }
+
+          return NavButton;
+        })}
+      </div>
+    </TooltipProvider>
   );
 };
 
@@ -100,62 +128,46 @@ const Sidebar: React.FC<SidebarProps> = ({ className }) => {
 
   return (
     <div className={cn(
-      "flex flex-col border-r bg-background",
-      isCollapsed ? "w-16" : "w-64",
-      "transition-width duration-300",
+      "flex flex-col border-r bg-sidebar transition-all duration-300 ease-in-out relative",
+      isCollapsed ? "w-[68px]" : "w-64",
       className
     )}>
       <div className="flex h-16 items-center justify-between px-4 border-b">
         {!isCollapsed && (
-          <Link to="/" className="flex items-center gap-2">
-            <div className="bg-workwise-600 text-white p-1 rounded">
-              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-check-circle-2"><path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z"/><path d="m9 12 2 2 4-4"/></svg>
+          <Link to="/" className="flex items-center gap-2.5 group">
+            <div className="relative">
+              <div className="absolute inset-0 bg-primary/20 rounded-lg blur-lg group-hover:bg-primary/30 transition-all duration-300" />
+              <div className="relative gradient-primary text-primary-foreground p-1.5 rounded-lg shadow-soft">
+                <Sparkles className="h-4 w-4" />
+              </div>
             </div>
-            <span className="text-lg font-bold">WorkWise</span>
+            <span className="text-base font-bold bg-clip-text text-transparent bg-gradient-to-r from-primary to-accent">
+              WorkWise
+            </span>
           </Link>
         )}
         <Button 
           variant="ghost" 
           size="icon" 
           onClick={() => setIsCollapsed(!isCollapsed)}
-          className={cn("ml-auto", isCollapsed && "mx-auto")}
+          className={cn(
+            "h-8 w-8 rounded-full hover:bg-primary/10 hover:text-primary transition-all duration-200",
+            isCollapsed && "mx-auto"
+          )}
         >
           {isCollapsed ? (
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              width="20"
-              height="20"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              className="lucide lucide-chevron-right"
-            >
-              <path d="m9 18 6-6-6-6" />
-            </svg>
+            <ChevronRight className="h-4 w-4" />
           ) : (
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              width="20"
-              height="20"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              className="lucide lucide-chevron-left"
-            >
-              <path d="m15 18-6-6 6-6" />
-            </svg>
+            <ChevronLeft className="h-4 w-4" />
           )}
         </Button>
       </div>
-      <div className="flex-1 overflow-y-auto p-4">
+      <div className="flex-1 overflow-y-auto p-3">
         <SidebarNav isCollapsed={isCollapsed} />
       </div>
+      
+      {/* Decorative gradient at bottom */}
+      <div className="absolute bottom-0 left-0 right-0 h-20 bg-gradient-to-t from-sidebar to-transparent pointer-events-none" />
     </div>
   );
 };
