@@ -10,11 +10,11 @@ import {
   Users,
   ChevronLeft,
   ChevronRight,
-  Sparkles,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/context/AuthContext';
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
+import Logo from '@/components/brand/Logo';
 
 interface SidebarNavProps {
   isCollapsed: boolean;
@@ -134,16 +134,8 @@ const Sidebar: React.FC<SidebarProps> = ({ className }) => {
     )}>
       <div className="flex h-16 items-center justify-between px-4 border-b">
         {!isCollapsed && (
-          <Link to="/" className="flex items-center gap-2.5 group">
-            <div className="relative">
-              <div className="absolute inset-0 bg-primary/20 rounded-lg blur-lg group-hover:bg-primary/30 transition-all duration-300" />
-              <div className="relative gradient-primary text-primary-foreground p-1.5 rounded-lg shadow-soft">
-                <Sparkles className="h-4 w-4" />
-              </div>
-            </div>
-            <span className="text-base font-bold bg-clip-text text-transparent bg-gradient-to-r from-primary to-accent">
-              WorkWise
-            </span>
+          <Link to="/">
+            <Logo size="sm" />
           </Link>
         )}
         <Button 
