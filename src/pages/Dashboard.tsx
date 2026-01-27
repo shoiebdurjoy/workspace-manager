@@ -1,4 +1,3 @@
-
 import React from 'react';
 import OverviewStats from '@/components/dashboard/OverviewStats';
 import RecentTasks from '@/components/dashboard/RecentTasks';
@@ -11,23 +10,28 @@ import {
   mockUsers 
 } from '@/services/mockData';
 import { UserRole } from '@/types';
+import { Sparkles } from 'lucide-react';
 
 const Dashboard: React.FC = () => {
   const { currentUser } = useAuth();
 
-  // If currentUser is null, we can return early or show a loading state
   if (!currentUser) {
-    return <div className="flex items-center justify-center h-full">Loading...</div>;
+    return (
+      <div className="flex items-center justify-center h-full">
+        <div className="animate-pulse flex items-center gap-2 text-muted-foreground">
+          <Sparkles className="h-5 w-5 animate-float" />
+          Loading...
+        </div>
+      </div>
+    );
   }
 
   const isAuthor = currentUser.role === UserRole.AUTHOR;
   
-  // Get data for the current user
   const userWorkspaces = getWorkspacesForUser(currentUser.id);
   const userTasks = getTasksForUser(currentUser.id);
   const userStats = getUserStats(currentUser.id);
 
-  // For admin, calculate total pending payments
   const totalPendingPayments = isAuthor 
     ? userTasks
       .filter(task => task.payment.status === 'PENDING')
@@ -35,12 +39,12 @@ const Dashboard: React.FC = () => {
     : 0;
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center">
+    <div className="space-y-8 animate-in">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
-          <h1 className="text-3xl font-bold">Dashboard</h1>
-          <p className="text-muted-foreground">
-            Welcome back, {currentUser.name}!
+          <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
+          <p className="text-muted-foreground mt-1">
+            Welcome back, <span className="text-foreground font-medium">{currentUser.name}</span>! 👋
           </p>
         </div>
       </div>

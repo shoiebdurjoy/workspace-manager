@@ -1,10 +1,10 @@
-
 import React from 'react';
 import { useDroppable } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Task, TaskStatus } from '@/types';
 import TaskRow from './TaskRow';
+import { cn } from '@/lib/utils';
 
 interface KanbanColumnProps {
   id: string;
@@ -15,38 +15,42 @@ interface KanbanColumnProps {
 }
 
 const KanbanColumn: React.FC<KanbanColumnProps> = ({ id, title, tasks, status, onTaskClick }) => {
-  const { setNodeRef } = useDroppable({
+  const { setNodeRef, isOver } = useDroppable({
     id,
     data: { status }
   });
 
   const columnColors = {
-    [TaskStatus.NEW_REQUEST]: 'bg-blue-50 border-blue-200 dark:bg-blue-950 dark:border-blue-900',
-    [TaskStatus.ASSIGNED]: 'bg-purple-50 border-purple-200 dark:bg-purple-950 dark:border-purple-900',
-    [TaskStatus.IN_EDIT]: 'bg-indigo-50 border-indigo-200 dark:bg-indigo-950 dark:border-indigo-900',
-    [TaskStatus.REVISION_NEEDED]: 'bg-amber-50 border-amber-200 dark:bg-amber-950 dark:border-amber-900',
-    [TaskStatus.FIRST_APPROVAL]: 'bg-teal-50 border-teal-200 dark:bg-teal-950 dark:border-teal-900',
-    [TaskStatus.FINAL_APPROVAL]: 'bg-emerald-50 border-emerald-200 dark:bg-emerald-950 dark:border-emerald-900',
-    [TaskStatus.FOR_CLIENT_APPROVAL]: 'bg-cyan-50 border-cyan-200 dark:bg-cyan-950 dark:border-cyan-900',
-    [TaskStatus.COMPLETED]: 'bg-green-50 border-green-200 dark:bg-green-950 dark:border-green-900',
-    [TaskStatus.TODO]: 'bg-gray-50 border-gray-200 dark:bg-gray-900 dark:border-gray-800',
-    [TaskStatus.IN_PROGRESS]: 'bg-blue-50 border-blue-200 dark:bg-blue-950 dark:border-blue-900',
+    [TaskStatus.NEW_REQUEST]: 'from-blue-500/10 to-blue-500/5 border-blue-200/50 dark:border-blue-800/50',
+    [TaskStatus.ASSIGNED]: 'from-purple-500/10 to-purple-500/5 border-purple-200/50 dark:border-purple-800/50',
+    [TaskStatus.IN_EDIT]: 'from-indigo-500/10 to-indigo-500/5 border-indigo-200/50 dark:border-indigo-800/50',
+    [TaskStatus.REVISION_NEEDED]: 'from-amber-500/10 to-amber-500/5 border-amber-200/50 dark:border-amber-800/50',
+    [TaskStatus.FIRST_APPROVAL]: 'from-teal-500/10 to-teal-500/5 border-teal-200/50 dark:border-teal-800/50',
+    [TaskStatus.FINAL_APPROVAL]: 'from-emerald-500/10 to-emerald-500/5 border-emerald-200/50 dark:border-emerald-800/50',
+    [TaskStatus.FOR_CLIENT_APPROVAL]: 'from-cyan-500/10 to-cyan-500/5 border-cyan-200/50 dark:border-cyan-800/50',
+    [TaskStatus.COMPLETED]: 'from-green-500/10 to-green-500/5 border-green-200/50 dark:border-green-800/50',
+    [TaskStatus.TODO]: 'from-slate-500/10 to-slate-500/5 border-slate-200/50 dark:border-slate-700/50',
+    [TaskStatus.IN_PROGRESS]: 'from-blue-500/10 to-blue-500/5 border-blue-200/50 dark:border-blue-800/50',
   };
 
   return (
     <div 
       ref={setNodeRef}
-      className={`flex flex-col w-72 rounded-md border ${columnColors[status]} shadow-sm`}
+      className={cn(
+        "flex flex-col w-72 rounded-xl border bg-gradient-to-b shadow-soft transition-all duration-300",
+        columnColors[status],
+        isOver && "ring-2 ring-primary/30 scale-[1.02]"
+      )}
     >
-      <div className="p-2 border-b font-medium flex items-center justify-between sticky top-0 bg-inherit z-10">
-        <h3 className="text-sm font-medium">{title}</h3>
-        <div className="bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-full text-xs font-medium">
+      <div className="p-3 border-b border-border/50 font-medium flex items-center justify-between sticky top-0 bg-inherit z-10 rounded-t-xl">
+        <h3 className="text-sm font-semibold">{title}</h3>
+        <div className="bg-background/80 backdrop-blur-sm px-2.5 py-1 rounded-full text-xs font-semibold shadow-sm">
           {tasks.length}
         </div>
       </div>
       
       <ScrollArea className="h-[calc(100vh-240px)]">
-        <div className="p-1">
+        <div className="p-2">
           <SortableContext items={tasks.map(task => task.id)} strategy={verticalListSortingStrategy}>
             {tasks.map(task => (
               <TaskRow 
@@ -58,8 +62,8 @@ const KanbanColumn: React.FC<KanbanColumnProps> = ({ id, title, tasks, status, o
           </SortableContext>
           
           {tasks.length === 0 && (
-            <div className="flex items-center justify-center h-16 border border-dashed rounded-md border-slate-200 dark:border-slate-700 m-1">
-              <p className="text-xs text-muted-foreground">No tasks</p>
+            <div className="flex items-center justify-center h-20 border-2 border-dashed rounded-xl border-border/50 mx-1 my-2">
+              <p className="text-xs text-muted-foreground">Drop tasks here</p>
             </div>
           )}
         </div>
