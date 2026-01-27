@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { Bell, Settings, User, LogOut, Sparkles } from 'lucide-react';
+import { Bell, Settings, User, LogOut } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { 
@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { useAuth } from '@/context/AuthContext';
 import ThemeToggle from '../theme/ThemeToggle';
+import Logo from '@/components/brand/Logo';
 import { cn } from '@/lib/utils';
 
 const Navbar = () => {
@@ -34,16 +35,8 @@ const Navbar = () => {
   return (
     <header className="sticky top-0 z-50 w-full border-b bg-background/80 backdrop-blur-xl supports-[backdrop-filter]:bg-background/60">
       <div className="flex h-16 items-center px-4 md:px-6">
-        <Link to="/" className="flex items-center gap-2.5 mr-8 group">
-          <div className="relative">
-            <div className="absolute inset-0 bg-primary/20 rounded-lg blur-lg group-hover:bg-primary/30 transition-all duration-300" />
-            <div className="relative gradient-primary text-primary-foreground p-1.5 rounded-lg shadow-soft">
-              <Sparkles className="h-5 w-5" />
-            </div>
-          </div>
-          <span className="text-lg font-bold bg-clip-text text-transparent bg-gradient-to-r from-primary to-accent">
-            WorkWise
-          </span>
+        <Link to="/" className="mr-8">
+          <Logo size="sm" />
         </Link>
         
         <nav className="flex-1 flex items-center gap-1 text-sm">
