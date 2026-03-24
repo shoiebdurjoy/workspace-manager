@@ -5,6 +5,7 @@ const {
   createTask,
   updateTaskStatus,
   updateVideoLink,
+  updateTask,
 } = require("../controllers/taskController");
 
 const pool = require("../db/db");
@@ -30,5 +31,8 @@ router.patch("/tasks/:id/status", updateTaskStatus);
 
 // UPDATE VIDEO
 router.patch("/tasks/:id/video", updateVideoLink);
+
+// UPDATE TASK FIELDS (priority, due_date)
+router.patch("/tasks/:id", updateTask);
 
 module.exports = router;

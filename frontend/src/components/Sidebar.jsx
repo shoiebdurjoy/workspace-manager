@@ -2,7 +2,7 @@ import React from 'react';
 
 const NAV_ITEMS = ['Dashboard', 'Inbox', 'Tasks', 'Members', 'Settings'];
 
-function Sidebar({ activeItem = 'Tasks' }) {
+function Sidebar({ activeItem = 'Tasks', onNavigate }) {
   return (
     <aside className="app-sidebar">
       <div className="workspace-brand">
@@ -19,6 +19,7 @@ function Sidebar({ activeItem = 'Tasks' }) {
             key={item}
             type="button"
             className={`sidebar-link ${activeItem === item ? 'active' : ''}`}
+            onClick={() => onNavigate?.(item)}
           >
             <span className="sidebar-dot" />
             {item}
