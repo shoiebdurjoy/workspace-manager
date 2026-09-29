@@ -9,40 +9,47 @@ interface LogoProps {
 
 const Logo: React.FC<LogoProps> = ({ size = 'md', showText = true, className }) => {
   const sizes = {
-    sm: { icon: 'h-6 w-6', text: 'text-base', padding: 'p-1.5' },
-    md: { icon: 'h-8 w-8', text: 'text-lg', padding: 'p-2' },
-    lg: { icon: 'h-12 w-12', text: 'text-2xl', padding: 'p-3' },
+    sm: { icon: 'h-6 w-6', text: 'text-sm', badge: 'text-[9px] px-1 py-0.2', padding: 'p-1' },
+    md: { icon: 'h-8 w-8', text: 'text-base', badge: 'text-[10px] px-1.5 py-0.5', padding: 'p-1.5' },
+    lg: { icon: 'h-11 w-11', text: 'text-xl', badge: 'text-xs px-2 py-0.5', padding: 'p-2' },
   };
 
   return (
-    <div className={cn("flex items-center gap-2.5 group", className)}>
-      <div className="relative">
-        <div className="absolute inset-0 bg-primary/20 rounded-xl blur-lg group-hover:bg-primary/30 transition-all duration-300" />
-        <div className={cn(
-          "relative gradient-primary text-primary-foreground rounded-xl shadow-soft flex items-center justify-center",
-          sizes[size].padding
-        )}>
-          {/* Custom W Logo */}
-          <svg 
-            viewBox="0 0 24 24" 
-            fill="none" 
-            className={cn(sizes[size].icon)}
-            stroke="currentColor" 
-            strokeWidth="2.5" 
-            strokeLinecap="round" 
-            strokeLinejoin="round"
-          >
-            <path d="M3 6L7 18L12 10L17 18L21 6" />
-          </svg>
+    <div className={cn("flex items-center gap-2.5 group select-none", className)}>
+      <div className="relative shrink-0">
+        <div className="absolute inset-0 bg-purple-600/30 rounded-lg blur-md group-hover:bg-purple-600/40 transition-all duration-300" />
+        <div
+          className={cn(
+            "relative bg-gradient-to-br from-[#7B2CBF] via-[#8B48E3] to-[#7B68EE] text-white rounded-lg shadow-soft flex items-center justify-center font-black tracking-tight",
+            sizes[size].padding,
+            sizes[size].icon
+          )}
+        >
+          {/* TBB Monogram / Production Icon */}
+          <span className="leading-none text-white font-extrabold text-xs">TBB</span>
         </div>
       </div>
       {showText && (
-        <span className={cn(
-          "font-bold bg-clip-text text-transparent bg-gradient-to-r from-primary to-accent",
-          sizes[size].text
-        )}>
-          WorkWise
-        </span>
+        <div className="flex flex-col leading-tight">
+          <div className="flex items-center gap-1.5">
+            <span
+              className={cn(
+                "font-bold text-foreground tracking-tight group-hover:text-purple-600 transition-colors",
+                sizes[size].text
+              )}
+            >
+              TBB
+            </span>
+            <span
+              className={cn(
+                "font-medium text-muted-foreground tracking-normal",
+                sizes[size].text
+              )}
+            >
+              Workspace
+            </span>
+          </div>
+        </div>
       )}
     </div>
   );

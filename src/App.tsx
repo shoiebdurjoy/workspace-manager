@@ -24,6 +24,7 @@ import Payments from "@/pages/Payments";
 import Reports from "@/pages/Reports";
 import Unauthorized from "@/pages/Unauthorized";
 import NotFound from "@/pages/NotFound";
+import DesignSystemShowcase from "@/pages/DesignSystemShowcase";
 import { UserRole } from "./types";
 
 // Create a client
@@ -162,6 +163,16 @@ const App = () => (
                       <div className="p-4">Employees Management (Admin Only)</div>
                     </Layout>
                   </ProtectedRoute>
+                }
+              />
+
+              {/* Design System Showcase (Phase 2) */}
+              <Route
+                path="/design-system"
+                element={
+                  <Layout>
+                    <DesignSystemShowcase />
+                  </Layout>
                 }
               />
 

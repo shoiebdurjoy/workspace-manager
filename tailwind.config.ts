@@ -1,5 +1,5 @@
-
 import type { Config } from "tailwindcss";
+import tailwindcssAnimate from "tailwindcss-animate";
 
 export default {
 	darkMode: ["class"],
@@ -63,6 +63,34 @@ export default {
 					border: 'hsl(var(--sidebar-border))',
 					ring: 'hsl(var(--sidebar-ring))'
 				},
+				tbb: {
+					50: '#f6f2fd',
+					100: '#ede4fc',
+					200: '#dcc9f9',
+					300: '#c3a2f4',
+					400: '#a573ec',
+					500: '#8b48e3',
+					600: '#7b2cbf',
+					700: '#6920a4',
+					800: '#581c87',
+					900: '#49196e',
+					950: '#2c0947',
+				},
+				status: {
+					backlog: 'hsl(var(--status-backlog, 220 14% 60%))',
+					progress: 'hsl(var(--status-in-progress, 217 91% 60%))',
+					edit: 'hsl(var(--status-in-edit, 268 82% 56%))',
+					review: 'hsl(var(--status-qc-review, 38 92% 50%))',
+					revision: 'hsl(var(--status-revision, 12 85% 58%))',
+					rtd: 'hsl(var(--status-qc-approved, 158 64% 45%))',
+					delivered: 'hsl(var(--status-delivered, 174 72% 40%))',
+				},
+				priority: {
+					urgent: 'hsl(var(--priority-urgent, 0 84% 60%))',
+					high: 'hsl(var(--priority-high, 25 95% 53%))',
+					normal: 'hsl(var(--priority-normal, 217 91% 60%))',
+					low: 'hsl(var(--priority-low, 220 9% 46%))',
+				},
 				workwise: {
 					'50': '#f0f9ff',
 					'100': '#e0f2fe',
@@ -106,5 +134,5 @@ export default {
 			}
 		}
 	},
-	plugins: [require("tailwindcss-animate")],
+	plugins: [tailwindcssAnimate],
 } satisfies Config;
