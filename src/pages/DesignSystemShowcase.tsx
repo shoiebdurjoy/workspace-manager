@@ -96,8 +96,8 @@ export const DesignSystemShowcase: React.FC = () => {
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-border/80 pb-6">
         <div>
           <div className="flex items-center gap-2">
-            <span className="h-2 w-2 rounded-full bg-purple-600 animate-pulse" />
-            <span className="text-xs font-semibold uppercase tracking-wider text-purple-600 dark:text-purple-400">
+            <span className="h-2 w-2 rounded-full bg-brand-accent" />
+            <span className="text-xs font-semibold uppercase tracking-wider text-brand">
               TBB Workspace V2
             </span>
           </div>
@@ -118,7 +118,7 @@ export const DesignSystemShowcase: React.FC = () => {
                 description: "TBB toast notifications are fully functional.",
               })
             }
-            className="h-8 gap-1.5 text-xs bg-purple-600 hover:bg-purple-700 text-white"
+            className="h-8 gap-1.5 text-xs"
           >
             <Sparkles className="h-3.5 w-3.5" />
             Trigger Test Toast
@@ -174,7 +174,7 @@ export const DesignSystemShowcase: React.FC = () => {
                   </Button>
                   <Button
                     size="sm"
-                    className="bg-gradient-to-r from-[#7B2CBF] to-[#7B68EE] text-white hover:opacity-90"
+                    className=""
                   >
                     TBB Brand
                   </Button>
@@ -291,7 +291,7 @@ export const DesignSystemShowcase: React.FC = () => {
                   <TableRow>
                     <TableCell className="text-center font-mono text-xs text-muted-foreground">01</TableCell>
                     <TableCell className="text-xs font-medium flex items-center gap-2">
-                      <Video className="h-3.5 w-3.5 text-purple-600 shrink-0" />
+                      <Video className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                       <span>EDAPTX - Smartphone Camera Deep Dive</span>
                     </TableCell>
                     <TableCell>
@@ -320,7 +320,7 @@ export const DesignSystemShowcase: React.FC = () => {
                   <TableRow>
                     <TableCell className="text-center font-mono text-xs text-muted-foreground">02</TableCell>
                     <TableCell className="text-xs font-medium flex items-center gap-2">
-                      <Video className="h-3.5 w-3.5 text-purple-600 shrink-0" />
+                      <Video className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                       <span>KRAV - 10-Minute Morning Routine</span>
                     </TableCell>
                     <TableCell>
@@ -349,7 +349,7 @@ export const DesignSystemShowcase: React.FC = () => {
                   <TableRow>
                     <TableCell className="text-center font-mono text-xs text-muted-foreground">03</TableCell>
                     <TableCell className="text-xs font-medium flex items-center gap-2">
-                      <Video className="h-3.5 w-3.5 text-purple-600 shrink-0" />
+                      <Video className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                       <span>Viral Hook Reel #14 - Final Cut</span>
                     </TableCell>
                     <TableCell>
@@ -558,11 +558,11 @@ export const DesignSystemShowcase: React.FC = () => {
               </CardHeader>
               <CardContent>
                 <EmptyState
-                  icon={<FolderOpen className="h-6 w-6 text-purple-600" />}
+                  icon={<FolderOpen className="h-6 w-6 text-muted-foreground" />}
                   title="No deliverables found"
                   description="There are currently no video tasks in this list. Create a new task to assign an editor."
                   action={
-                    <Button size="sm" className="h-8 text-xs bg-purple-600 text-white">
+                    <Button size="sm" className="h-8 text-xs">
                       <Plus className="h-3.5 w-3.5 mr-1" />
                       Create Task
                     </Button>

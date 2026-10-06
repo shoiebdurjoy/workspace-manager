@@ -45,7 +45,7 @@ const AuthCallback: React.FC = () => {
     <AuthLayout
       title="Could not complete sign-in"
       footer={
-        <Link to="/register" className="font-medium text-primary hover:underline">
+        <Link to="/register" className="font-medium text-brand hover:underline">
           Create an account
         </Link>
       }
@@ -59,7 +59,7 @@ const AuthCallback: React.FC = () => {
           <Link to="/login">Go to sign in</Link>
         </Button>
         <p className="text-center text-[11px] text-muted-foreground">
-          <Link to="/forgot-password" className="font-medium text-primary hover:underline">
+          <Link to="/forgot-password" className="font-medium text-brand hover:underline">
             Forgot your password?
           </Link>
         </p>

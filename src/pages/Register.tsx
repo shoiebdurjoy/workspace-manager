@@ -58,13 +58,13 @@ const Register: React.FC = () => {
       <AuthLayout
         title="Check your e-mail"
         footer={
-          <Link to="/login" className="font-medium text-primary hover:underline">
+          <Link to="/login" className="font-medium text-brand hover:underline">
             Back to sign in
           </Link>
         }
       >
         <div className="space-y-3 text-sm">
-          <MailCheck className="h-8 w-8 text-primary" />
+          <MailCheck className="h-8 w-8 text-brand" />
           <p>
             If <span className="font-medium">{sentTo}</span> is a new address, we have sent a confirmation link to it.
             Open the link, then sign in.
@@ -119,7 +119,7 @@ const Register: React.FC = () => {
       footer={
         <>
           Already have an account?{' '}
-          <Link to="/login" className="font-medium text-primary hover:underline">
+          <Link to="/login" className="font-medium text-brand hover:underline">
             Sign in
           </Link>
         </>

@@ -20,6 +20,7 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
+import { BrandMark } from "@/components/brand/Logo";
 import ThemeToggle from "@/components/theme/ThemeToggle";
 import RoleBadge from "@/components/team/RoleBadge";
 import { useAuth } from "@/hooks/use-auth";
@@ -56,7 +57,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({ onToggleMobileSidebar, onO
 
   return (
     <header className="sticky top-0 z-30 flex h-13 w-full items-center justify-between border-b border-border/70 bg-background/95 px-4 backdrop-blur-md supports-[backdrop-filter]:bg-background/80 select-none">
-      <div className="flex items-center gap-3 min-w-0">
+      <div className="flex min-w-0 flex-1 items-center gap-3">
         <IconButton
           aria-label="Toggle navigation menu"
           icon={<Menu className="h-4 w-4" />}
@@ -65,21 +66,24 @@ export const AppHeader: React.FC<AppHeaderProps> = ({ onToggleMobileSidebar, onO
           onClick={onToggleMobileSidebar}
           className="lg:hidden"
         />
-        <Breadcrumb className="hidden sm:flex text-xs">
-          <BreadcrumbList>
-            <BreadcrumbItem>
-              <BreadcrumbLink asChild className="text-muted-foreground hover:text-foreground font-medium truncate max-w-[160px]">
+        <Link to="/home" aria-label="TBB Workspace home" className="rounded-md sm:hidden">
+          <BrandMark size="sm" />
+        </Link>
+        <Breadcrumb className="hidden min-w-0 overflow-hidden sm:flex text-xs">
+          <BreadcrumbList className="min-w-0 flex-nowrap sm:gap-1.5">
+            <BreadcrumbItem className="min-w-0">
+              <BreadcrumbLink asChild className="min-w-0 text-muted-foreground hover:text-foreground font-medium truncate max-w-[160px]">
                 <Link to="/home">{workspace?.name ?? "TBB Workspace"}</Link>
               </BreadcrumbLink>
             </BreadcrumbItem>
             {trail.map((crumb, i) => (
               <React.Fragment key={`${crumb.label}-${i}`}>
                 <BreadcrumbSeparator className="[&>svg]:size-3" />
-                <BreadcrumbItem>
+                <BreadcrumbItem className={i === trail.length - 1 ? "shrink-0" : "min-w-0"}>
                   {i === trail.length - 1 ? (
                     <BreadcrumbPage className="font-semibold text-foreground truncate max-w-[180px]">{crumb.label}</BreadcrumbPage>
                   ) : (
-                    <BreadcrumbLink asChild className="text-muted-foreground hover:text-foreground font-medium truncate max-w-[140px]">
+                    <BreadcrumbLink asChild className="text-muted-foreground hover:text-foreground min-w-0 font-medium truncate max-w-[140px]">
                       <Link to={crumb.href ?? "/home"}>{crumb.label}</Link>
                     </BreadcrumbLink>
                   )}
@@ -98,14 +102,14 @@ export const AppHeader: React.FC<AppHeaderProps> = ({ onToggleMobileSidebar, onO
         </Breadcrumb>
       </div>
 
-      <div className="flex-1 max-w-md mx-4 hidden md:block">
+      <div className="mx-4 hidden w-64 shrink-0 md:block lg:w-80">
         <button
           type="button"
           onClick={onOpenSearch}
           className="w-full flex items-center justify-between h-8 px-3 rounded-lg border border-border/80 bg-muted/40 hover:bg-muted/70 text-xs text-muted-foreground hover:text-foreground transition-all group"
         >
           <span className="flex items-center gap-2">
-            <Search className="h-3.5 w-3.5 text-muted-foreground group-hover:text-purple-600 transition-colors" />
+            <Search className="h-3.5 w-3.5 text-muted-foreground group-hover:text-foreground transition-colors" />
             <span className="truncate">Search pages and commands...</span>
           </span>
           <kbd className="hidden sm:inline-flex items-center gap-0.5 pointer-events-none rounded border border-border/70 bg-background px-1.5 py-0.5 text-[10px] font-mono text-muted-foreground">
@@ -147,7 +151,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({ onToggleMobileSidebar, onO
             <button
               type="button"
               aria-label="Account menu"
-              className="rounded-full ring-2 ring-transparent hover:ring-purple-500/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-500 transition-all p-0.5"
+              className="rounded-full ring-2 ring-transparent hover:ring-border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring transition-all p-0.5"
             >
               <UserAvatar name={profile?.fullName} src={profile?.avatarUrl ?? undefined} size="sm" />
             </button>
@@ -187,7 +191,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({ onToggleMobileSidebar, onO
             </DropdownMenuItem>
             <DropdownMenuItem asChild className="cursor-pointer text-xs">
               <Link to="/design-system" className="flex items-center">
-                <Palette className="mr-2 h-3.5 w-3.5 text-pink-500" />
+                <Palette className="mr-2 h-3.5 w-3.5 text-muted-foreground" />
                 <span>Design system</span>
               </Link>
             </DropdownMenuItem>

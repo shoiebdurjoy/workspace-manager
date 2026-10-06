@@ -53,7 +53,7 @@ export const UserAvatar: React.FC<UserAvatarProps> = ({
     <div className={cn("relative inline-block shrink-0", className)} {...props}>
       <Avatar className={cn(sizeClasses[size], "border border-border/60")}>
         <AvatarImage src={src} alt={name} />
-        <AvatarFallback className="bg-gradient-to-br from-purple-600 to-indigo-600 text-white font-semibold">
+        <AvatarFallback className="bg-foreground text-background font-semibold">
           {getInitials(name)}
         </AvatarFallback>
       </Avatar>

@@ -71,7 +71,7 @@ describe('toDatabaseError', () => {
 
 describe('teams data access', () => {
   const row = {
-    id: 't1', workspace_id: 'w1', name: 'Pod Zim', description: null, color: '#7B68EE',
+    id: 't1', workspace_id: 'w1', name: 'Pod Zim', description: null, color: '#F25B4A',
     lead_id: 'u1', created_at: 'c', updated_at: 'u',
   };
 
@@ -82,7 +82,7 @@ describe('teams data access', () => {
     expect(called('eq')[0].args).toEqual(['workspace_id', 'w1']);
     expect(called('order')[0].args[0]).toBe('name');
     expect(teams).toEqual([
-      { id: 't1', workspaceId: 'w1', name: 'Pod Zim', description: null, color: '#7B68EE', leadId: 'u1', createdAt: 'c', updatedAt: 'u' },
+      { id: 't1', workspaceId: 'w1', name: 'Pod Zim', description: null, color: '#F25B4A', leadId: 'u1', createdAt: 'c', updatedAt: 'u' },
     ]);
   });
 
@@ -112,10 +112,10 @@ describe('teams data access', () => {
     expect(tables).toHaveLength(0);
   });
 
-  it('defaults the color and lead on create, reports duplicates', async () => {
+  it('defaults the lead to none and the color to the brand coral on create, reports duplicates', async () => {
     result = { data: row };
     await createTeam({ workspaceId: 'w1', name: 'A' });
-    expect(called('insert')[0].args[0]).toEqual({ workspace_id: 'w1', name: 'A', description: null, lead_id: null });
+    expect(called('insert')[0].args[0]).toEqual({ workspace_id: 'w1', name: 'A', description: null, color: '#F25B4A', lead_id: null });
     result = { error: { code: '23505', message: 'duplicate key' } };
     await expect(createTeam({ workspaceId: 'w1', name: 'A' })).rejects.toThrow(/already exists/);
   });

@@ -48,7 +48,7 @@ const at = (table: string, method: string) => calls.filter((c) => c.table === ta
 
 const spaceRow = {
   id: 's1', workspace_id: 'w1', name: 'Content', slug: 'content', description: null, icon: 'folder',
-  color: '#7B68EE', is_private: false, position: 0, created_at: 'c', updated_at: 'u',
+  color: '#F25B4A', is_private: false, position: 0, created_at: 'c', updated_at: 'u',
 };
 const folderRow = {
   id: 'f1', workspace_id: 'w1', space_id: 's1', name: 'Zim', description: null, position: 0,
@@ -56,7 +56,7 @@ const folderRow = {
 };
 const listRow = {
   id: 'l1', workspace_id: 'w1', space_id: 's1', folder_id: 'f1', name: 'EDAPTX', description: null,
-  color: '#7B68EE', position: 0, created_at: 'c', updated_at: 'u',
+  color: '#F25B4A', position: 0, created_at: 'c', updated_at: 'u',
 };
 
 beforeEach(() => {
@@ -72,7 +72,7 @@ describe('spaces', () => {
     const space = await createSpace({ workspaceId: 'w1', name: '  Content Pipelines ', position: 3 });
     expect(at('spaces', 'insert')[0].args[0]).toEqual({
       workspace_id: 'w1', name: 'Content Pipelines', slug: 'content-pipelines', description: null,
-      icon: 'folder', color: '#7B68EE', position: 3,
+      icon: 'folder', color: '#F25B4A', position: 3,
     });
     expect(space).toMatchObject({ id: 's1', workspaceId: 'w1', name: 'Content', isPrivate: false });
   });
@@ -180,7 +180,7 @@ describe('lists', () => {
   it('creates a list directly in a space or inside a folder', async () => {
     results.lists = [{ data: listRow }];
     await createList({ spaceId: 's1', name: 'EDAPTX', position: 0 });
-    expect(at('lists', 'insert')[0].args[0]).toMatchObject({ space_id: 's1', folder_id: null, color: '#7B68EE', position: 0 });
+    expect(at('lists', 'insert')[0].args[0]).toMatchObject({ space_id: 's1', folder_id: null, color: '#F25B4A', position: 0 });
     calls.length = 0;
     await createList({ spaceId: 's1', folderId: 'f1', name: 'EDAPTX', color: '#22C55E', description: ' d ', position: 4 });
     expect(at('lists', 'insert')[0].args[0]).toEqual({

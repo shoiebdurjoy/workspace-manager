@@ -32,7 +32,7 @@ const ThemeToggle: React.FC = () => {
       onClick={toggleTheme}
       className={cn(
         "rounded-full relative overflow-hidden transition-all duration-300",
-        "hover:bg-primary/10 hover:text-primary"
+        "hover:bg-accent hover:text-foreground"
       )}
       aria-label="Toggle theme"
     >

@@ -20,7 +20,7 @@ const Stat: React.FC<{ label: string; value: number | undefined; icon: React.Rea
 }) => {
   const body = (
     <div className="flex items-center gap-3 rounded-lg border border-border/70 bg-card p-3 transition-colors hover:bg-muted/30">
-      <div className="flex h-9 w-9 items-center justify-center rounded-md bg-primary/10 text-primary">{icon}</div>
+      <div className="flex h-9 w-9 items-center justify-center rounded-md bg-muted text-muted-foreground">{icon}</div>
       <div>
         {value === undefined ? (
           <Skeleton className="h-5 w-8" />
@@ -133,7 +133,7 @@ const Home: React.FC = () => {
 
       <section className="rounded-lg border border-border/70 bg-card p-4">
         <div className="flex items-center gap-2">
-          <ShieldCheck className="h-4 w-4 text-primary" />
+          <ShieldCheck className="h-4 w-4 text-muted-foreground" />
           <h2 className="text-sm font-semibold">Your access</h2>
         </div>
         {role && <p className="mt-1 text-xs text-muted-foreground">{ROLE_DESCRIPTIONS[role]}</p>}

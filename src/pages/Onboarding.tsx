@@ -74,7 +74,7 @@ const Onboarding: React.FC = () => {
         </>
       }
       footer={
-        <button type="button" onClick={() => void signOut()} className="font-medium text-primary hover:underline">
+        <button type="button" onClick={() => void signOut()} className="font-medium text-brand hover:underline">
           Sign out
         </button>
       }
@@ -82,7 +82,7 @@ const Onboarding: React.FC = () => {
       <div className="space-y-5">
         <section className="space-y-2 rounded-lg border border-border/70 bg-muted/30 p-3">
           <div className="flex items-center gap-2 text-sm font-medium">
-            <MailQuestion className="h-4 w-4 text-primary" />
+            <MailQuestion className="h-4 w-4 text-muted-foreground" />
             Waiting for an invitation
           </div>
           <p className="text-xs leading-relaxed text-muted-foreground">
@@ -97,7 +97,7 @@ const Onboarding: React.FC = () => {
 
         <section className="space-y-2">
           <div className="flex items-center gap-2 text-sm font-medium">
-            <Building2 className="h-4 w-4 text-primary" />
+            <Building2 className="h-4 w-4 text-muted-foreground" />
             First-time setup
           </div>
           <p className="text-xs leading-relaxed text-muted-foreground">

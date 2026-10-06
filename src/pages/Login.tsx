@@ -60,7 +60,7 @@ const Login: React.FC = () => {
       footer={
         <>
           New to TBB Workspace?{' '}
-          <Link to="/register" className="font-medium text-primary hover:underline">
+          <Link to="/register" className="font-medium text-brand hover:underline">
             Create an account
           </Link>
         </>
@@ -90,7 +90,7 @@ const Login: React.FC = () => {
             <Label htmlFor="password" className="text-xs">
               Password
             </Label>
-            <Link to="/forgot-password" className="text-[11px] font-medium text-primary hover:underline">
+            <Link to="/forgot-password" className="text-[11px] font-medium text-brand hover:underline">
               Forgot password?
             </Link>
           </div>

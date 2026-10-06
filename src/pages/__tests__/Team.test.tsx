@@ -45,7 +45,7 @@ const TEAM: TeamModel = {
   workspaceId: 'ws-1',
   name: 'Pod Zim',
   description: 'Zim pipeline',
-  color: '#7B68EE',
+  color: '#F25B4A',
   leadId: 'user-admin',
   createdAt: '2026-10-01T00:00:00Z',
   updatedAt: '2026-10-01T00:00:00Z',

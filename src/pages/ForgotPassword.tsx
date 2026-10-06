@@ -41,14 +41,14 @@ const ForgotPassword: React.FC = () => {
       title="Reset your password"
       description={sent ? undefined : 'We will e-mail you a link to choose a new password.'}
       footer={
-        <Link to="/login" className="font-medium text-primary hover:underline">
+        <Link to="/login" className="font-medium text-brand hover:underline">
           Back to sign in
         </Link>
       }
     >
       {sent ? (
         <div className="space-y-3 text-sm">
-          <MailCheck className="h-8 w-8 text-primary" />
+          <MailCheck className="h-8 w-8 text-brand" />
           <p>
             If an account exists for <span className="font-medium">{email.trim()}</span>, a reset link is on its way.
             The link opens TBB Workspace on this device.

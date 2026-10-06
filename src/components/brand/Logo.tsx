@@ -1,58 +1,84 @@
 import React from 'react';
 import { cn } from '@/lib/utils';
+import { BRAND, BRAND_ASSETS, LOCKUP_SIZE, MARK_SIZE } from '@/lib/brand';
+
+type Size = 'sm' | 'md' | 'lg';
+
+/** Rendered widths; heights follow the artwork's own aspect ratio (never stretched). */
+const MARK_WIDTH: Record<Size, number> = { sm: 30, md: 40, lg: 56 };
+const LOCKUP_WIDTH: Record<Size, number> = { sm: 104, md: 148, lg: 196 };
+
+interface ArtworkProps {
+  size?: Size;
+  className?: string;
+}
+
+/** The red-bars mark. Decorative by default: the product name is always next to it as text. */
+export const BrandMark: React.FC<ArtworkProps & { label?: string }> = ({ size = 'sm', className, label }) => {
+  const width = MARK_WIDTH[size];
+  const height = Math.round((width * MARK_SIZE.height) / MARK_SIZE.width);
+  return (
+    <span
+      className={cn(
+        'inline-flex shrink-0 items-center justify-center dark:rounded-md dark:bg-white dark:p-1',
+        className
+      )}
+    >
+      <img
+        src={BRAND_ASSETS.mark}
+        width={width}
+        height={height}
+        alt={label ?? ''}
+        aria-hidden={label ? undefined : true}
+        decoding="async"
+        draggable={false}
+        style={{ width, height }}
+      />
+    </span>
+  );
+};
+
+/** The complete TBB logo (mark + "Think Big." wordmark) for auth and onboarding screens. */
+export const BrandLockup: React.FC<ArtworkProps> = ({ size = 'md', className }) => {
+  const width = LOCKUP_WIDTH[size];
+  const height = Math.round((width * LOCKUP_SIZE.height) / LOCKUP_SIZE.width);
+  return (
+    <span className={cn('brand-plate inline-flex', className)}>
+      <img
+        src={BRAND_ASSETS.lockup}
+        width={width}
+        height={height}
+        alt={BRAND.company}
+        decoding="async"
+        draggable={false}
+        style={{ width, height }}
+      />
+    </span>
+  );
+};
 
 interface LogoProps {
-  size?: 'sm' | 'md' | 'lg';
+  size?: Size;
+  /** false in the collapsed sidebar: the mark alone still identifies the product. */
   showText?: boolean;
   className?: string;
 }
 
-const Logo: React.FC<LogoProps> = ({ size = 'md', showText = true, className }) => {
-  const sizes = {
-    sm: { icon: 'h-6 w-6', text: 'text-sm', badge: 'text-[9px] px-1 py-0.2', padding: 'p-1' },
-    md: { icon: 'h-8 w-8', text: 'text-base', badge: 'text-[10px] px-1.5 py-0.5', padding: 'p-1.5' },
-    lg: { icon: 'h-11 w-11', text: 'text-xl', badge: 'text-xs px-2 py-0.5', padding: 'p-2' },
-  };
-
-  return (
-    <div className={cn("flex items-center gap-2.5 group select-none", className)}>
-      <div className="relative shrink-0">
-        <div className="absolute inset-0 bg-purple-600/30 rounded-lg blur-md group-hover:bg-purple-600/40 transition-all duration-300" />
-        <div
-          className={cn(
-            "relative bg-gradient-to-br from-[#7B2CBF] via-[#8B48E3] to-[#7B68EE] text-white rounded-lg shadow-soft flex items-center justify-center font-black tracking-tight",
-            sizes[size].padding,
-            sizes[size].icon
-          )}
-        >
-          {/* TBB Monogram / Production Icon */}
-          <span className="leading-none text-white font-extrabold text-xs">TBB</span>
-        </div>
-      </div>
-      {showText && (
-        <div className="flex flex-col leading-tight">
-          <div className="flex items-center gap-1.5">
-            <span
-              className={cn(
-                "font-bold text-foreground tracking-tight group-hover:text-purple-600 transition-colors",
-                sizes[size].text
-              )}
-            >
-              TBB
-            </span>
-            <span
-              className={cn(
-                "font-medium text-muted-foreground tracking-normal",
-                sizes[size].text
-              )}
-            >
-              Workspace
-            </span>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-};
+/**
+ * Compact product signature used in the sidebar: the real mark plus the product name set in the
+ * interface font. (The full "Think Big." wordmark is shown by BrandLockup where there is room;
+ * it is never re-typeset.)
+ */
+const Logo: React.FC<LogoProps> = ({ size = 'sm', showText = true, className }) => (
+  <span className={cn('flex select-none items-center gap-2.5', className)}>
+    <BrandMark size={size} />
+    {showText && (
+      <span className="min-w-0 leading-tight">
+        <span className="block truncate text-[13px] font-semibold tracking-tight text-foreground">TBB</span>
+        <span className="block truncate text-[11px] font-medium text-muted-foreground">Workspace</span>
+      </span>
+    )}
+  </span>
+);
 
 export default Logo;

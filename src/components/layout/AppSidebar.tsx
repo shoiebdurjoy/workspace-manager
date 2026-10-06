@@ -78,17 +78,17 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
           "flex items-center rounded-lg text-xs font-medium transition-all group w-full",
           isCollapsed ? "h-9 w-9 justify-center mx-auto" : "h-8 px-2.5 justify-between",
           active
-            ? "bg-purple-100 text-purple-800 dark:bg-purple-950/70 dark:text-purple-300 font-semibold"
+            ? "nav-active"
             : disabled
-              ? "text-muted-foreground/50 cursor-default"
-              : "text-muted-foreground hover:text-foreground hover:bg-muted/60"
+              ? "text-muted-foreground/60 cursor-default"
+              : "text-muted-foreground hover:text-foreground hover:bg-sidebar-accent"
         )}
       >
         <span className="flex items-center gap-2.5">
           <item.icon
             className={cn(
               "h-4 w-4 shrink-0 transition-colors",
-              active ? "text-purple-600 dark:text-purple-400" : "text-muted-foreground group-hover:text-foreground"
+              active ? "text-brand" : "text-muted-foreground group-hover:text-foreground"
             )}
           />
           {!isCollapsed && <span className="truncate">{item.label}</span>}
@@ -119,16 +119,21 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
     <TooltipProvider delayDuration={150}>
       <aside
         className={cn(
-          "flex flex-col border-r border-border/70 bg-sidebar text-sidebar-foreground transition-all duration-300 ease-in-out select-none relative z-20 shrink-0",
+          "flex flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground transition-all duration-300 ease-in-out select-none relative z-20 shrink-0",
           isCollapsed ? "w-16" : "w-64",
           className
         )}
         aria-label="Main navigation"
       >
         {/* Brand */}
-        <div className="flex h-13 items-center justify-between px-3 border-b border-border/60">
+        <div className="flex h-13 items-center justify-between px-3 border-b border-sidebar-border">
           {!isCollapsed ? (
-            <Link to="/home" className="flex items-center gap-2 overflow-hidden hover:opacity-90" onClick={onCloseMobile}>
+            <Link
+              to="/home"
+              aria-label="TBB Workspace home"
+              className="flex min-w-0 items-center overflow-hidden rounded-md hover:opacity-90"
+              onClick={onCloseMobile}
+            >
               <Logo size="sm" />
             </Link>
           ) : (
@@ -152,7 +157,7 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
 
         {!isCollapsed && workspace && (
           <div className="px-3 pt-3">
-            <p className="truncate px-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+            <p className="truncate px-1 text-xs font-semibold text-foreground" title={workspace.name}>
               {workspace.name}
             </p>
           </div>
@@ -163,13 +168,13 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
             <button
               type="button"
               onClick={onOpenSearch}
-              className="w-full flex items-center justify-between h-8 px-2.5 rounded-lg border border-border/70 bg-muted/40 hover:bg-muted/70 text-xs text-muted-foreground hover:text-foreground transition-colors group"
+              className="w-full flex items-center justify-between h-8 px-2.5 rounded-lg border border-border bg-background hover:bg-sidebar-accent text-xs text-muted-foreground hover:text-foreground transition-colors group"
             >
               <span className="flex items-center gap-2">
-                <Search className="h-3.5 w-3.5 text-muted-foreground group-hover:text-purple-600 transition-colors" />
+                <Search className="h-3.5 w-3.5 text-muted-foreground group-hover:text-foreground transition-colors" />
                 <span>Search</span>
               </span>
-              <kbd className="inline-flex items-center gap-0.5 rounded border border-border/60 bg-background px-1 text-[10px] font-mono text-muted-foreground">
+              <kbd className="inline-flex items-center gap-0.5 rounded border border-border bg-muted px-1 text-[10px] font-mono text-muted-foreground">
                 ⌘K
               </kbd>
             </button>
@@ -197,7 +202,7 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
           <Link
             to="/profile"
             onClick={onCloseMobile}
-            className="flex items-center gap-2 border-t border-border/60 bg-muted/20 p-2.5 hover:bg-muted/40"
+            className="flex items-center gap-2 border-t border-sidebar-border p-2.5 hover:bg-sidebar-accent"
           >
             <UserAvatar name={profile.fullName} src={profile.avatarUrl ?? undefined} size="xs" />
             <span className="min-w-0">

@@ -24,8 +24,8 @@ interface SpacesTreeProps {
 const MENU_REVEAL = 'opacity-100 lg:opacity-0 lg:group-hover:opacity-100 lg:focus-visible:opacity-100 data-[state=open]:opacity-100';
 
 const rowBase =
-  'group flex items-center gap-1 rounded-md pr-1 text-[11px] transition-colors hover:bg-muted/50';
-const activeRow = 'bg-purple-100 text-purple-800 dark:bg-purple-950/70 dark:text-purple-300 font-semibold';
+  'group relative flex items-center gap-1 rounded-md pr-1 text-[11px] transition-colors hover:bg-sidebar-accent';
+const activeRow = 'nav-active';
 
 const Chevron: React.FC<{ open: boolean; label: string; onClick: () => void }> = ({ open, label, onClick }) => (
   <button
@@ -98,7 +98,7 @@ const SpacesTree: React.FC<SpacesTreeProps> = ({ collapsed, onNavigate }) => {
                 aria-label={space.name}
                 className={cn(
                   'flex h-9 w-9 items-center justify-center rounded-lg hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                  activeSpaceId === space.id && 'bg-purple-100 dark:bg-purple-950/70'
+                  activeSpaceId === space.id && 'nav-active'
                 )}
               >
                 <SpaceIcon icon={space.icon} color={space.color} size="sm" />
@@ -148,7 +148,7 @@ const SpacesTree: React.FC<SpacesTreeProps> = ({ collapsed, onNavigate }) => {
       {isError && (
         <div role="alert" className="mx-2 rounded-md border border-destructive/30 bg-destructive/5 p-2 text-[11px]">
           <p className="text-destructive">{error instanceof Error ? error.message : 'Spaces could not be loaded.'}</p>
-          <button type="button" onClick={() => void refetch()} className="mt-1 font-medium text-primary hover:underline">
+          <button type="button" onClick={() => void refetch()} className="mt-1 font-medium text-brand hover:underline">
             Try again
           </button>
         </div>
@@ -161,7 +161,7 @@ const SpacesTree: React.FC<SpacesTreeProps> = ({ collapsed, onNavigate }) => {
             <button
               type="button"
               onClick={() => dialogs.open({ type: 'space' })}
-              className="mt-1 font-medium text-primary hover:underline"
+              className="mt-1 font-medium text-brand hover:underline"
             >
               Create your first space
             </button>

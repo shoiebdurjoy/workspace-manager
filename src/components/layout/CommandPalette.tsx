@@ -53,24 +53,24 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ open, onOpenChan
         <CommandEmpty>No results found.</CommandEmpty>
         <CommandGroup heading="Navigation">
           <CommandItem onSelect={() => run(() => navigate("/home"))} className="cursor-pointer">
-            <Home className="mr-2 h-4 w-4 text-purple-600" />
+            <Home className="mr-2 h-4 w-4 text-muted-foreground" />
             <span>Home</span>
           </CommandItem>
           {can(role, "team:view") && (
             <>
               <CommandItem onSelect={() => run(() => navigate("/team"))} className="cursor-pointer">
-                <Users className="mr-2 h-4 w-4 text-purple-600" />
+                <Users className="mr-2 h-4 w-4 text-muted-foreground" />
                 <span>Team members</span>
               </CommandItem>
               <CommandItem onSelect={() => run(() => navigate("/team?tab=pods"))} className="cursor-pointer">
-                <UsersRound className="mr-2 h-4 w-4 text-purple-600" />
+                <UsersRound className="mr-2 h-4 w-4 text-muted-foreground" />
                 <span>Pods</span>
               </CommandItem>
             </>
           )}
           {can(role, "users:invite") && (
             <CommandItem onSelect={() => run(() => navigate("/team?tab=invitations"))} className="cursor-pointer">
-              <MailPlus className="mr-2 h-4 w-4 text-purple-600" />
+              <MailPlus className="mr-2 h-4 w-4 text-muted-foreground" />
               <span>Invite someone</span>
             </CommandItem>
           )}
@@ -134,7 +134,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ open, onOpenChan
         <CommandSeparator />
         <CommandGroup heading="More">
           <CommandItem onSelect={() => run(() => navigate("/design-system"))} className="cursor-pointer">
-            <Palette className="mr-2 h-4 w-4 text-pink-500" />
+            <Palette className="mr-2 h-4 w-4 text-muted-foreground" />
             <span>Design system</span>
           </CommandItem>
           <CommandItem

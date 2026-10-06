@@ -3,24 +3,36 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>workwise-progress-hub</title>
-    <meta name="description" content="Lovable Generated Project" />
-    <meta name="author" content="Lovable" />
+    <title>TBB Workspace</title>
+    <meta name="description" content="TBB Workspace: Think Big Brand's internal workspace for video production." />
+    <meta name="application-name" content="TBB Workspace" />
+    <!-- Internal tool: keep it out of search indexes -->
+    <meta name="robots" content="noindex, nofollow" />
+    <meta name="theme-color" content="#F8F7F6" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0E0C0B" media="(prefers-color-scheme: dark)" />
 
-    <meta property="og:title" content="workwise-progress-hub" />
-    <meta property="og:description" content="Lovable Generated Project" />
+    <link rel="icon" href="/favicon.ico" sizes="any" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/brand/icon-32.png" />
+    <link rel="apple-touch-icon" href="/brand/apple-touch-icon.png" />
+
+    <meta property="og:title" content="TBB Workspace" />
+    <meta property="og:description" content="Think Big Brand's internal workspace for video production." />
     <meta property="og:type" content="website" />
-    <meta property="og:image" content="https://lovable.dev/opengraph-image-p98pqg.png" />
 
-    <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:site" content="@lovable_dev" />
-    <meta name="twitter:image" content="https://lovable.dev/opengraph-image-p98pqg.png" />
+    <!-- Apply the saved / system theme before first paint (same rule as ThemeToggle) so signed-out
+         pages match the signed-in app and never flash the wrong theme. -->
+    <script>
+      try {
+        var t = localStorage.getItem('theme');
+        if (t === 'dark' || (!t && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+          document.documentElement.classList.add('dark');
+        }
+      } catch (e) {}
+    </script>
   </head>
 
   <body>
     <div id="root"></div>
-    <!-- IMPORTANT: DO NOT REMOVE THIS SCRIPT TAG OR THIS VERY COMMENT! -->
-    <script src="https://cdn.gpteng.co/gptengineer.js" type="module"></script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

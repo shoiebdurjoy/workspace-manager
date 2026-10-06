@@ -27,6 +27,8 @@ export default {
 				foreground: 'hsl(var(--foreground))',
 				primary: {
 					DEFAULT: 'hsl(var(--primary))',
+					hover: 'hsl(var(--primary-hover))',
+					active: 'hsl(var(--primary-active))',
 					foreground: 'hsl(var(--primary-foreground))'
 				},
 				secondary: {
@@ -63,18 +65,13 @@ export default {
 					border: 'hsl(var(--sidebar-border))',
 					ring: 'hsl(var(--sidebar-ring))'
 				},
-				tbb: {
-					50: '#f6f2fd',
-					100: '#ede4fc',
-					200: '#dcc9f9',
-					300: '#c3a2f4',
-					400: '#a573ec',
-					500: '#8b48e3',
-					600: '#7b2cbf',
-					700: '#6920a4',
-					800: '#581c87',
-					900: '#49196e',
-					950: '#2c0947',
+				// TBB brand (derived from the logo; see the token notes in src/index.css)
+				brand: {
+					DEFAULT: 'hsl(var(--brand))', // links and brand-colored text (AA on every surface)
+					hover: 'hsl(var(--brand-hover))',
+					subtle: 'hsl(var(--brand-subtle))', // quiet tinted backgrounds (badges, highlights)
+					'subtle-foreground': 'hsl(var(--brand-subtle-foreground))',
+					accent: 'hsl(var(--brand-accent))', // the logo coral: indicators, decorative accents
 				},
 				status: {
 					backlog: 'hsl(var(--status-backlog, 220 14% 60%))',
@@ -90,19 +87,6 @@ export default {
 					high: 'hsl(var(--priority-high, 25 95% 53%))',
 					normal: 'hsl(var(--priority-normal, 217 91% 60%))',
 					low: 'hsl(var(--priority-low, 220 9% 46%))',
-				},
-				workwise: {
-					'50': '#f0f9ff',
-					'100': '#e0f2fe',
-					'200': '#b9e6fe',
-					'300': '#7cd2fd',
-					'400': '#36bffa',
-					'500': '#0ca4eb',
-					'600': '#0085c9',
-					'700': '#026aa3',
-					'800': '#065986',
-					'900': '#0c4a6e',
-					'950': '#082f49',
 				},
 			},
 			borderRadius: {

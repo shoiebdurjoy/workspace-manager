@@ -4,8 +4,8 @@ import { ROLE_LABELS } from '@/lib/permissions';
 import type { TbbRole } from '@/types/database';
 
 const ROLE_STYLES: Record<TbbRole, string> = {
-  OWNER: 'bg-purple-100 text-purple-800 dark:bg-purple-950/60 dark:text-purple-300',
-  ADMIN: 'bg-indigo-100 text-indigo-800 dark:bg-indigo-950/60 dark:text-indigo-300',
+  OWNER: 'bg-brand-subtle text-brand-subtle-foreground',
+  ADMIN: 'bg-foreground/10 text-foreground',
   PRODUCTION_MANAGER: 'bg-sky-100 text-sky-800 dark:bg-sky-950/60 dark:text-sky-300',
   QC_SPECIALIST: 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300',
   EDITOR: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300',

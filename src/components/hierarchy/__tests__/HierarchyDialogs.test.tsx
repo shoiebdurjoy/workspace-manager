@@ -175,7 +175,7 @@ describe('list dialog', () => {
     await userEvent.click(within(dialog).getByRole('button', { name: 'Create list' }));
     await waitFor(() =>
       expect(db.createList).toHaveBeenCalledWith({
-        name: '50. THE DESIRE COMPANY', description: '', color: '#7B68EE', folderId: IDS.folderZim,
+        name: '50. THE DESIRE COMPANY', description: '', color: '#F25B4A', folderId: IDS.folderZim,
         spaceId: IDS.spaceA, position: 2,
       })
     );

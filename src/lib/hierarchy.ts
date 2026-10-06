@@ -6,6 +6,7 @@ import type {
   List,
   Space,
 } from '@/types/database';
+import { DEFAULT_CONTENT_COLOR } from '@/lib/brand';
 
 /**
  * Pure helpers for the Workspace -> Space -> Folder -> List tree. No network, no React:
@@ -14,20 +15,24 @@ import type {
 
 export const NAME_MAX_LENGTH = 255;
 export const DESCRIPTION_MAX_LENGTH = 2000;
-export const DEFAULT_COLOR = '#7B68EE';
+export const DEFAULT_COLOR = DEFAULT_CONTENT_COLOR;
 
-/** Presentation palette (all values satisfy the database CHECK `^#[0-9A-Fa-f]{6}$`). */
+/**
+ * Colors a person can give a space, list or pod to tell them apart. These are CONTENT colors
+ * (identification), not UI theme colors; the first is the TBB brand coral and the default.
+ * All values satisfy the database CHECK `^#[0-9A-Fa-f]{6}$`.
+ */
 export const COLOR_PALETTE: readonly string[] = [
-  '#7B68EE',
-  '#6366F1',
-  '#0EA5E9',
-  '#14B8A6',
-  '#22C55E',
-  '#EAB308',
+  DEFAULT_CONTENT_COLOR,
   '#F97316',
-  '#EF4444',
+  '#EAB308',
+  '#22C55E',
+  '#14B8A6',
+  '#0EA5E9',
+  '#3B82F6',
   '#EC4899',
   '#64748B',
+  '#292524',
 ];
 
 export const HEX_COLOR_PATTERN = /^#[0-9A-Fa-f]{6}$/;

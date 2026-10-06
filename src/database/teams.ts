@@ -1,6 +1,7 @@
 import { getSupabaseClient } from './client';
 import { Team, TeamMember } from '@/types/database';
 import { toDatabaseError, ValidationError } from './errors';
+import { DEFAULT_CONTENT_COLOR } from '@/lib/brand';
 
 interface TeamRow {
   id: string;
@@ -68,7 +69,7 @@ export async function createTeam(input: {
       workspace_id: input.workspaceId,
       name,
       description: input.description?.trim() || null,
-      ...(input.color ? { color: input.color } : {}),
+      color: input.color ?? DEFAULT_CONTENT_COLOR,
       lead_id: input.leadId ?? null,
     })
     .select('*')
