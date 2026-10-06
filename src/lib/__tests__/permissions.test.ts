@@ -26,6 +26,11 @@ const MATRIX: Array<[Capability, string, [boolean, boolean, boolean, boolean, bo
   ['space:create', 'Create Spaces & Global Workflows', [true, true, false, false, false, false]],
   ['folder-list:create', 'Create Client Folders & Lists', [true, true, true, false, false, false]],
   ['folder-list:delete', 'Delete Lists or Folders', [true, true, false, false, false, false]],
+  // Phase 5: rows implied by the model and enforced by the spaces/folders/lists RLS policies
+  ['hierarchy:view', 'See the workspace tree (staff only)', [true, true, true, true, true, false]],
+  ['space:edit', 'Edit / reorder spaces', [true, true, false, false, false, false]],
+  ['space:delete', 'Delete a space', [true, true, false, false, false, false]],
+  ['folder-list:edit', 'Rename / move / reorder folders and lists', [true, true, true, false, false, false]],
   ['task:create', 'Create Video Tasks', [true, true, true, false, false, false]],
   ['task:assign', 'Assign Editors & QC Reviewers', [true, true, true, false, false, false]],
   ['task:edit-brief', 'Edit Task Brief & Due Dates', [true, true, true, false, false, false]],

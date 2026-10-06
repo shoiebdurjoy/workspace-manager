@@ -41,8 +41,12 @@ export type Capability =
   | 'workspace:manage'
   | 'users:invite'
   | 'users:change-role'
+  | 'hierarchy:view'
   | 'space:create'
+  | 'space:edit'
+  | 'space:delete'
   | 'folder-list:create'
+  | 'folder-list:edit'
   | 'folder-list:delete'
   | 'task:create'
   | 'task:assign'
@@ -69,8 +73,12 @@ const MATRIX: Record<Capability, readonly TbbRole[]> = {
   'workspace:manage': OWNER_ONLY, // Workspace Settings & Billing
   'users:invite': ADMINS, // Invite / Deactivate Users
   'users:change-role': ADMINS, // Change User Roles
+  'hierarchy:view': STAFF, // Sidebar tree (client viewers fail closed until guest grants exist)
   'space:create': ADMINS, // Create Spaces & Global Workflows
+  'space:edit': ADMINS, // Rename / restyle / reorder spaces (spaces_update policy)
+  'space:delete': ADMINS, // Delete a space and everything in it (spaces_delete policy)
   'folder-list:create': MANAGERS, // Create Client Folders & Lists
+  'folder-list:edit': MANAGERS, // Rename / move / reorder folders and lists (folders/lists_update policies)
   'folder-list:delete': ADMINS, // Delete Lists or Folders
   'task:create': MANAGERS, // Create Video Tasks
   'task:assign': MANAGERS, // Assign Editors & QC Reviewers

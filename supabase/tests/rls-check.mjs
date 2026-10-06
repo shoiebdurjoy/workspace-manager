@@ -428,6 +428,138 @@ console.log('\n== Phase 4: invitations ==');
   record('a registered user cannot create a second workspace', !!r.error);
 }
 
+console.log('\n== Phase 5: hierarchy (spaces, folders, lists) ==');
+{
+  // ---- presentation constraints (migration 6)
+  r = await as(admin, `INSERT INTO public.spaces (workspace_id, name, slug, color) VALUES ($1,'Bad','bad1','red')`, [ws]);
+  record('space color must be a #RRGGBB hex', !!r.error);
+  r = await as(admin, `INSERT INTO public.spaces (workspace_id, name, slug, color) VALUES ($1,'Bad','bad2','#12345')`, [ws]);
+  record('short hex colors are rejected', !!r.error);
+  r = await as(admin, `INSERT INTO public.spaces (workspace_id, name, slug, icon) VALUES ($1,'Bad','bad3','Bad Icon!')`, [ws]);
+  record('icon must be a lowercase slug', !!r.error);
+  r = await as(admin, `INSERT INTO public.spaces (workspace_id, name, slug, color, icon) VALUES ($1,'Styled','styled','#AbCdEf','film') RETURNING id`, [ws]);
+  ok('valid color and icon are accepted', r);
+  const styled = r.rows[0]?.id;
+  r = await as(pm, `INSERT INTO public.lists (space_id, name, color) VALUES ($1,'Bad list','javascript:alert(1)')`, [space]);
+  record('list color is validated', !!r.error);
+  r = await as(admin, `INSERT INTO public.teams (workspace_id, name, color) VALUES ($1,'Bad pod','url(x)')`, [ws]);
+  record('pod color is validated', !!r.error);
+
+  // ---- cross-workspace parent injection
+  r = await as(admin, `INSERT INTO public.folders (space_id, name) VALUES ($1,'Injected')`, [spB]);
+  record("admin of workspace A cannot create a folder under workspace B's space", !!r.error);
+  r = await as(admin, `INSERT INTO public.lists (space_id, name) VALUES ($1,'Injected')`, [spB]);
+  record("admin of workspace A cannot create a list under workspace B's space", !!r.error);
+  r = await as(admin, `INSERT INTO public.spaces (workspace_id, name, slug) VALUES ($1,'Injected','inj')`, [wsB]);
+  record('admin of workspace A cannot create a space in workspace B', !!r.error);
+  r = await as(pm, `INSERT INTO public.lists (space_id, folder_id, name) VALUES ($1,$2,'Cross')`, [spB, folder]);
+  record('even a manager of BOTH workspaces cannot nest a list under a folder of the other workspace', !!r.error);
+  r = await as(pm, `UPDATE public.lists SET space_id = $2, folder_id = NULL WHERE id = $1 RETURNING id`, [list, spB]);
+  record('a list cannot be moved into another workspace', !!r.error || r.rows.length === 0);
+  r = await as(pm, `UPDATE public.folders SET space_id = $2 WHERE id = $1 RETURNING id`, [folder, spB]);
+  record('a folder cannot be moved into another workspace', !!r.error || r.rows.length === 0);
+  r = await as(stranger, `SELECT id FROM public.spaces WHERE workspace_id = $1`, [ws]);
+  record('outsider sees no spaces of the workspace', r.rows.length === 0 && !r.error);
+  r = await as(stranger, `SELECT id FROM public.folders UNION ALL SELECT id FROM public.lists`);
+  record('outsider sees no folders or lists', r.rows.length === 0 && !r.error);
+
+  // ---- every non-privileged role is refused on update and delete
+  for (const [roleName, who] of [['editor', editor], ['QC specialist', qc], ['client viewer', client], ['outsider', stranger]]) {
+    r = await as(who, `UPDATE public.spaces SET name = 'pwn' WHERE id = $1 RETURNING id`, [space]);
+    blocked(`${roleName} cannot rename a space`, r);
+    r = await as(who, `UPDATE public.folders SET name = 'pwn' WHERE id = $1 RETURNING id`, [folder]);
+    blocked(`${roleName} cannot rename a folder`, r);
+    r = await as(who, `UPDATE public.lists SET name = 'pwn' WHERE id = $1 RETURNING id`, [list]);
+    blocked(`${roleName} cannot rename a list`, r);
+    r = await as(who, `DELETE FROM public.lists WHERE id = $1 RETURNING id`, [list]);
+    blocked(`${roleName} cannot delete a list`, r);
+    r = await as(who, `DELETE FROM public.folders WHERE id = $1 RETURNING id`, [folder]);
+    blocked(`${roleName} cannot delete a folder`, r);
+    r = await as(who, `DELETE FROM public.spaces WHERE id = $1 RETURNING id`, [space2]);
+    blocked(`${roleName} cannot delete a space`, r);
+  }
+  r = await as(pm, `UPDATE public.spaces SET name = 'pwn' WHERE id = $1 RETURNING id`, [space]);
+  blocked('production manager cannot edit spaces', r);
+  r = await as(pm, `DELETE FROM public.folders WHERE id = $1 RETURNING id`, [folder]);
+  blocked('production manager cannot delete folders', r);
+  r = await as(pm, `DELETE FROM public.lists WHERE id = $1 RETURNING id`, [list2]);
+  blocked('production manager cannot delete lists', r);
+
+  // ---- what managers and admins may do
+  r = await as(pm, `UPDATE public.folders SET name = 'ZIM (renamed)', description = 'd' WHERE id = $1 RETURNING name`, [folder]);
+  record('production manager renames a folder', r.rows[0]?.name === 'ZIM (renamed)');
+  r = await as(pm, `UPDATE public.lists SET name = 'EDAPTX (renamed)' WHERE id = $1 RETURNING name`, [list]);
+  record('production manager renames a list', r.rows[0]?.name === 'EDAPTX (renamed)');
+  r = await as(pm, `INSERT INTO public.folders (space_id, name, position) VALUES ($1,'Second folder',1) RETURNING id`, [space]);
+  ok('production manager creates a second folder', r);
+  const folder2 = r.rows[0]?.id;
+  r = await as(pm, `UPDATE public.lists SET folder_id = $2 WHERE id = $1 RETURNING folder_id`, [list, folder2]);
+  record('a list can move to another folder of the same space', r.rows[0]?.folder_id === folder2);
+  r = await as(pm, `UPDATE public.lists SET folder_id = NULL WHERE id = $1 RETURNING folder_id`, [list]);
+  record('...and out of its folder', r.rows.length === 1 && r.rows[0]?.folder_id === null);
+  r = await as(pm, `UPDATE public.lists SET folder_id = $2 WHERE id = $1 RETURNING id`, [list, folder2]);
+  ok('...and back into a folder', r);
+  r = await as(pm, `UPDATE public.lists SET folder_id = $2 WHERE id = $1 RETURNING id`, [list2, folder2]);
+  record("a list cannot move into a folder of a different space", !!r.error);
+  r = await as(admin, `UPDATE public.spaces SET name = 'Content (renamed)', color = '#22C55E', icon = 'rocket' WHERE id = $1 RETURNING name, color, icon`, [space]);
+  record('admin edits a space name, color and icon', r.rows[0]?.name === 'Content (renamed)' && r.rows[0]?.color === '#22C55E' && r.rows[0]?.icon === 'rocket');
+
+  // ---- atomic, permission-checked reordering
+  r = await as(admin, `SELECT public.reorder_hierarchy('space', ARRAY[$2::uuid, $1::uuid, $3::uuid]) AS n`, [space, space2, styled]);
+  record('admin reorders spaces', !r.error && Number(r.rows[0]?.n) === 3, r.error?.message);
+  r = await as(admin, `SELECT id FROM public.spaces WHERE workspace_id = $1 ORDER BY position`, [ws]);
+  record('...and the new order is what was asked for', r.rows.map((x) => x.id).join() === [space2, space, styled].join());
+  r = await as(pm, `SELECT public.reorder_hierarchy('space', ARRAY[$1::uuid, $2::uuid])`, [space, space2]);
+  record('production manager cannot reorder spaces', !!r.error);
+  r = await as(pm, `INSERT INTO public.folders (space_id, name, position) VALUES ($1,'Third folder',2) RETURNING id`, [space]);
+  const folder3 = r.rows[0]?.id;
+  r = await as(pm, `SELECT public.reorder_hierarchy('folder', ARRAY[$3::uuid, $1::uuid, $2::uuid]) AS n`, [folder, folder2, folder3]);
+  record('production manager reorders folders', !r.error && Number(r.rows[0]?.n) === 3, r.error?.message);
+  r = await as(pm, `SELECT id FROM public.folders WHERE space_id = $1 ORDER BY position`, [space]);
+  record('...in the requested order', r.rows.map((x) => x.id).join() === [folder3, folder, folder2].join());
+  r = await as(editor, `SELECT public.reorder_hierarchy('folder', ARRAY[$1::uuid, $2::uuid, $3::uuid])`, [folder, folder2, folder3]);
+  record('editor cannot reorder', !!r.error);
+  r = await as(stranger, `SELECT public.reorder_hierarchy('folder', ARRAY[$1::uuid])`, [folder]);
+  record('outsider cannot reorder', !!r.error);
+  r = await as('anon', `SELECT public.reorder_hierarchy('folder', ARRAY[$1::uuid])`, [folder]);
+  record('anon cannot call reorder_hierarchy', !!r.error);
+  r = await as(pm, `SELECT public.reorder_hierarchy('folder', ARRAY[$1::uuid, $1::uuid])`, [folder]);
+  record('duplicate ids are rejected', !!r.error);
+  r = await as(pm, `SELECT public.reorder_hierarchy('task', ARRAY[$1::uuid])`, [folder]);
+  record('only space, folder and list can be reordered', !!r.error);
+  const before = await svc(`SELECT position FROM public.lists WHERE id = $1`, [list]);
+  r = await as(admin, `SELECT public.reorder_hierarchy('list', ARRAY[$1::uuid, $2::uuid])`, [list, listB]);
+  record("mixing in another workspace's list fails the WHOLE reorder", !!r.error);
+  const after = await svc(`SELECT position FROM public.lists WHERE id = $1`, [list]);
+  record('...and nothing was changed (atomic)', before[0].position === after[0].position);
+  r = await as(admin, `SELECT public.reorder_hierarchy('list', ARRAY[]::uuid[]) AS n`);
+  record('reordering nothing is a no-op', !r.error && Number(r.rows[0]?.n) === 0);
+
+  // ---- deleting
+  r = await as(admin, `DELETE FROM public.folders WHERE id = $1 RETURNING id`, [folder2]);
+  record('a folder that still has lists cannot be deleted', !!r.error);
+  r = await as(admin, `DELETE FROM public.folders WHERE id = $1 RETURNING id`, [folder3]);
+  ok('admin deletes an empty folder', r);
+  r = await as(pm, `INSERT INTO public.lists (space_id, folder_id, name) VALUES ($1,$2,'Doomed') RETURNING id`, [styled, null]);
+  const doomed = r.rows[0]?.id;
+  r = await as(pm, `INSERT INTO public.folders (space_id, name) VALUES ($1,'Doomed folder') RETURNING id`, [styled]);
+  const doomedFolder = r.rows[0]?.id;
+  r = await as(admin, `DELETE FROM public.spaces WHERE id = $1 RETURNING id`, [styled]);
+  ok('admin deletes a space', r);
+  const gone = await svc(`SELECT (SELECT count(*)::int FROM public.lists WHERE id = $1) AS l, (SELECT count(*)::int FROM public.folders WHERE id = $2) AS f`, [doomed, doomedFolder]);
+  record("deleting a space removes its folders and lists", gone[0].l === 0 && gone[0].f === 0);
+  r = await as(admin, `DELETE FROM public.lists WHERE id = $1 RETURNING id`, [list2]);
+  ok('admin deletes a list', r);
+
+  // ---- hierarchy retrieval by role (the sidebar query)
+  for (const [roleName, who, expected] of [['editor', editor, true], ['QC specialist', qc, true], ['client viewer', client, false]]) {
+    r = await as(who, `SELECT id FROM public.spaces WHERE workspace_id = $1 ORDER BY position`, [ws]);
+    record(`${roleName} ${expected ? 'sees' : 'does not see'} the workspace tree`, expected ? r.rows.length >= 1 : r.rows.length === 0);
+  }
+  r = await as(editor, `SELECT id FROM public.lists WHERE workspace_id = $1 AND space_id = $2`, [wsB, spB]);
+  record("workspace A staff cannot read workspace B's lists even with the exact ids", r.rows.length === 0 && !r.error);
+}
+
 console.log('\n== Deactivation & service role ==');
 await svc(`UPDATE public.profiles SET is_active = false WHERE id = $1`, [editor]);
 r = await as(editor, `SELECT id FROM public.tasks`);

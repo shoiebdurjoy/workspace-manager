@@ -8,7 +8,8 @@ Think Big Brand's internal ClickUp-style workspace for video production: Workspa
 | 2 Application shell and design system | Done |
 | 3 Backend and database foundation | Done |
 | 4 Authentication, users and teams | Done ([details](docs/TBB_PHASE_4_AUTH_AND_TEAMS.md)) |
-| 5 Workspace hierarchy | Next |
+| 5 Workspace hierarchy (Spaces, Folders, Lists) | Done ([details](docs/TBB_PHASE_5_HIERARCHY.md)) |
+| 6 Task engine | Next |
 
 ## Stack
 

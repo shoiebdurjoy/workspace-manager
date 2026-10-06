@@ -17,6 +17,9 @@ const AuthCallback = lazy(() => import('@/pages/AuthCallback'));
 const Onboarding = lazy(() => import('@/pages/Onboarding'));
 const Home = lazy(() => import('@/pages/Home'));
 const Team = lazy(() => import('@/pages/Team'));
+const SpacePage = lazy(() => import('@/pages/SpacePage'));
+const FolderPage = lazy(() => import('@/pages/FolderPage'));
+const ListPage = lazy(() => import('@/pages/ListPage'));
 const Profile = lazy(() => import('@/pages/Profile'));
 const Settings = lazy(() => import('@/pages/Settings'));
 const Unauthorized = lazy(() => import('@/pages/Unauthorized'));
@@ -95,6 +98,36 @@ const App = () => (
                 }
               />
               <Route path="/dashboard" element={<Navigate to="/home" replace />} />
+              <Route
+                path="/spaces/:spaceId"
+                element={
+                  <ProtectedRoute>
+                    <Layout>
+                      <SpacePage />
+                    </Layout>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/spaces/:spaceId/folders/:folderId"
+                element={
+                  <ProtectedRoute>
+                    <Layout>
+                      <FolderPage />
+                    </Layout>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/spaces/:spaceId/lists/:listId"
+                element={
+                  <ProtectedRoute>
+                    <Layout>
+                      <ListPage />
+                    </Layout>
+                  </ProtectedRoute>
+                }
+              />
               <Route
                 path="/team"
                 element={

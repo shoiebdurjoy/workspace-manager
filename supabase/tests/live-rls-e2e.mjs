@@ -449,6 +449,127 @@ VALUES (gen_random_uuid(), '${u.id}', '${u.id}', jsonb_build_object('sub','${u.i
   res = await clients.admin.from('teams').delete().eq('id', team).select();
   rec('admin deletes the pod (members cascade)', !res.error && res.data?.length === 1);
 
+  console.log('\n== Phase 5: hierarchy (live) ==');
+  {
+    // The sidebar's exact tree query, as the app runs it
+    const loadTree = async (c, workspaceId) => {
+      const [s, f, l] = await Promise.all([
+        c.from('spaces').select('id, workspace_id, name, slug, description, icon, color, is_private, position, created_at, updated_at').eq('workspace_id', workspaceId).order('position').order('name'),
+        c.from('folders').select('id, workspace_id, space_id, name, description, position, is_collapsed_default, created_at, updated_at').eq('workspace_id', workspaceId).order('position').order('name'),
+        c.from('lists').select('id, workspace_id, space_id, folder_id, name, description, color, position, created_at, updated_at').eq('workspace_id', workspaceId).order('position').order('name'),
+      ]);
+      return { spaces: s, folders: f, lists: l, ok: !s.error && !f.error && !l.error };
+    };
+
+    // presentation constraints
+    res = await clients.admin.from('spaces').insert({ workspace_id: ws, name: 'Bad color', slug: `bad-c-${RUN}`, color: 'red' });
+    rec('space color must be #RRGGBB', !!res.error);
+    res = await clients.admin.from('spaces').insert({ workspace_id: ws, name: 'Bad icon', slug: `bad-i-${RUN}`, icon: 'Not An Icon' });
+    rec('space icon must be a slug', !!res.error);
+    res = await clients.pm.from('lists').insert({ space_id: space, name: 'Bad list color', color: 'url(x)' });
+    rec('list color is validated', !!res.error);
+
+    // cross-workspace parent injection
+    res = await clients.admin.from('folders').insert({ space_id: spB, name: 'Injected' });
+    rec("admin of A cannot create a folder under B's space", !!res.error);
+    res = await clients.admin.from('lists').insert({ space_id: spB, name: 'Injected' });
+    rec("admin of A cannot create a list under B's space", !!res.error);
+    res = await clients.admin.from('spaces').insert({ workspace_id: wsB, name: 'Injected', slug: `inj-${RUN}` });
+    rec('admin of A cannot create a space in B', !!res.error);
+    res = await clients.pm.from('lists').insert({ space_id: spB, folder_id: folder, name: 'Cross nest' });
+    rec('a manager of BOTH workspaces cannot nest a list under the other workspace\'s folder', !!res.error);
+
+    // refused roles
+    for (const role of ['editor', 'qc', 'client', 'stranger']) {
+      res = await clients[role].from('spaces').update({ name: 'pwn' }).eq('id', space).select();
+      noRows(`${role} cannot rename a space`, res);
+      res = await clients[role].from('folders').update({ name: 'pwn' }).eq('id', folder).select();
+      noRows(`${role} cannot rename a folder`, res);
+      res = await clients[role].from('lists').update({ name: 'pwn' }).eq('id', list).select();
+      noRows(`${role} cannot rename a list`, res);
+      res = await clients[role].from('lists').delete().eq('id', list).select();
+      noRows(`${role} cannot delete a list`, res);
+      res = await clients[role].from('folders').delete().eq('id', folder).select();
+      noRows(`${role} cannot delete a folder`, res);
+      res = await clients[role].from('spaces').delete().eq('id', space2).select();
+      noRows(`${role} cannot delete a space`, res);
+    }
+    res = await clients.pm.from('spaces').update({ name: 'pwn' }).eq('id', space).select();
+    noRows('production manager cannot edit spaces', res);
+    res = await clients.pm.from('folders').delete().eq('id', folder).select();
+    noRows('production manager cannot delete folders', res);
+
+    // managers and admins
+    res = await clients.pm.from('folders').update({ name: 'ZIM renamed' }).eq('id', folder).select().single();
+    rec('production manager renames a folder', !res.error && res.data?.name === 'ZIM renamed', res.error?.message);
+    res = await clients.pm.from('lists').update({ name: 'EDAPTX renamed', color: '#22C55E' }).eq('id', list).select().single();
+    rec('production manager renames and recolors a list', !res.error && res.data?.name === 'EDAPTX renamed' && res.data?.color === '#22C55E', res.error?.message);
+    res = await clients.pm.from('folders').insert({ space_id: space, name: 'Second folder', position: 1 }).select().single();
+    rec('production manager creates a folder', !res.error, res.error?.message);
+    const folder2 = res.data?.id;
+    res = await clients.pm.from('lists').update({ folder_id: folder2 }).eq('id', list).select().single();
+    rec('a list moves to another folder in the same space', !res.error && res.data?.folder_id === folder2, res.error?.message);
+    res = await clients.pm.from('lists').update({ folder_id: folder }).eq('id', list2).select();
+    rec('a list cannot move into a folder of another space', !!res.error);
+    res = await clients.admin.from('spaces').update({ name: 'Content renamed', color: '#EF4444', icon: 'rocket' }).eq('id', space).select().single();
+    rec('admin edits a space', !res.error && res.data?.icon === 'rocket' && res.data?.color === '#EF4444', res.error?.message);
+
+    // atomic, permission-checked reordering through the real API
+    res = await clients.admin.rpc('reorder_hierarchy', { kind: 'space', ids: [space2, space] });
+    rec('admin reorders spaces through reorder_hierarchy', !res.error && res.data === 2, res.error?.message);
+    let tree = await loadTree(clients.admin, ws);
+    rec('...and the sidebar query returns that order', tree.ok && tree.spaces.data.map((s) => s.id).join() === [space2, space].join());
+    res = await clients.pm.rpc('reorder_hierarchy', { kind: 'space', ids: [space, space2] });
+    rec('production manager cannot reorder spaces', !!res.error);
+    res = await clients.pm.rpc('reorder_hierarchy', { kind: 'folder', ids: [folder2, folder] });
+    rec('production manager reorders folders', !res.error && res.data === 2, res.error?.message);
+    res = await clients.editor.rpc('reorder_hierarchy', { kind: 'folder', ids: [folder, folder2] });
+    rec('editor cannot reorder', !!res.error);
+    res = await clients.stranger.rpc('reorder_hierarchy', { kind: 'folder', ids: [folder, folder2] });
+    rec('outsider cannot reorder', !!res.error);
+    res = await anon.rpc('reorder_hierarchy', { kind: 'folder', ids: [folder, folder2] });
+    rec('anon cannot call reorder_hierarchy', !!res.error);
+    res = await clients.admin.rpc('reorder_hierarchy', { kind: 'list', ids: [list, listB] });
+    rec("mixing in another workspace's list fails the whole reorder", !!res.error);
+    res = await clients.admin.from('lists').select('position').eq('id', list).single();
+    const positionAfterRefusal = res.data?.position;
+    res = await clients.admin.rpc('reorder_hierarchy', { kind: 'list', ids: [list, listB] });
+    res = await clients.admin.from('lists').select('position').eq('id', list).single();
+    rec('...and nothing changed (atomic)', res.data?.position === positionAfterRefusal);
+
+    // deleting
+    res = await clients.admin.from('folders').delete().eq('id', folder2).select();
+    rec('a folder that still has lists cannot be deleted', !!res.error);
+    res = await clients.pm.from('spaces').insert({ workspace_id: ws, name: 'Temp', slug: `temp-${RUN}` });
+    rec('production manager cannot create a space', !!res.error);
+    res = await clients.admin.from('spaces').insert({ workspace_id: ws, name: 'Temp space', slug: `temp-${RUN}`, position: 9 }).select().single();
+    const tempSpace = res.data?.id;
+    res = await clients.pm.from('folders').insert({ space_id: tempSpace, name: 'Temp folder' }).select().single();
+    const tempFolder = res.data?.id;
+    res = await clients.pm.from('lists').insert({ space_id: tempSpace, folder_id: tempFolder, name: 'Temp list' }).select().single();
+    const tempList = res.data?.id;
+    res = await clients.admin.from('spaces').delete().eq('id', tempSpace).select();
+    rec('admin deletes a space', !res.error && res.data?.length === 1, res.error?.message);
+    res = await clients.admin.from('lists').select('id').eq('id', tempList);
+    const resFolder = await clients.admin.from('folders').select('id').eq('id', tempFolder);
+    rec('...its folders and lists are gone with it', res.data?.length === 0 && resFolder.data?.length === 0);
+
+    // tree retrieval and persistence
+    tree = await loadTree(clients.editor, ws);
+    rec('editor loads the full tree with the app\'s query', tree.ok && tree.spaces.data.length >= 2 && tree.lists.data.length >= 1);
+    tree = await loadTree(clients.client, ws);
+    rec('client viewer gets an empty tree', tree.ok && tree.spaces.data.length === 0 && tree.folders.data.length === 0 && tree.lists.data.length === 0);
+    tree = await loadTree(clients.stranger, ws);
+    rec('outsider gets an empty tree for the workspace', tree.ok && tree.spaces.data.length === 0);
+    tree = await loadTree(clients.editor, wsB);
+    rec("workspace A staff get nothing for workspace B", tree.ok && tree.spaces.data.length === 0 && tree.lists.data.length === 0);
+    const fresh = mk();
+    const relog = await fresh.auth.signInWithPassword({ email: U.admin.email, password: U.admin.password });
+    const before = (await loadTree(clients.admin, ws)).spaces.data.map((s) => `${s.id}:${s.name}`).join();
+    const afterLogin = relog.error ? null : (await loadTree(fresh, ws)).spaces.data.map((s) => `${s.id}:${s.name}`).join();
+    rec('signing out and back in shows the same hierarchy', !relog.error && afterLogin === before && before.length > 0);
+  }
+
   console.log('\n== Privilege-escalation & cross-tenant attacks ==');
   // anon write attempts
   res = await anon.from('workspaces').insert({ name: 'anon', slug: `e2e-anon-${RUN}`, owner_id: U.owner.id });

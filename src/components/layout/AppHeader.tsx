@@ -1,5 +1,5 @@
 import React from "react";
-import { Link, useLocation, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { Menu, Search, Bell, User, Settings, LogOut, Palette, Users } from "lucide-react";
 import { IconButton } from "@/components/ui/icon-button";
 import { UserAvatar } from "@/components/ui/user-avatar";
@@ -24,6 +24,8 @@ import ThemeToggle from "@/components/theme/ThemeToggle";
 import RoleBadge from "@/components/team/RoleBadge";
 import { useAuth } from "@/hooks/use-auth";
 import { can } from "@/lib/permissions";
+import { useHierarchy } from "@/hooks/use-hierarchy";
+import { breadcrumbFor } from "@/lib/hierarchy";
 
 export interface AppHeaderProps {
   onToggleMobileSidebar: () => void;
@@ -42,7 +44,10 @@ export const AppHeader: React.FC<AppHeaderProps> = ({ onToggleMobileSidebar, onO
   const { profile, role, workspace, signOut } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
-  const pageTitle = PAGE_TITLES[location.pathname] ?? "Overview";
+  const params = useParams();
+  const { data: tree } = useHierarchy();
+  const trail = tree ? breadcrumbFor(tree, params) : [];
+  const pageTitle = PAGE_TITLES[location.pathname] ?? (trail.length === 0 ? "Overview" : "");
 
   const onSignOut = async () => {
     await signOut();
@@ -67,10 +72,28 @@ export const AppHeader: React.FC<AppHeaderProps> = ({ onToggleMobileSidebar, onO
                 <Link to="/home">{workspace?.name ?? "TBB Workspace"}</Link>
               </BreadcrumbLink>
             </BreadcrumbItem>
-            <BreadcrumbSeparator className="[&>svg]:size-3" />
-            <BreadcrumbItem>
-              <BreadcrumbPage className="font-semibold text-foreground truncate max-w-[180px]">{pageTitle}</BreadcrumbPage>
-            </BreadcrumbItem>
+            {trail.map((crumb, i) => (
+              <React.Fragment key={`${crumb.label}-${i}`}>
+                <BreadcrumbSeparator className="[&>svg]:size-3" />
+                <BreadcrumbItem>
+                  {i === trail.length - 1 ? (
+                    <BreadcrumbPage className="font-semibold text-foreground truncate max-w-[180px]">{crumb.label}</BreadcrumbPage>
+                  ) : (
+                    <BreadcrumbLink asChild className="text-muted-foreground hover:text-foreground font-medium truncate max-w-[140px]">
+                      <Link to={crumb.href ?? "/home"}>{crumb.label}</Link>
+                    </BreadcrumbLink>
+                  )}
+                </BreadcrumbItem>
+              </React.Fragment>
+            ))}
+            {pageTitle && (
+              <>
+                <BreadcrumbSeparator className="[&>svg]:size-3" />
+                <BreadcrumbItem>
+                  <BreadcrumbPage className="font-semibold text-foreground truncate max-w-[180px]">{pageTitle}</BreadcrumbPage>
+                </BreadcrumbItem>
+              </>
+            )}
           </BreadcrumbList>
         </Breadcrumb>
       </div>

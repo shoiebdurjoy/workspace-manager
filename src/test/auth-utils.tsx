@@ -3,6 +3,7 @@ import { render } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { vi } from 'vitest';
+import { HierarchyDialogsProvider } from '@/components/hierarchy/HierarchyDialogsProvider';
 import { AuthContext, AuthContextValue } from '@/context/auth-context';
 import type { MyMembership, Profile, TbbRole, Workspace } from '@/types/database';
 
@@ -87,7 +88,9 @@ export function renderWithAuth(
   const result = render(
     <QueryClientProvider client={client}>
       <AuthContext.Provider value={auth}>
-        <MemoryRouter initialEntries={[route]}>{ui}</MemoryRouter>
+        <MemoryRouter initialEntries={[route]}>
+          <HierarchyDialogsProvider>{ui}</HierarchyDialogsProvider>
+        </MemoryRouter>
       </AuthContext.Provider>
     </QueryClientProvider>
   );

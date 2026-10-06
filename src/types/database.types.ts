@@ -567,9 +567,15 @@ export interface Database {
       };
     };
     Views: Record<string, never>;
-    // Authorization helpers live in the non-exposed `private` schema (migration 4),
-    // so the Data API exposes no callable functions.
-    Functions: { [_ in never]: never };
+    // Authorization helpers live in the non-exposed `private` schema (migration 4). The only
+    // function exposed through the Data API is a SECURITY INVOKER one (RLS applies to the caller).
+    Functions: {
+      // Atomic sibling re-sequencing (migration 6). SECURITY INVOKER: the caller's RLS applies.
+      reorder_hierarchy: {
+        Args: { kind: string; ids: string[] };
+        Returns: number;
+      };
+    };
     Enums: {
       tbb_role: TbbRole;
       task_status: TaskStatus;

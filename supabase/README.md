@@ -18,6 +18,7 @@
 | `…000003_table_grants.sql` | Explicit table privileges (this project grants nothing automatically) |
 | `…000004_private_helpers_and_initplan.sql` | Auth helpers moved to the non-exposed `private` schema; `(select auth.uid())` in policies |
 | `…000005_teams_and_invitations.sql` | Phase 4: pods (`teams`, `team_members`), `workspace_invitations` (claimed on confirmed e-mail), first-workspace-only rule |
+| `…000006_hierarchy_ordering_and_constraints.sql` | Phase 5: atomic `reorder_hierarchy()` (SECURITY INVOKER) and color / icon `CHECK` constraints |
 
 ## Rules that must not be broken
 

@@ -104,5 +104,5 @@ The legacy WorkWise prototype (pages Dashboard, Tasks, TaskNew, Workspaces, Work
 
 * Deactivating a user needs a service-side action until the Phase 14 admin screen.
 * Editors can still change status/position on any task in the workspace until tasks have assignees (Phase 6).
-* The Spaces section of the sidebar is an honest empty state until Phase 5.
+* The Spaces section of the sidebar was an honest empty state in Phase 4; Phase 5 fills it (see `docs/TBB_PHASE_5_HIERARCHY.md`).
 * The DesignSystemShowcase page contains sample strings for style-guide components; it is behind login.

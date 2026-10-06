@@ -9,7 +9,6 @@ import {
   ChevronRight,
   ChevronLeft,
   Settings,
-  Layers,
   Users,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -19,6 +18,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { UserAvatar } from "@/components/ui/user-avatar";
 import { useAuth } from "@/hooks/use-auth";
 import { can, ROLE_LABELS } from "@/lib/permissions";
+import SpacesTree from "@/components/hierarchy/SpacesTree";
 
 export interface AppSidebarProps {
   isCollapsed: boolean;
@@ -179,31 +179,11 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
         <nav className="flex-1 overflow-y-auto px-2 py-3 space-y-4">
           <div className="space-y-0.5">{primaryNavItems.map(renderItem)}</div>
 
-          {/* Spaces: real hierarchy arrives in Phase 5. Nothing is simulated here. */}
-          <div className="pt-2 border-t border-border/50">
-            {!isCollapsed ? (
-              <div className="space-y-1">
-                <p className="flex items-center gap-1.5 px-2 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                  <Layers className="h-3 w-3" />
-                  Spaces
-                </p>
-                <p className="px-2 py-1 text-[11px] leading-relaxed text-muted-foreground/80">
-                  No spaces yet. Spaces, folders and client lists arrive in Phase 5.
-                </p>
-              </div>
-            ) : (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <span className="mx-auto flex h-9 w-9 items-center justify-center text-muted-foreground/50">
-                    <Layers className="h-4 w-4" />
-                  </span>
-                </TooltipTrigger>
-                <TooltipContent side="right" className="text-xs">
-                  Spaces arrive in Phase 5
-                </TooltipContent>
-              </Tooltip>
-            )}
-          </div>
+          {can(role, "hierarchy:view") && (
+            <div className="pt-2 border-t border-border/50">
+              <SpacesTree collapsed={isCollapsed} onNavigate={onCloseMobile} />
+            </div>
+          )}
 
           <div className="pt-2 border-t border-border/50 space-y-0.5">
             {!isCollapsed && (

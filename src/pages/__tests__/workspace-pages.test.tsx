@@ -21,6 +21,7 @@ const db = vi.hoisted(() => {
     listInvitations: vi.fn(),
     listTeams: vi.fn(),
     listTeamMembers: vi.fn(),
+    getWorkspaceHierarchy: vi.fn(),
   };
 });
 vi.mock('@/database', () => db);
@@ -34,6 +35,7 @@ beforeEach(() => {
     { id: '3', acceptedAt: '2026-10-01' },
   ]);
   db.listTeams.mockResolvedValue([{ id: 't1' }]);
+  db.getWorkspaceHierarchy.mockResolvedValue([]);
   db.listTeamMembers.mockResolvedValue([]);
   db.createWorkspace.mockResolvedValue({ id: 'ws-new' });
   db.updateProfile.mockResolvedValue(makeProfile());
@@ -139,9 +141,9 @@ describe('Home', () => {
     expect(db.getWorkspaceMembers).not.toHaveBeenCalledWith(undefined);
   });
 
-  it('does not invent tasks or notifications', () => {
+  it('does not invent tasks or notifications', async () => {
     renderHome('OWNER');
-    expect(screen.getByText(/arrives in the next phase|arrives in the next phase/i)).toBeInTheDocument();
+    await screen.findByText('No spaces yet.', { exact: false });
     expect(screen.queryByText(/overdue|due today|assigned to you/i)).not.toBeInTheDocument();
   });
 });
