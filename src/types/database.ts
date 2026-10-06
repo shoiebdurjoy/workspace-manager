@@ -1,5 +1,5 @@
-export type { TbbRole, TaskStatus, TaskPriority, Json } from './database.types';
-import type { TbbRole, TaskStatus, TaskPriority } from './database.types';
+export type { TbbRole, TaskStatus, TaskPriority, AspectRatio, AssigneeRole, Json } from './database.types';
+import type { TbbRole, TaskStatus, TaskPriority, AspectRatio, AssigneeRole } from './database.types';
 
 export interface Profile {
   id: string;
@@ -72,31 +72,63 @@ export interface List {
   updatedAt: string;
 }
 
-export interface TaskFoundation {
+/** A task (video deliverable): the full record, used by the detail view. */
+export interface Task {
   id: string;
+  workspaceId: string;
   listId: string;
   title: string;
-  description?: string | null;
+  description: string | null;
   status: TaskStatus;
   priority: TaskPriority;
   position: number;
-  dueDate?: string | null;
-  createdBy?: string | null;
+  aspectRatio: AspectRatio | null;
+  rawFootageLink: string | null;
+  projectFileLink: string | null;
+  reviewLink: string | null;
+  finalExportLink: string | null;
+  /** Internal QC due date. */
+  dueDate: string | null;
+  clientDeadline: string | null;
+  createdBy: string | null;
   createdAt: string;
   updatedAt: string;
 }
 
-export interface SubtaskFoundation {
+/** Which slot of a task a person fills. One of each per task. */
+export interface TaskAssignee {
+  taskId: string;
+  roleType: AssigneeRole;
+  userId: string;
+}
+
+/** One row of the list view: only what a row shows, plus assignee ids and checklist counts. */
+export interface TaskSummary
+  extends Pick<
+    Task,
+    'id' | 'listId' | 'title' | 'status' | 'priority' | 'position' | 'aspectRatio' | 'dueDate' | 'clientDeadline' | 'createdAt' | 'updatedAt'
+  > {
+  editorId: string | null;
+  qcId: string | null;
+  subtaskTotal: number;
+  subtaskDone: number;
+}
+
+export interface Subtask {
   id: string;
   taskId: string;
   title: string;
-  description?: string | null;
   isCompleted: boolean;
   position: number;
-  dueDate?: string | null;
-  createdBy?: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+/** A task with its assignees and checklist: everything the detail sheet needs, in one request. */
+export interface TaskDetail extends Task {
+  editorId: string | null;
+  qcId: string | null;
+  subtasks: Subtask[];
 }
 
 // ==============================================================================

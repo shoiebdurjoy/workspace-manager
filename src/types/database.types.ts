@@ -25,6 +25,10 @@ export type TaskStatus =
 
 export type TaskPriority = 'URGENT' | 'HIGH' | 'MEDIUM' | 'LOW';
 
+export type AspectRatio = '9:16' | '16:9' | '1:1' | '4:5' | 'OTHER';
+
+export type AssigneeRole = 'EDITOR' | 'QC_REVIEWER';
+
 export interface Database {
   public: {
     Tables: {
@@ -316,6 +320,12 @@ export interface Database {
           priority: TaskPriority;
           position: number;
           due_date: string | null;
+          aspect_ratio: AspectRatio | null;
+          raw_footage_link: string | null;
+          project_file_link: string | null;
+          review_link: string | null;
+          final_export_link: string | null;
+          client_deadline: string | null;
           created_by: string | null;
           created_at: string;
           updated_at: string;
@@ -331,6 +341,12 @@ export interface Database {
           priority?: TaskPriority;
           position?: number;
           due_date?: string | null;
+          aspect_ratio?: AspectRatio | null;
+          raw_footage_link?: string | null;
+          project_file_link?: string | null;
+          review_link?: string | null;
+          final_export_link?: string | null;
+          client_deadline?: string | null;
           created_by?: string | null;
           created_at?: string;
           updated_at?: string;
@@ -345,6 +361,12 @@ export interface Database {
           priority?: TaskPriority;
           position?: number;
           due_date?: string | null;
+          aspect_ratio?: AspectRatio | null;
+          raw_footage_link?: string | null;
+          project_file_link?: string | null;
+          review_link?: string | null;
+          final_export_link?: string | null;
+          client_deadline?: string | null;
           created_by?: string | null;
           created_at?: string;
           updated_at?: string;
@@ -430,6 +452,43 @@ export interface Database {
             referencedRelation: 'profiles';
             referencedColumns: ['id'];
           }
+        ];
+      };
+      task_assignees: {
+        Row: {
+          task_id: string;
+          role_type: AssigneeRole;
+          user_id: string;
+          workspace_id: string;
+          assigned_by: string | null;
+          assigned_at: string;
+        };
+        Insert: {
+          task_id: string;
+          role_type: AssigneeRole;
+          user_id: string;
+          /** Derived by a database trigger; any value sent is ignored. */
+          workspace_id?: string;
+          /** Set by a database trigger to the caller. */
+          assigned_by?: string | null;
+          assigned_at?: string;
+        };
+        Update: {
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'task_assignees_task_id_fkey';
+            columns: ['task_id'];
+            referencedRelation: 'tasks';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'task_assignees_user_id_fkey';
+            columns: ['user_id'];
+            referencedRelation: 'profiles';
+            referencedColumns: ['id'];
+          },
         ];
       };
       teams: {
@@ -574,6 +633,33 @@ export interface Database {
       reorder_hierarchy: {
         Args: { kind: string; ids: string[] };
         Returns: number;
+      };
+      // Task engine (migration 7). All SECURITY INVOKER.
+      create_task: {
+        Args: {
+          p_list_id: string;
+          p_title: string;
+          p_description?: string | null;
+          p_priority?: string;
+          p_aspect_ratio?: string | null;
+          p_raw_footage_link?: string | null;
+          p_project_file_link?: string | null;
+          p_review_link?: string | null;
+          p_final_export_link?: string | null;
+          p_due_date?: string | null;
+          p_client_deadline?: string | null;
+          p_editor_id?: string | null;
+          p_qc_id?: string | null;
+        };
+        Returns: Database['public']['Tables']['tasks']['Row'];
+      };
+      set_task_assignee: {
+        Args: { p_task_id: string; p_role_type: string; p_user_id: string | null };
+        Returns: undefined;
+      };
+      move_task: {
+        Args: { p_task_id: string; p_direction: string };
+        Returns: boolean;
       };
     };
     Enums: {

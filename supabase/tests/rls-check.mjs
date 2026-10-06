@@ -220,6 +220,11 @@ blocked('client viewer cannot update tasks', r);
 r = await as(stranger, `UPDATE public.tasks SET title = 'pwn' WHERE id = $1 RETURNING id`, [task]);
 blocked('stranger cannot update tasks', r);
 
+// Phase 6 tightening (migration 7): an editor acts only on tasks assigned to them.
+r = await as(editor, `UPDATE public.tasks SET status = 'IN_PROGRESS' WHERE id = $1 RETURNING id`, [task]);
+record('editor cannot change a task that is NOT assigned to them', !!r.error);
+r = await as(pm, `SELECT public.set_task_assignee($1, 'EDITOR', $2)`, [task, editor]);
+ok('manager assigns the editor to the task', r);
 r = await as(editor, `UPDATE public.tasks SET status = 'IN_PROGRESS' WHERE id = $1 RETURNING id`, [task]);
 ok('editor can start work (TODO -> IN_PROGRESS)', r);
 r = await as(editor, `UPDATE public.tasks SET status = 'IN_QC', position = 3 WHERE id = $1 RETURNING id`, [task]);
@@ -558,6 +563,230 @@ console.log('\n== Phase 5: hierarchy (spaces, folders, lists) ==');
   }
   r = await as(editor, `SELECT id FROM public.lists WHERE workspace_id = $1 AND space_id = $2`, [wsB, spB]);
   record("workspace A staff cannot read workspace B's lists even with the exact ids", r.rows.length === 0 && !r.error);
+}
+
+console.log('\n== Phase 6: task engine ==');
+{
+  const editor2 = await mkUser('editor2@tbb.test');
+  r = await as(owner, `INSERT INTO public.workspace_members (workspace_id, user_id, role) VALUES ($1,$2,'EDITOR') RETURNING user_id`, [ws, editor2]);
+  ok('owner adds a second editor', r);
+  await svc(`UPDATE public.profiles SET is_active = true, role = 'EDITOR' WHERE id = $1`, [editor]);
+  await svc(`DELETE FROM public.tasks WHERE list_id = $1`, [list]); // clean slate for ordering tests
+  const count = async () => Number((await svc(`SELECT count(*) AS n FROM public.tasks WHERE list_id = $1`, [list]))[0].n);
+  const UNKNOWN_USER = '00000000-0000-4000-8000-00000000dead';
+  const NULLS = 'NULL, NULL, NULL, NULL, NULL, NULL, NULL';
+
+  // ---- create_task: positions, assignees, derived fields -------------------------------------
+  r = await as(pm, `SELECT * FROM public.create_task($1, '  Video A  ', 'brief', 'HIGH', '9:16', 'https://drive.google.com/x', NULL, NULL, NULL, now() + interval '2 days', now() + interval '5 days', $2, $3)`, [list, editor, qc]);
+  ok('manager creates a deliverable with editor + QC in one call', r);
+  const tA = r.rows[0]?.id;
+  record('title is trimmed, created_by/workspace derived, position starts at 0', r.rows[0]?.title === 'Video A' && r.rows[0]?.created_by === pm && r.rows[0]?.workspace_id === ws && r.rows[0]?.position === 0);
+  record('priority, aspect ratio and dates are stored', r.rows[0]?.priority === 'HIGH' && r.rows[0]?.aspect_ratio === '9:16' && !!r.rows[0]?.client_deadline && !!r.rows[0]?.due_date);
+  const asg = await svc(`SELECT role_type, user_id, assigned_by, workspace_id FROM public.task_assignees WHERE task_id = $1 ORDER BY role_type`, [tA]);
+  record('both assignments created atomically, with assigned_by and workspace derived', asg.length === 2 && asg[0].role_type === 'EDITOR' && asg[0].user_id === editor && asg[1].user_id === qc && asg.every((a) => a.assigned_by === pm && a.workspace_id === ws));
+  r = await as(admin, `SELECT * FROM public.create_task($1, 'Video B')`, [list]);
+  ok('admin creates a bare task (defaults only)', r);
+  const tB = r.rows[0]?.id;
+  record('new tasks append: position 1, status TODO, priority MEDIUM', r.rows[0]?.position === 1 && r.rows[0]?.status === 'TODO' && r.rows[0]?.priority === 'MEDIUM' && r.rows[0]?.aspect_ratio === null);
+  r = await as(owner, `SELECT * FROM public.create_task($1, 'Video C')`, [list]);
+  const tC = r.rows[0]?.id;
+  record('third task appended at position 2', r.rows[0]?.position === 2);
+
+  // ---- who may create ------------------------------------------------------------------------
+  for (const [name, who] of [['editor', editor], ['QC specialist', qc], ['client viewer', client], ['stranger', stranger]]) {
+    const before = await count();
+    r = await as(who, `SELECT * FROM public.create_task($1, 'Sneaky')`, [list]);
+    record(`${name} cannot create tasks`, !!r.error && (await count()) === before, r.error?.message);
+  }
+  r = await as(pm, `SELECT * FROM public.create_task(gen_random_uuid(), 'Ghost list')`);
+  record('creating a task in a non-existent list fails', !!r.error);
+
+  // ---- input validation (the database is the last line of defence) ----------------------------
+  const bad = [
+    ['blank title', `SELECT * FROM public.create_task($1, '   ')`],
+    ['invalid priority', `SELECT * FROM public.create_task($1, 'x', NULL, 'BLOCKER')`],
+    ['invalid aspect ratio', `SELECT * FROM public.create_task($1, 'x', NULL, 'LOW', '3:2')`],
+    ['javascript: URL in raw footage link', `SELECT * FROM public.create_task($1, 'x', NULL, 'LOW', NULL, 'javascript:alert(1)')`],
+    ['data: URL in review link', `SELECT * FROM public.create_task($1, 'x', NULL, 'LOW', NULL, NULL, NULL, 'data:text/html,hi')`],
+    ['URL with whitespace', `SELECT * FROM public.create_task($1, 'x', NULL, 'LOW', NULL, 'https://a.co/a b')`],
+    ['URL without host', `SELECT * FROM public.create_task($1, 'x', NULL, 'LOW', NULL, NULL, NULL, NULL, 'https://')`],
+    ['URL over 2048 characters', `SELECT * FROM public.create_task($1, 'x', NULL, 'LOW', NULL, 'https://a.co/${'a'.repeat(2050)}')`],
+    ['description over 20000 characters', `SELECT * FROM public.create_task($1, 'x', '${'d'.repeat(20001)}')`],
+    ['title over 500 characters', `SELECT * FROM public.create_task($1, '${'t'.repeat(501)}')`],
+  ];
+  for (const [name, sql] of bad) {
+    const before = await count();
+    r = await as(pm, sql, [list]);
+    record(`rejects ${name}`, !!r.error && (await count()) === before, r.error ? '' : 'was accepted');
+  }
+  r = await as(pm, `SELECT * FROM public.create_task($1, 'Links ok', NULL, 'LOW', '16:9', 'HTTPS://drive.google.com/drive/folders/abc?usp=sharing', 'http://x.co/p#f', 'https://app.frame.io/reviews/1', 'https://drive.google.com/file/d/1/view')`, [list]);
+  ok('accepts valid http(s) links and an allowed aspect ratio', r);
+  const tL = r.rows[0]?.id;
+
+  // ---- assignment eligibility + atomicity -----------------------------------------------------
+  const before = await count();
+  r = await as(pm, `SELECT * FROM public.create_task($1, 'Atomic', NULL, 'LOW', NULL, NULL, NULL, NULL, NULL, NULL, NULL, $2, $3)`, [list, editor, editor]);
+  record('same person as editor AND QC reviewer is refused, and NO task is left behind', !!r.error && (await count()) === before, r.error?.message);
+  r = await as(pm, `SELECT * FROM public.create_task($1, 'x', NULL, 'LOW', NULL, NULL, NULL, NULL, NULL, NULL, NULL, $2)`, [list, qc]);
+  record('a QC specialist cannot be assigned as the editor', !!r.error);
+  r = await as(pm, `SELECT * FROM public.create_task($1, 'x', NULL, 'LOW', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, $2)`, [list, editor]);
+  record('an editor cannot be assigned as QC reviewer', !!r.error);
+  r = await as(pm, `SELECT * FROM public.create_task($1, 'x', NULL, 'LOW', NULL, NULL, NULL, NULL, NULL, NULL, NULL, $2)`, [list, client]);
+  record('a client viewer cannot be assigned', !!r.error);
+  r = await as(pm, `SELECT * FROM public.create_task($1, 'x', NULL, 'LOW', NULL, NULL, NULL, NULL, NULL, NULL, NULL, $2)`, [list, stranger]);
+  record('a person outside the workspace cannot be assigned', !!r.error);
+  r = await as(pm, `SELECT * FROM public.create_task($1, 'x', NULL, 'LOW', NULL, NULL, NULL, NULL, NULL, NULL, NULL, $2)`, [list, UNKNOWN_USER]);
+  record('an unknown user id cannot be assigned', !!r.error);
+  await svc(`UPDATE public.profiles SET is_active = false WHERE id = $1`, [editor2]);
+  r = await as(pm, `SELECT * FROM public.create_task($1, 'x', NULL, 'LOW', NULL, NULL, NULL, NULL, NULL, NULL, NULL, $2)`, [list, editor2]);
+  record('a deactivated account cannot be assigned', !!r.error);
+  await svc(`UPDATE public.profiles SET is_active = true WHERE id = $1`, [editor2]);
+  r = await as(pm, `SELECT * FROM public.create_task($1, 'Managers can edit', NULL, 'LOW', NULL, NULL, NULL, NULL, NULL, NULL, NULL, $2, $3)`, [list, admin, owner]);
+  ok('a manager may be assigned as editor and another manager as QC reviewer', r);
+
+  // ---- set_task_assignee ---------------------------------------------------------------------
+  r = await as(pm, `SELECT public.set_task_assignee($1, 'EDITOR', $2)`, [tB, editor2]);
+  ok('manager assigns an editor to an unassigned task', r);
+  r = await as(pm, `SELECT public.set_task_assignee($1, 'EDITOR', $2)`, [tB, editor]);
+  ok('manager re-assigns (replaces) the editor', r);
+  const eds = await svc(`SELECT user_id FROM public.task_assignees WHERE task_id = $1 AND role_type = 'EDITOR'`, [tB]);
+  record('exactly one editor row remains after replacing', eds.length === 1 && eds[0].user_id === editor);
+  r = await as(pm, `SELECT public.set_task_assignee($1, 'QC_REVIEWER', $2)`, [tB, editor]);
+  record('re-assigning the editor as QC reviewer on the same task is refused', !!r.error);
+  r = await as(pm, `SELECT public.set_task_assignee($1, 'EDITOR', NULL)`, [tB]);
+  ok('manager clears the editor', r);
+  r = await as(pm, `SELECT public.set_task_assignee($1, 'EDITOR', NULL)`, [tB]);
+  ok('clearing an empty slot is a harmless no-op', r);
+  r = await as(pm, `SELECT public.set_task_assignee($1, 'CREATIVE_DIRECTOR', $2)`, [tB, editor]);
+  record('unknown assignment role is refused', !!r.error);
+  for (const [name, who] of [['editor', editor], ['QC specialist', qc], ['client viewer', client], ['stranger', stranger]]) {
+    r = await as(who, `SELECT public.set_task_assignee($1, 'EDITOR', $2)`, [tB, who]);
+    record(`${name} cannot assign themselves`, !!r.error, r.error?.message);
+  }
+  r = await as(editor, `SELECT public.set_task_assignee($1, 'EDITOR', NULL)`, [tA]);
+  record('an assigned editor cannot unassign themselves (managers only)', !!r.error);
+  r = await as(editor, `INSERT INTO public.task_assignees (task_id, role_type, user_id) VALUES ($1,'EDITOR',$2)`, [tC, editor]);
+  record('direct INSERT into task_assignees by an editor is refused', !!r.error);
+  r = await as(editor, `UPDATE public.task_assignees SET user_id = $2 WHERE task_id = $1 AND role_type = 'EDITOR' RETURNING task_id`, [tA, editor2]);
+  blocked('editor cannot re-point an assignment', r);
+  r = await as(pm, `UPDATE public.task_assignees SET role_type = 'QC_REVIEWER' WHERE task_id = $1 AND role_type = 'EDITOR' RETURNING task_id`, [tA]);
+  record('an assignment cannot be switched to another role in place', !!r.error);
+
+  // ---- visibility of assignments ------------------------------------------------------------
+  for (const [name, who, want] of [['editor', editor, true], ['QC specialist', qc, true], ['client viewer', client, false], ['stranger', stranger, false]]) {
+    r = await as(who, `SELECT task_id FROM public.task_assignees WHERE task_id = $1`, [tA]);
+    record(`${name} ${want ? 'sees' : 'does not see'} assignments`, want ? r.rows.length === 2 : r.rows.length === 0 && !r.error);
+  }
+  r = await as('anon', `SELECT * FROM public.task_assignees`);
+  record('anon cannot read task_assignees', !!r.error);
+  r = await as('anon', `SELECT public.create_task($1, 'x')`, [list]);
+  record('anon cannot call create_task', !!r.error);
+
+  // ---- editor column + ownership rules ---------------------------------------------------
+  r = await as(editor, `UPDATE public.tasks SET status = 'IN_PROGRESS' WHERE id = $1 RETURNING id`, [tA]);
+  ok('assigned editor starts work on their task', r);
+  r = await as(editor, `UPDATE public.tasks SET review_link = 'https://app.frame.io/reviews/9', project_file_link = 'https://drive.google.com/p' WHERE id = $1 RETURNING id`, [tA]);
+  ok('assigned editor submits review + project file links', r);
+  for (const col of ["raw_footage_link = 'https://x.co/r'", "final_export_link = 'https://x.co/f'", "title = 'Mine'", "priority = 'URGENT'", 'due_date = now()', 'client_deadline = now()', "aspect_ratio = '1:1'", "description = 'x'"]) {
+    r = await as(editor, `UPDATE public.tasks SET ${col} WHERE id = $1 RETURNING id`, [tA]);
+    record(`assigned editor cannot change ${col.split(' ')[0]}`, !!r.error);
+  }
+  r = await as(editor, `UPDATE public.tasks SET status = 'READY_TO_DELIVER' WHERE id = $1 RETURNING id`, [tA]);
+  record('assigned editor still cannot self-approve', !!r.error);
+  r = await as(editor, `UPDATE public.tasks SET status = 'IN_PROGRESS' WHERE id = $1 RETURNING id`, [tC]);
+  record('editor cannot touch a task assigned to nobody', !!r.error);
+  r = await as(editor2, `UPDATE public.tasks SET status = 'IN_PROGRESS' WHERE id = $1 RETURNING id`, [tA]);
+  record("editor cannot touch a colleague's task", !!r.error);
+  r = await as(editor2, `UPDATE public.tasks SET review_link = 'https://x.co/steal' WHERE id = $1 RETURNING id`, [tA]);
+  record("editor cannot change a colleague's review link", !!r.error);
+  r = await as(editor, `UPDATE public.tasks SET review_link = 'javascript:alert(1)' WHERE id = $1 RETURNING id`, [tA]);
+  record('even an assigned editor cannot store a javascript: link', !!r.error);
+  r = await as(editor, `DELETE FROM public.tasks WHERE id = $1 RETURNING id`, [tA]);
+  blocked('assigned editor cannot delete the task', r);
+
+  // ---- QC rules remain ---------------------------------------------------------------------
+  r = await as(editor, `UPDATE public.tasks SET status = 'IN_QC' WHERE id = $1 RETURNING id`, [tA]);
+  ok('editor submits to QC', r);
+  r = await as(qc, `UPDATE public.tasks SET status = 'READY_TO_DELIVER' WHERE id = $1 RETURNING id`, [tA]);
+  ok('QC approves', r);
+  r = await as(qc, `UPDATE public.tasks SET review_link = 'https://x.co/qc' WHERE id = $1 RETURNING id`, [tA]);
+  record('QC cannot edit the brief or links', !!r.error);
+  r = await as(client, `UPDATE public.tasks SET status = 'CLOSED' WHERE id = $1 RETURNING id`, [tA]);
+  blocked('client viewer cannot update', r);
+  r = await as(stranger, `UPDATE public.tasks SET status = 'CLOSED' WHERE id = $1 RETURNING id`, [tA]);
+  blocked('stranger cannot update', r);
+
+  // ---- managers edit everything ---------------------------------------------------------
+  r = await as(pm, `UPDATE public.tasks SET title = 'Renamed', description = 'd', priority = 'URGENT', aspect_ratio = '4:5', raw_footage_link = 'https://x.co/raw', final_export_link = 'https://x.co/final', due_date = now(), client_deadline = now(), review_link = NULL WHERE id = $1 RETURNING id`, [tA]);
+  ok('manager edits every deliverable field and can clear a link', r);
+  r = await as(pm, `UPDATE public.tasks SET aspect_ratio = NULL, client_deadline = NULL WHERE id = $1 RETURNING id`, [tA]);
+  ok('manager can clear optional fields', r);
+
+  // ---- subtasks ----------------------------------------------------------------------------
+  r = await as(pm, `INSERT INTO public.subtasks (task_id, title, position) VALUES ($1,'Rough cut',0),($1,'Captions',1) RETURNING id`, [tA]);
+  ok('manager adds subtasks', r);
+  const [s1, s2] = r.rows.map((x) => x.id);
+  r = await as(editor, `UPDATE public.subtasks SET is_completed = true WHERE id = $1 RETURNING id`, [s1]);
+  ok('assigned editor ticks a subtask of their task', r);
+  r = await as(editor2, `UPDATE public.subtasks SET is_completed = true WHERE id = $1 RETURNING id`, [s2]);
+  record("editor cannot tick a subtask of a colleague's task", !!r.error);
+  r = await as(qc, `UPDATE public.subtasks SET is_completed = true WHERE id = $1 RETURNING id`, [s2]);
+  ok('QC can tick subtasks', r);
+  r = await as(editor, `DELETE FROM public.subtasks WHERE id = $1 RETURNING id`, [s1]);
+  blocked('editor cannot delete subtasks', r);
+  r = await as(pm, `INSERT INTO public.subtasks (task_id, title) VALUES ($1,'   ')`, [tA]);
+  record('blank subtask title refused', !!r.error);
+
+  // ---- ordering ------------------------------------------------------------------------------
+  const order = async () => (await svc(`SELECT id FROM public.tasks WHERE list_id = $1 ORDER BY position, created_at, id`, [list])).map((x) => x.id);
+  const positions = async () => (await svc(`SELECT position FROM public.tasks WHERE list_id = $1 ORDER BY position`, [list])).map((x) => x.position);
+  const o = await order();
+  r = await as(pm, `SELECT public.move_task($1, 'down') AS moved`, [o[0]]);
+  record('manager moves the first task down', !r.error && r.rows[0]?.moved === true, r.error?.message);
+  const o2 = await order();
+  record('order changed by exactly one swap', o2[0] === o[1] && o2[1] === o[0] && o2.slice(2).join() === o.slice(2).join());
+  record('positions stay dense 0..n-1', (await positions()).every((p, i) => p === i));
+  r = await as(pm, `SELECT public.move_task($1, 'up') AS moved`, [o2[0]]);
+  record('moving the first task up is a no-op (returns false)', !r.error && r.rows[0]?.moved === false);
+  r = await as(pm, `SELECT public.move_task($1, 'down') AS moved`, [o2[o2.length - 1]]);
+  record('moving the last task down is a no-op (returns false)', !r.error && r.rows[0]?.moved === false);
+  r = await as(pm, `SELECT public.move_task($1, 'sideways')`, [o2[0]]);
+  record('invalid direction refused', !!r.error);
+  r = await as(editor, `SELECT public.move_task($1, 'up')`, [o2[1]]);
+  record('an editor cannot reorder tasks', !!r.error);
+  r = await as(stranger, `SELECT public.move_task($1, 'up')`, [o2[1]]);
+  record('a stranger cannot reorder (task not visible)', !!r.error);
+  r = await as(pm, `SELECT public.move_task(gen_random_uuid(), 'up')`);
+  record('moving a non-existent task fails', !!r.error);
+  // duplicate positions (legacy / concurrent inserts) are repaired by the next move
+  await svc(`UPDATE public.tasks SET position = 0 WHERE list_id = $1`, [list]);
+  r = await as(pm, `SELECT public.move_task($1, 'down') AS moved`, [(await order())[0]]);
+  ok('a list with duplicate positions can still be reordered', r);
+  record('...and comes out densely sequenced', (await positions()).every((p, i) => p === i));
+
+  // ---- deletes + cascades --------------------------------------------------------------------
+  r = await as(pm, `DELETE FROM public.tasks WHERE id = $1 RETURNING id`, [tA]);
+  ok('manager deletes a task', r);
+  const left = await svc(`SELECT (SELECT count(*) FROM public.task_assignees WHERE task_id = $1) a, (SELECT count(*) FROM public.subtasks WHERE task_id = $1) s`, [tA]);
+  record('deleting a task removes its assignments and subtasks', Number(left[0].a) === 0 && Number(left[0].s) === 0);
+
+  // ---- cross-workspace isolation ------------------------------------------------------------
+  r = await as(editor, `SELECT task_id FROM public.task_assignees WHERE workspace_id = $1`, [wsB]);
+  record("workspace A staff cannot read workspace B's assignments", r.rows.length === 0 && !r.error);
+  r = await as(pm, `SELECT * FROM public.create_task($1, 'cross', NULL, 'LOW', NULL, NULL, NULL, NULL, NULL, NULL, NULL, $2)`, [listB, editor]);
+  record('a workspace-A editor cannot be assigned to a workspace-B task', !!r.error);
+
+  // ---- structure ----------------------------------------------------------------------------
+  const cons = await svc(`SELECT conname FROM pg_constraint WHERE conrelid = 'public.tasks'::regclass AND contype = 'c'`);
+  record('task link / aspect ratio constraints exist', ['tasks_aspect_ratio_valid', 'tasks_raw_footage_link_url', 'tasks_project_file_link_url', 'tasks_review_link_url', 'tasks_final_export_link_url'].every((n) => cons.some((c) => c.conname === n)));
+  const grants = await svc(`SELECT has_table_privilege('authenticated','public.task_assignees','SELECT') s, has_table_privilege('authenticated','public.task_assignees','INSERT') i, has_table_privilege('anon','public.task_assignees','SELECT') a, has_table_privilege('authenticated','public.task_assignees','TRUNCATE') t`);
+  record('task_assignees: CRUD for signed-in users, nothing for anon, no TRUNCATE', grants[0].s && grants[0].i && !grants[0].a && !grants[0].t);
+  const sig = 'public.create_task(uuid,text,text,text,text,text,text,text,text,timestamptz,timestamptz,uuid,uuid)';
+  const rpcExec = await svc(`SELECT has_function_privilege('anon','${sig}','EXECUTE') a, has_function_privilege('authenticated','${sig}','EXECUTE') b`);
+  record('task RPCs: executable by signed-in users only', !rpcExec[0].a && rpcExec[0].b);
+  const definers = await svc(`SELECT p.proname FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname='public' AND p.proname IN ('create_task','set_task_assignee','move_task') AND p.prosecdef`);
+  record('task RPCs are SECURITY INVOKER (they add no privilege)', definers.length === 0);
+  void NULLS; void tL;
 }
 
 console.log('\n== Deactivation & service role ==');

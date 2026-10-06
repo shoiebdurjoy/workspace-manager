@@ -81,5 +81,5 @@ src/pages/{SpacePage,FolderPage,ListPage}.tsx
 
 * Reordering is move up / move down (atomic and permission-checked); drag-and-drop ordering is a later UX refinement.
 * Spaces are not private yet; every staff member sees every space.
-* Lists have no task data until Phase 6.
+* Lists have no task data until Phase 6 (delivered: see `docs/TBB_PHASE_6_TASK_ENGINE.md`).
 * Deleting a space that will later contain tasks removes them too; the confirmation already says "and everything in them".

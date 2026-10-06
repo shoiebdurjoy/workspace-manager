@@ -39,6 +39,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   db.getWorkspaceHierarchy.mockResolvedValue(makeTree());
   db.getWorkspaceMembers.mockResolvedValue([]);
+  db.listTasks.mockResolvedValue({ items: [], total: 0 });
   db.listInvitations.mockResolvedValue([]);
   db.listTeams.mockResolvedValue([]);
   db.listTeamMembers.mockResolvedValue([]);
@@ -116,7 +117,7 @@ describe('Folder page /spaces/:spaceId/folders/:folderId', () => {
 });
 
 describe('List page /spaces/:spaceId/lists/:listId', () => {
-  it('shows the list, its location and an honest empty task area', async () => {
+  it('shows the list, its location and an honest empty task area (tasks come from the database only)', async () => {
     renderAt(`/spaces/${IDS.spaceA}/lists/${IDS.listEdaptx}`);
     expect(await screen.findByRole('heading', { name: '25. EDAPTX' })).toBeInTheDocument();
     const trail = screen.getByRole('navigation', { name: 'Location' });
@@ -124,7 +125,8 @@ describe('List page /spaces/:spaceId/lists/:listId', () => {
     expect(within(trail).getByRole('link', { name: 'CONTENT PIPELINE - ZIM' })).toHaveAttribute(
       'href', `/spaces/${IDS.spaceA}/folders/${IDS.folderZim}`
     );
-    expect(screen.getByText('No tasks yet')).toBeInTheDocument();
+    expect(await screen.findByText('No tasks in this list yet')).toBeInTheDocument();
+    expect(db.listTasks).toHaveBeenCalledWith(IDS.listEdaptx, 0);
     // no invented tasks, assignees, statuses or counts
     expect(screen.queryByRole('row')).not.toBeInTheDocument();
     expect(screen.queryByText(/QC - |IN EDIT|assigned/i)).not.toBeInTheDocument();

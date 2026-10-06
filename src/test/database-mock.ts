@@ -23,6 +23,17 @@ export function createDatabaseMock() {
     updateList: vi.fn(),
     deleteList: vi.fn(),
     reorderHierarchy: vi.fn(),
+    // tasks (Phase 6)
+    listTasks: vi.fn(),
+    getTask: vi.fn(),
+    createTask: vi.fn(),
+    updateTask: vi.fn(),
+    deleteTask: vi.fn(),
+    setTaskAssignee: vi.fn(),
+    moveTask: vi.fn(),
+    createSubtask: vi.fn(),
+    updateSubtask: vi.fn(),
+    deleteSubtask: vi.fn(),
     // team (used by Home and the Team page hooks)
     getWorkspaceMembers: vi.fn(),
     listInvitations: vi.fn(),

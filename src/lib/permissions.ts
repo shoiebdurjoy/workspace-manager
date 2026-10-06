@@ -49,6 +49,7 @@ export type Capability =
   | 'folder-list:edit'
   | 'folder-list:delete'
   | 'task:create'
+  | 'task:delete'
   | 'task:assign'
   | 'task:edit-brief'
   | 'task:update-status'
@@ -81,6 +82,7 @@ const MATRIX: Record<Capability, readonly TbbRole[]> = {
   'folder-list:edit': MANAGERS, // Rename / move / reorder folders and lists (folders/lists_update policies)
   'folder-list:delete': ADMINS, // Delete Lists or Folders
   'task:create': MANAGERS, // Create Video Tasks
+  'task:delete': MANAGERS, // Delete tasks (tasks_delete policy: managers; not a matrix row, so it follows task creation)
   'task:assign': MANAGERS, // Assign Editors & QC Reviewers
   'task:edit-brief': MANAGERS, // Edit Task Brief & Due Dates (QC: notes only, later phase)
   'task:update-status': STAFF, // Update Editing Status (editor: own tasks, enforced in DB)

@@ -32,6 +32,7 @@ const MATRIX: Array<[Capability, string, [boolean, boolean, boolean, boolean, bo
   ['space:delete', 'Delete a space', [true, true, false, false, false, false]],
   ['folder-list:edit', 'Rename / move / reorder folders and lists', [true, true, true, false, false, false]],
   ['task:create', 'Create Video Tasks', [true, true, true, false, false, false]],
+  ['task:delete', 'Delete tasks (tasks_delete policy: managers)', [true, true, true, false, false, false]],
   ['task:assign', 'Assign Editors & QC Reviewers', [true, true, true, false, false, false]],
   ['task:edit-brief', 'Edit Task Brief & Due Dates', [true, true, true, false, false, false]],
   ['task:update-status', 'Update Editing Status', [true, true, true, true, true, false]],

@@ -35,6 +35,13 @@ export default defineConfig({
         'src/database/invitations.ts',
         'src/database/errors.ts',
         'src/database/health.ts',
+        // Phase 6: task engine
+        'src/lib/tasks.ts',
+        'src/database/tasks.ts',
+        'src/database/task-mappers.ts',
+        'src/hooks/use-tasks.ts',
+        'src/components/tasks/*.tsx',
+        'src/pages/TaskRedirect.tsx',
       ],
       thresholds: { lines: 85, functions: 85, statements: 85, branches: 75 },
     },

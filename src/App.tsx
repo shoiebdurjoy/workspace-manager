@@ -20,6 +20,7 @@ const Team = lazy(() => import('@/pages/Team'));
 const SpacePage = lazy(() => import('@/pages/SpacePage'));
 const FolderPage = lazy(() => import('@/pages/FolderPage'));
 const ListPage = lazy(() => import('@/pages/ListPage'));
+const TaskRedirect = lazy(() => import('@/pages/TaskRedirect'));
 const Profile = lazy(() => import('@/pages/Profile'));
 const Settings = lazy(() => import('@/pages/Settings'));
 const Unauthorized = lazy(() => import('@/pages/Unauthorized'));
@@ -124,6 +125,20 @@ const App = () => (
                   <ProtectedRoute>
                     <Layout>
                       <ListPage />
+                    </Layout>
+                  </ProtectedRoute>
+                }
+              >
+                {/* The task is a side sheet over the list: a child route keeps the list mounted
+                    (no refetch, no flicker) while the sheet opens and closes. ListPage renders it. */}
+                <Route path="tasks/:taskId" element={null} />
+              </Route>
+              <Route
+                path="/tasks/:taskId"
+                element={
+                  <ProtectedRoute>
+                    <Layout>
+                      <TaskRedirect />
                     </Layout>
                   </ProtectedRoute>
                 }

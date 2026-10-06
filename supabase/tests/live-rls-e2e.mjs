@@ -57,6 +57,16 @@ function runSql(sql) {
   }
 }
 
+// Reads integer columns from the first row of `supabase db query` output.
+function runSqlJson(sql) {
+  const out = runSql(sql);
+  const row = {};
+  for (const m of out.matchAll(/"(\w+)":\s*(-?\d+)/g)) row[m[1]] = Number(m[2]);
+  return row;
+}
+const TASK_TABLE_COUNTS_SQL =
+  'SELECT (SELECT count(*) FROM public.tasks) AS tasks, (SELECT count(*) FROM public.task_assignees) AS task_assignees, (SELECT count(*) FROM public.subtasks) AS subtasks;';
+
 const CLEANUP_SQL = `
 DELETE FROM public.workspaces
   WHERE owner_id IN (SELECT id FROM auth.users WHERE email LIKE '%${TEST_EMAIL_SUFFIX}');
@@ -81,7 +91,7 @@ if (process.argv.includes('--cleanup-only')) {
   process.exit(cleanup() ? 0 : 1);
 }
 
-const roles = ['owner', 'admin', 'pm', 'qc', 'editor', 'client', 'stranger'];
+const roles = ['owner', 'admin', 'pm', 'qc', 'editor', 'client', 'stranger', 'editor2'];
 const U = {};
 for (const r of roles) {
   U[r] = {
@@ -120,6 +130,8 @@ INSERT INTO public.workspaces (name, slug, owner_id) VALUES
 
 // Start from a known state: remove leftovers of an earlier aborted run, then create users.
 cleanup();
+// What the real tables hold before the test touches anything (the live project has no tasks yet).
+const BASELINE = runSqlJson(TASK_TABLE_COUNTS_SQL);
 runSql(SETUP_SQL);
 
 let pass = 0, fail = 0;
@@ -156,7 +168,7 @@ const code = (res) => res.error?.code;
 try {
   console.log('== Sign in as each test user (real GoTrue + PostgREST) ==');
   for (const r of Object.keys(U)) await login(r);
-  rec('all 7 test users can sign in', Object.keys(clients).length === 7);
+  rec(`all ${Object.keys(U).length} test users can sign in`, Object.keys(clients).length === Object.keys(U).length);
   const pre = await clients.owner.from('profiles').select('id').eq('id', U.owner.id);
   if (pre.error && /permission denied for table/.test(pre.error.message)) {
     throw new Error('PREFLIGHT: signed-in users have no table privileges (missing GRANTs). Aborting: every later check would be meaningless.');
@@ -205,7 +217,7 @@ try {
   res = await clients.stranger.from('workspaces').insert({ name: 'Forged', slug: `e2e-forged-${RUN}`, owner_id: U.owner.id });
   rec('cannot create a workspace owned by someone else', !!res.error);
 
-  for (const [r, role] of [['admin', 'ADMIN'], ['pm', 'PRODUCTION_MANAGER'], ['qc', 'QC_SPECIALIST'], ['editor', 'EDITOR'], ['client', 'CLIENT_VIEWER']]) {
+  for (const [r, role] of [['admin', 'ADMIN'], ['pm', 'PRODUCTION_MANAGER'], ['qc', 'QC_SPECIALIST'], ['editor', 'EDITOR'], ['client', 'CLIENT_VIEWER'], ['editor2', 'EDITOR']]) {
     res = await clients.owner.from('workspace_members').insert({ workspace_id: ws, user_id: U[r].id, role }).select();
     rec(`owner adds ${role}`, !res.error && res.data?.length === 1, res.error?.message);
   }
@@ -286,6 +298,11 @@ try {
   res = await clients.stranger.from('tasks').update({ title: 'pwn' }).eq('id', task).select();
   noRows('outsider cannot update tasks', res);
 
+  // Phase 6 tightening (migration 7): an editor acts only on tasks assigned to them.
+  res = await clients.editor.from('tasks').update({ status: 'IN_PROGRESS' }).eq('id', task).select();
+  rec('editor cannot change a task that is NOT assigned to them', code(res) === '42501', JSON.stringify(res.error));
+  res = await clients.pm.rpc('set_task_assignee', { p_task_id: task, p_role_type: 'EDITOR', p_user_id: U.editor.id });
+  rec('manager assigns the editor to the task', !res.error, res.error?.message);
   res = await clients.editor.from('tasks').update({ status: 'IN_PROGRESS' }).eq('id', task).select();
   rec('editor can start work', !res.error && res.data?.length === 1, res.error?.message);
   res = await clients.editor.from('tasks').update({ status: 'IN_QC', position: 2 }).eq('id', task).select();
@@ -630,6 +647,194 @@ VALUES (gen_random_uuid(), '${u.id}', '${u.id}', jsonb_build_object('sub','${u.i
     roleOf[U.qc.id] === 'QC_SPECIALIST' && roleOf[U.editor.id] === 'EDITOR' && roleOf[U.client.id] === 'CLIENT_VIEWER' && !roleOf[U.stranger.id],
     JSON.stringify(roleOf));
 
+  console.log('\n== Phase 6: task engine (live) ==');
+  {
+    // Fresh list so ordering assertions are not affected by earlier fixtures.
+    res = await clients.pm.from('lists').insert({ space_id: space, folder_id: folder, name: 'P6 DELIVERABLES' }).select().single();
+    rec('manager creates a list for the task-engine checks', !res.error, res.error?.message);
+    const l6 = res.data?.id;
+    const ids = {};
+    const rpc = (who, fn, args) => clients[who].rpc(fn, args);
+    const dt = (days) => new Date(Date.now() + days * 86400000).toISOString();
+
+    // ---- create_task: one transaction, assignees linked, position appended ----
+    res = await rpc('pm', 'create_task', { p_list_id: l6, p_title: '  Episode A  ', p_description: 'brief', p_priority: 'HIGH', p_aspect_ratio: '9:16', p_raw_footage_link: 'https://drive.google.com/x', p_due_date: dt(2), p_client_deadline: dt(5), p_editor_id: U.editor.id, p_qc_id: U.qc.id });
+    rec('create_task: manager creates a deliverable with editor + QC in one call', !res.error && !!res.data?.id, res.error?.message);
+    ids.a = res.data?.id;
+    rec('create_task: title trimmed, created_by + workspace derived, position 0', res.data?.title === 'Episode A' && res.data?.created_by === U.pm.id && res.data?.workspace_id === ws && res.data?.position === 0, JSON.stringify(res.data));
+    res = await rpc('admin', 'create_task', { p_list_id: l6, p_title: 'Episode B' });
+    ids.b = res.data?.id;
+    rec('create_task: next task appends at position 1 with defaults', !res.error && res.data?.position === 1 && res.data?.status === 'TODO' && res.data?.priority === 'MEDIUM', res.error?.message);
+    res = await rpc('owner', 'create_task', { p_list_id: l6, p_title: 'Episode C' });
+    ids.c = res.data?.id;
+    rec('create_task: third task appends at position 2', res.data?.position === 2);
+
+    // ---- the exact query shapes the app uses, through the real PostgREST ----
+    const SUMMARY = 'id, list_id, title, status, priority, position, aspect_ratio, due_date, client_deadline, created_at, updated_at, task_assignees(role_type, user_id), subtasks(is_completed)';
+    res = await clients.editor.from('tasks').select(SUMMARY, { count: 'exact' }).eq('list_id', l6).order('position', { ascending: true }).order('created_at', { ascending: true }).order('id', { ascending: true }).range(0, 99);
+    rec('list query: one request returns rows with assignees + checklist embedded, exact count', !res.error && res.count === 3 && res.data?.length === 3, res.error?.message);
+    const rowA = res.data?.find((r) => r.id === ids.a);
+    rec('list query: assignee slots are readable by a colleague', rowA?.task_assignees?.length === 2 && rowA.task_assignees.some((x) => x.role_type === 'EDITOR' && x.user_id === U.editor.id) && rowA.task_assignees.some((x) => x.role_type === 'QC_REVIEWER' && x.user_id === U.qc.id), JSON.stringify(rowA?.task_assignees));
+    rec('list query: ordered by position', res.data?.map((r) => r.id).join() === [ids.a, ids.b, ids.c].join());
+    res = await clients.editor.from('tasks').select(SUMMARY).eq('list_id', l6).range(100, 199);
+    rec('list query: a page past the end is simply empty', !res.error && res.data?.length === 0);
+    res = await clients.pm.from('tasks').select('*, task_assignees(role_type, user_id), subtasks(*)').eq('id', ids.a).maybeSingle();
+    rec('detail query: task + assignees + subtasks in one request', !res.error && res.data?.id === ids.a && Array.isArray(res.data?.subtasks) && res.data?.task_assignees?.length === 2, res.error?.message);
+
+    // ---- who may create ----
+    for (const who of ['editor', 'qc', 'client', 'stranger']) {
+      res = await rpc(who, 'create_task', { p_list_id: l6, p_title: 'Sneaky' });
+      rec(`create_task: ${who} is refused`, !!res.error, res.error ? '' : 'was allowed');
+    }
+    res = await clients.pm.from('tasks').select('id', { count: 'exact', head: true }).eq('list_id', l6);
+    rec('...and none of those left a task behind', res.count === 3, String(res.count));
+    res = await anon.rpc('create_task', { p_list_id: l6, p_title: 'x' });
+    rec('create_task: anon is refused', !!res.error);
+    res = await anon.from('task_assignees').select('task_id');
+    rec('anon cannot read task_assignees', code(res) === '42501');
+
+    // ---- invalid input is refused by the database itself ----
+    const bad = {
+      'blank title': { p_title: '   ' },
+      'invalid priority': { p_title: 'x', p_priority: 'BLOCKER' },
+      'invalid aspect ratio': { p_title: 'x', p_aspect_ratio: '3:2' },
+      'javascript: raw footage link': { p_title: 'x', p_raw_footage_link: 'javascript:alert(1)' },
+      'data: review link': { p_title: 'x', p_review_link: 'data:text/html,hi' },
+      'link with a space': { p_title: 'x', p_project_file_link: 'https://a.co/a b' },
+      'link without a host': { p_title: 'x', p_final_export_link: 'https://' },
+      'link over 2048 characters': { p_title: 'x', p_raw_footage_link: `https://a.co/${'a'.repeat(2100)}` },
+      'title over 500 characters': { p_title: 't'.repeat(501) },
+    };
+    for (const [name, args] of Object.entries(bad)) {
+      res = await rpc('pm', 'create_task', { p_list_id: l6, ...args });
+      rec(`rejects ${name}`, !!res.error, res.error ? '' : 'was accepted');
+    }
+    res = await clients.pm.from('tasks').select('id', { count: 'exact', head: true }).eq('list_id', l6);
+    rec('...and none of the invalid attempts stored anything', res.count === 3, String(res.count));
+    res = await rpc('pm', 'create_task', { p_list_id: l6, p_title: 'Links ok', p_aspect_ratio: '16:9', p_raw_footage_link: 'HTTPS://drive.google.com/drive/folders/abc?usp=sharing', p_review_link: 'https://app.frame.io/reviews/1' });
+    rec('accepts valid http(s) links and an allowed aspect ratio', !res.error, res.error?.message);
+    ids.links = res.data?.id;
+
+    // ---- assignment eligibility + atomicity ----
+    res = await rpc('pm', 'create_task', { p_list_id: l6, p_title: 'Atomic', p_editor_id: U.editor.id, p_qc_id: U.editor.id });
+    rec('same person as editor AND QC reviewer is refused', !!res.error, res.error?.message);
+    res = await clients.pm.from('tasks').select('id').eq('list_id', l6).eq('title', 'Atomic');
+    rec('...and the half-created task was rolled back (transactional)', !res.error && res.data?.length === 0);
+    res = await rpc('pm', 'create_task', { p_list_id: l6, p_title: 'x', p_editor_id: U.qc.id });
+    rec('a QC specialist cannot be the editor', !!res.error);
+    res = await rpc('pm', 'create_task', { p_list_id: l6, p_title: 'x', p_qc_id: U.editor.id });
+    rec('an editor cannot be the QC reviewer', !!res.error);
+    res = await rpc('pm', 'create_task', { p_list_id: l6, p_title: 'x', p_editor_id: U.client.id });
+    rec('a client viewer cannot be assigned', !!res.error);
+    res = await rpc('pm', 'create_task', { p_list_id: l6, p_title: 'x', p_editor_id: U.stranger.id });
+    rec('a person outside the workspace cannot be assigned', !!res.error);
+    res = await rpc('pm', 'create_task', { p_list_id: l6, p_title: 'x', p_editor_id: crypto.randomUUID() });
+    rec('an unknown user id cannot be assigned', !!res.error);
+    res = await rpc('pm', 'set_task_assignee', { p_task_id: ids.b, p_role_type: 'EDITOR', p_user_id: U.editor2.id });
+    rec('manager assigns an editor', !res.error, res.error?.message);
+    res = await rpc('pm', 'set_task_assignee', { p_task_id: ids.b, p_role_type: 'EDITOR', p_user_id: U.editor.id });
+    rec('manager replaces the editor', !res.error, res.error?.message);
+    res = await clients.pm.from('task_assignees').select('user_id').eq('task_id', ids.b).eq('role_type', 'EDITOR');
+    rec('exactly one editor row after replacing', res.data?.length === 1 && res.data[0].user_id === U.editor.id);
+    res = await rpc('pm', 'set_task_assignee', { p_task_id: ids.b, p_role_type: 'QC_REVIEWER', p_user_id: U.editor.id });
+    rec('the editor cannot also be made QC reviewer', !!res.error);
+    res = await rpc('pm', 'set_task_assignee', { p_task_id: ids.b, p_role_type: 'EDITOR', p_user_id: null });
+    rec('manager clears the editor', !res.error, res.error?.message);
+    res = await rpc('pm', 'set_task_assignee', { p_task_id: ids.b, p_role_type: 'CREATIVE_DIRECTOR', p_user_id: U.editor.id });
+    rec('unknown assignment role refused', !!res.error);
+    for (const who of ['editor', 'qc', 'client', 'stranger']) {
+      res = await rpc(who, 'set_task_assignee', { p_task_id: ids.c, p_role_type: 'EDITOR', p_user_id: U[who].id });
+      rec(`${who} cannot assign (not even themselves)`, !!res.error);
+    }
+    res = await clients.editor.from('task_assignees').insert({ task_id: ids.c, role_type: 'EDITOR', user_id: U.editor.id });
+    rec('direct INSERT into task_assignees by an editor is refused', !!res.error);
+    res = await clients.editor.from('task_assignees').update({ user_id: U.editor2.id }).eq('task_id', ids.a).eq('role_type', 'EDITOR').select();
+    noRows('editor cannot re-point an assignment', res);
+    for (const [who, want] of [['qc', 2], ['client', 0], ['stranger', 0]]) {
+      res = await clients[who].from('task_assignees').select('task_id').eq('task_id', ids.a);
+      rec(`${who} ${want ? 'sees' : 'does not see'} assignments`, !res.error && res.data?.length === want, `${res.data?.length}`);
+    }
+
+    // ---- editor rules: only assigned tasks, only operational columns ----
+    res = await clients.editor.from('tasks').update({ status: 'IN_PROGRESS' }).eq('id', ids.c).select();
+    rec('editor cannot change a task nobody assigned them', code(res) === '42501', JSON.stringify(res.error));
+    res = await clients.editor2.from('tasks').update({ status: 'IN_PROGRESS' }).eq('id', ids.a).select();
+    rec("editor cannot change a colleague's task", code(res) === '42501');
+    res = await clients.editor.from('tasks').update({ status: 'IN_PROGRESS' }).eq('id', ids.a).select();
+    rec('assigned editor starts work', !res.error && res.data?.length === 1, res.error?.message);
+    res = await clients.editor.from('tasks').update({ review_link: 'https://app.frame.io/reviews/9', project_file_link: 'https://drive.google.com/p' }).eq('id', ids.a).select();
+    rec('assigned editor submits review + project file links', !res.error && res.data?.length === 1, res.error?.message);
+    for (const patch of [{ raw_footage_link: 'https://x.co/r' }, { final_export_link: 'https://x.co/f' }, { title: 'Mine' }, { priority: 'URGENT' }, { due_date: dt(1) }, { client_deadline: dt(1) }, { aspect_ratio: '1:1' }, { description: 'x' }]) {
+      res = await clients.editor.from('tasks').update(patch).eq('id', ids.a).select();
+      rec(`assigned editor cannot change ${Object.keys(patch)[0]}`, code(res) === '42501');
+    }
+    res = await clients.editor.from('tasks').update({ status: 'READY_TO_DELIVER' }).eq('id', ids.a).select();
+    rec('assigned editor still cannot self-approve', code(res) === '42501');
+    res = await clients.editor.from('tasks').update({ review_link: 'javascript:alert(1)' }).eq('id', ids.a).select();
+    rec('even an assigned editor cannot store a javascript: link', !!res.error);
+    res = await clients.editor.from('tasks').delete().eq('id', ids.a).select();
+    noRows('assigned editor cannot delete the task', res);
+    res = await clients.qc.from('tasks').update({ review_link: 'https://x.co/qc' }).eq('id', ids.a).select();
+    rec('QC cannot edit the brief or links', code(res) === '42501');
+    res = await clients.pm.from('tasks').select('status,review_link,title').eq('id', ids.a).single();
+    rec('after those attempts the task holds exactly what was legitimately saved', res.data?.status === 'IN_PROGRESS' && res.data?.review_link === 'https://app.frame.io/reviews/9' && res.data?.title === 'Episode A', JSON.stringify(res.data));
+
+    // ---- managers edit everything; clear optional fields ----
+    res = await clients.pm.from('tasks').update({ title: 'Episode A (final)', description: 'd', priority: 'URGENT', aspect_ratio: '4:5', final_export_link: 'https://x.co/final', client_deadline: dt(7) }).eq('id', ids.a).select();
+    rec('manager edits every deliverable field', !res.error && res.data?.length === 1, res.error?.message);
+    res = await clients.pm.from('tasks').update({ aspect_ratio: null, client_deadline: null, review_link: null }).eq('id', ids.a).select();
+    rec('manager can clear optional fields', !res.error && res.data?.length === 1);
+
+    // ---- subtasks ----
+    res = await clients.pm.from('subtasks').insert([{ task_id: ids.a, title: 'Rough cut', position: 0 }, { task_id: ids.a, title: 'Captions', position: 1 }]).select();
+    rec('manager adds a checklist', !res.error && res.data?.length === 2, res.error?.message);
+    const [s1, s2] = res.data ?? [];
+    res = await clients.editor.from('subtasks').update({ is_completed: true }).eq('id', s1?.id).select();
+    rec('assigned editor ticks a subtask of their task', !res.error && res.data?.length === 1, res.error?.message);
+    res = await clients.editor2.from('subtasks').update({ is_completed: true }).eq('id', s2?.id).select();
+    rec("editor cannot tick a subtask of a colleague's task", code(res) === '42501');
+    res = await clients.qc.from('subtasks').update({ is_completed: true }).eq('id', s2?.id).select();
+    rec('QC can tick a subtask', !res.error && res.data?.length === 1);
+    res = await clients.pm.from('tasks').select('subtasks(is_completed)').eq('id', ids.a).single();
+    rec('checklist progress reads back as 2 of 2', res.data?.subtasks?.length === 2 && res.data.subtasks.every((s) => s.is_completed));
+    res = await clients.pm.from('subtasks').insert({ task_id: ids.a, title: '   ' });
+    rec('blank subtask title refused', !!res.error);
+
+    // ---- ordering ----
+    const order = async () => (await clients.pm.from('tasks').select('id').eq('list_id', l6).order('position').order('created_at').order('id')).data.map((r) => r.id);
+    let o = await order();
+    res = await rpc('pm', 'move_task', { p_task_id: o[0], p_direction: 'down' });
+    rec('manager moves the first task down', !res.error && res.data === true, res.error?.message);
+    const o2 = await order();
+    rec('exactly one swap happened', o2[0] === o[1] && o2[1] === o[0] && o2.slice(2).join() === o.slice(2).join());
+    res = await rpc('pm', 'move_task', { p_task_id: o2[0], p_direction: 'up' });
+    rec('moving the first task up is a no-op (false)', !res.error && res.data === false);
+    res = await rpc('pm', 'move_task', { p_task_id: o2[0], p_direction: 'sideways' });
+    rec('invalid direction refused', !!res.error);
+    res = await rpc('editor', 'move_task', { p_task_id: o2[1], p_direction: 'up' });
+    rec('an editor cannot reorder', !!res.error);
+    res = await rpc('stranger', 'move_task', { p_task_id: o2[1], p_direction: 'up' });
+    rec('a stranger cannot reorder', !!res.error);
+    res = await clients.pm.from('tasks').select('position').eq('list_id', l6).order('position');
+    rec('positions stay dense', res.data?.every((r, i) => r.position === i));
+
+    // ---- isolation ----
+    res = await clients.editor.from('task_assignees').select('task_id').eq('workspace_id', wsB);
+    noRows("workspace A staff cannot read workspace B's assignments", res);
+    res = await rpc('pm', 'create_task', { p_list_id: listB, p_title: 'cross', p_editor_id: U.editor.id });
+    rec('a workspace-A editor cannot be assigned to a workspace-B task', !!res.error);
+    res = await clients.stranger.from('tasks').select('id').eq('list_id', l6);
+    noRows('an outsider sees none of these tasks', res);
+    res = await clients.client.from('tasks').select('id').eq('list_id', l6);
+    noRows('a client viewer sees none of these tasks', res);
+
+    // ---- delete + cascade ----
+    res = await clients.pm.from('tasks').delete().eq('id', ids.a).select();
+    rec('manager deletes a task', !res.error && res.data?.length === 1, res.error?.message);
+    res = await runSqlJson(`SELECT (SELECT count(*) FROM public.task_assignees WHERE task_id = '${ids.a}') AS a, (SELECT count(*) FROM public.subtasks WHERE task_id = '${ids.a}') AS s`);
+    rec('deleting a task removes its assignments and subtasks', res.a === 0 && res.s === 0, JSON.stringify(res));
+  }
+
   console.log('\n== Deactivation (flag flipped by the service owner) ==');
   const run = runSql;
   run(`UPDATE public.profiles SET is_active = false WHERE id = '${U.editor.id}'`);
@@ -655,6 +860,12 @@ VALUES (gen_random_uuid(), '${u.id}', '${u.id}', jsonb_build_object('sub','${u.i
 let clean = false;
 try { clean = cleanup(); } catch (e) { console.log('CLEANUP ERROR:', e.message, '\nRun again with --cleanup-only.'); }
 if (!clean) { fail++; failures.push('cleanup could not be verified'); }
+try {
+  const after = runSqlJson(TASK_TABLE_COUNTS_SQL);
+  const same = ['tasks', 'task_assignees', 'subtasks'].every((k) => after[k] === BASELINE[k]);
+  console.log(`Task tables before the run: ${JSON.stringify(BASELINE)}; after cleanup: ${JSON.stringify(after)}`);
+  if (!same) { fail++; failures.push(`task tables changed: before ${JSON.stringify(BASELINE)}, after ${JSON.stringify(after)}`); }
+} catch (e) { fail++; failures.push('could not verify the task tables after cleanup: ' + e.message); }
 if (grantRefusals > 0) { fail++; failures.push(`${grantRefusals} signed-in request(s) were refused for missing table GRANTs (not RLS)`); }
 console.log(`\ngrant-level refusals for signed-in users: ${grantRefusals}`);
 console.log(`\n${pass} passed, ${fail} failed`);

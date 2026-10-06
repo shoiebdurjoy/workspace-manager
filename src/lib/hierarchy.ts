@@ -145,6 +145,19 @@ export function findList(
   return undefined;
 }
 
+/** Finds a list (and where it lives) from its id alone. */
+export function findListById(
+  tree: readonly HierarchySpace[],
+  listId: string | undefined
+): { space: HierarchySpace; folder: HierarchyFolder | null; list: HierarchyList } | undefined {
+  if (!listId) return undefined;
+  for (const space of tree) {
+    const hit = findList(tree, space.id, listId);
+    if (hit) return hit;
+  }
+  return undefined;
+}
+
 export function countListsInSpace(space: HierarchySpace): number {
   return space.folderlessLists.length + space.folders.reduce((n, f) => n + f.lists.length, 0);
 }
@@ -174,6 +187,10 @@ export const hierarchyPaths = {
   space: (spaceId: string) => `/spaces/${spaceId}`,
   folder: (spaceId: string, folderId: string) => `/spaces/${spaceId}/folders/${folderId}`,
   list: (spaceId: string, listId: string) => `/spaces/${spaceId}/lists/${listId}`,
+  /** A task opens as a side sheet over its list, so a task URL is the list URL plus the task id. */
+  task: (spaceId: string, listId: string, taskId: string) => `/spaces/${spaceId}/lists/${listId}/tasks/${taskId}`,
+  /** Stable deep link for places that know only a task id (notifications, search, My Tasks). */
+  taskById: (taskId: string) => `/tasks/${taskId}`,
 };
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
