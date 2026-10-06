@@ -8,10 +8,7 @@ const NotFound = () => {
   const location = useLocation();
 
   useEffect(() => {
-    console.error(
-      "404 Error: User attempted to access non-existent route:",
-      location.pathname
-    );
+    document.title = "Not found · TBB Workspace";
   }, [location.pathname]);
 
   return (
@@ -25,12 +22,9 @@ const NotFound = () => {
         <p className="text-muted-foreground mb-8">
           The page you were looking for doesn't exist or has been moved.
         </p>
-        <div className="flex flex-col sm:flex-row gap-4 justify-center">
+        <div className="flex justify-center">
           <Button asChild>
-            <Link to="/">Back to Home</Link>
-          </Button>
-          <Button variant="outline" asChild>
-            <Link to="/dashboard">Go to Dashboard</Link>
+            <Link to="/">Back to TBB Workspace</Link>
           </Button>
         </div>
       </div>

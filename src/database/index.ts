@@ -9,6 +9,8 @@ export * from './workspaces';
 export * from './memberships';
 export * from './hierarchy';
 export * from './tasks';
+export * from './teams';
+export * from './invitations';
 export * from './health';
 
 // Types

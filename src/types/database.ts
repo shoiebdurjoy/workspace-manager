@@ -120,3 +120,43 @@ export interface WorkspaceHierarchy {
   workspace: Workspace;
   spaces: HierarchySpace[];
 }
+
+// ==============================================================================
+// PHASE 4: MEMBERSHIP, PODS AND INVITATIONS
+// ==============================================================================
+
+/** A workspace together with the signed-in user's role in it. */
+export interface MyMembership {
+  workspace: Workspace;
+  role: TbbRole;
+  joinedAt: string;
+}
+
+export interface Team {
+  id: string;
+  workspaceId: string;
+  name: string;
+  description?: string | null;
+  color: string;
+  leadId?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TeamMember {
+  teamId: string;
+  userId: string;
+  workspaceId: string;
+  createdAt: string;
+}
+
+export interface WorkspaceInvitation {
+  id: string;
+  workspaceId: string;
+  email: string;
+  role: TbbRole;
+  invitedBy?: string | null;
+  acceptedAt?: string | null;
+  acceptedBy?: string | null;
+  createdAt: string;
+}

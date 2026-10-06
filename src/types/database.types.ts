@@ -432,6 +432,139 @@ export interface Database {
           }
         ];
       };
+      teams: {
+        Row: {
+          id: string;
+          workspace_id: string;
+          name: string;
+          description: string | null;
+          color: string;
+          lead_id: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          workspace_id: string;
+          name: string;
+          description?: string | null;
+          color?: string;
+          lead_id?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          workspace_id?: string;
+          name?: string;
+          description?: string | null;
+          color?: string;
+          lead_id?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'teams_workspace_id_fkey';
+            columns: ['workspace_id'];
+            referencedRelation: 'workspaces';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'teams_lead_id_fkey';
+            columns: ['lead_id'];
+            referencedRelation: 'profiles';
+            referencedColumns: ['id'];
+          }
+        ];
+      };
+      team_members: {
+        Row: {
+          team_id: string;
+          user_id: string;
+          workspace_id: string;
+          created_at: string;
+        };
+        Insert: {
+          team_id: string;
+          user_id: string;
+          /** Derived by a database trigger; any value sent is ignored. */
+          workspace_id?: string;
+          created_at?: string;
+        };
+        Update: {
+          team_id?: string;
+          user_id?: string;
+          workspace_id?: string;
+          created_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'team_members_team_id_fkey';
+            columns: ['team_id'];
+            referencedRelation: 'teams';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'team_members_user_id_fkey';
+            columns: ['user_id'];
+            referencedRelation: 'profiles';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'team_members_workspace_id_fkey';
+            columns: ['workspace_id'];
+            referencedRelation: 'workspaces';
+            referencedColumns: ['id'];
+          }
+        ];
+      };
+      workspace_invitations: {
+        Row: {
+          id: string;
+          workspace_id: string;
+          email: string;
+          role: TbbRole;
+          invited_by: string | null;
+          accepted_at: string | null;
+          accepted_by: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          workspace_id: string;
+          email: string;
+          role?: TbbRole;
+          /** Stamped by a database trigger; any value sent is ignored. */
+          invited_by?: string | null;
+          /** Always reset by a database trigger on insert. */
+          accepted_at?: string | null;
+          accepted_by?: string | null;
+          created_at?: string;
+        };
+        // No client UPDATE grant exists: invitations are created, accepted by the database, or revoked.
+        Update: Record<string, never>;
+        Relationships: [
+          {
+            foreignKeyName: 'workspace_invitations_workspace_id_fkey';
+            columns: ['workspace_id'];
+            referencedRelation: 'workspaces';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'workspace_invitations_invited_by_fkey';
+            columns: ['invited_by'];
+            referencedRelation: 'profiles';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'workspace_invitations_accepted_by_fkey';
+            columns: ['accepted_by'];
+            referencedRelation: 'profiles';
+            referencedColumns: ['id'];
+          }
+        ];
+      };
     };
     Views: Record<string, never>;
     // Authorization helpers live in the non-exposed `private` schema (migration 4),

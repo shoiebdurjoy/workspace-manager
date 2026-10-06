@@ -1,0 +1,112 @@
+import React, { useEffect } from 'react';
+import { Link } from 'react-router-dom';
+import { ArrowRight, MailPlus, ShieldCheck, Users, UsersRound } from 'lucide-react';
+import { useAuth } from '@/hooks/use-auth';
+import { useInvitations, useTeams, useWorkspaceMembers } from '@/hooks/use-team';
+import { can, capabilitiesOf, ROLE_DESCRIPTIONS } from '@/lib/permissions';
+import { Button } from '@/components/ui/button';
+import { Skeleton } from '@/components/ui/skeleton';
+import RoleBadge from '@/components/team/RoleBadge';
+
+const Stat: React.FC<{ label: string; value: number | undefined; icon: React.ReactNode; to?: string }> = ({
+  label,
+  value,
+  icon,
+  to,
+}) => {
+  const body = (
+    <div className="flex items-center gap-3 rounded-lg border border-border/70 bg-card p-3 transition-colors hover:bg-muted/30">
+      <div className="flex h-9 w-9 items-center justify-center rounded-md bg-primary/10 text-primary">{icon}</div>
+      <div>
+        {value === undefined ? (
+          <Skeleton className="h-5 w-8" />
+        ) : (
+          <p className="text-lg font-semibold leading-none">{value}</p>
+        )}
+        <p className="mt-1 text-[11px] text-muted-foreground">{label}</p>
+      </div>
+    </div>
+  );
+  return to ? <Link to={to}>{body}</Link> : body;
+};
+
+/**
+ * Phase 4 home: who you are, your role and the real state of the workspace. The full
+ * personal Home / Inbox / My Tasks hub is Phase 11 and is not simulated here.
+ */
+const Home: React.FC = () => {
+  const { profile, role, workspace } = useAuth();
+  const members = useWorkspaceMembers();
+  const teams = useTeams();
+  const invitations = useInvitations();
+  const canInvite = can(role, 'users:invite');
+  const canSeeTeam = can(role, 'team:view');
+  const pendingInvites = invitations.data?.filter((i) => !i.acceptedAt).length;
+
+  useEffect(() => {
+    document.title = 'Home · TBB Workspace';
+  }, []);
+
+  const firstName = profile?.fullName.split(' ')[0] ?? '';
+
+  return (
+    <div className="space-y-6">
+      <header className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <p className="text-xs text-muted-foreground">{workspace?.name}</p>
+          <h1 className="text-xl font-semibold tracking-tight">Welcome, {firstName}</h1>
+        </div>
+        {role && <RoleBadge role={role} className="text-[11px]" />}
+      </header>
+
+      {canSeeTeam && (
+        <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3" aria-label="Workspace summary">
+          <Stat label="Members" value={members.data?.length} icon={<Users className="h-4 w-4" />} to="/team" />
+          <Stat label="Pods" value={teams.data?.length} icon={<UsersRound className="h-4 w-4" />} to="/team?tab=pods" />
+          {canInvite && (
+            <Stat
+              label="Pending invitations"
+              value={pendingInvites}
+              icon={<MailPlus className="h-4 w-4" />}
+              to="/team?tab=invitations"
+            />
+          )}
+        </section>
+      )}
+
+      <section className="rounded-lg border border-border/70 bg-card p-4">
+        <div className="flex items-center gap-2">
+          <ShieldCheck className="h-4 w-4 text-primary" />
+          <h2 className="text-sm font-semibold">Your access</h2>
+        </div>
+        {role && <p className="mt-1 text-xs text-muted-foreground">{ROLE_DESCRIPTIONS[role]}</p>}
+        <p className="mt-2 text-[11px] text-muted-foreground">
+          {capabilitiesOf(role).length} capabilities from the TBB permission model apply to your role. The database
+          enforces them for every request.
+        </p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          {canSeeTeam && (
+            <Button asChild size="sm" variant="outline" className="h-8 text-xs">
+              <Link to="/team">
+                Open team <ArrowRight className="ml-1 h-3.5 w-3.5" />
+              </Link>
+            </Button>
+          )}
+          <Button asChild size="sm" variant="outline" className="h-8 text-xs">
+            <Link to="/profile">Edit profile</Link>
+          </Button>
+        </div>
+      </section>
+
+      <section className="rounded-lg border border-dashed border-border/80 bg-muted/20 p-4">
+        <h2 className="text-sm font-semibold">Spaces, lists and tasks</h2>
+        <p className="mt-1 text-xs text-muted-foreground">
+          The Space → Folder → List hierarchy for client pipelines arrives in the next phase, followed by the video
+          task engine and the TBB QC workflow.
+        </p>
+      </section>
+    </div>
+  );
+};
+
+export default Home;

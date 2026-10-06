@@ -1,73 +1,45 @@
-# Welcome to your Lovable project
+# TBB Workspace
 
-## Project info
+Think Big Brand's internal ClickUp-style workspace for video production: Workspace → Space → Folder → List → Task → Subtask, with the TBB QC workflow. Built in 15 gated phases; see [docs/TBB_15_PHASE_ROADMAP.md](docs/TBB_15_PHASE_ROADMAP.md).
 
-**URL**: https://lovable.dev/projects/aad7035e-9e08-4792-9139-6b58c0023a55
+| Phase | Status |
+| :--- | :--- |
+| 1 Audit and architecture | Done |
+| 2 Application shell and design system | Done |
+| 3 Backend and database foundation | Done |
+| 4 Authentication, users and teams | Done ([details](docs/TBB_PHASE_4_AUTH_AND_TEAMS.md)) |
+| 5 Workspace hierarchy | Next |
 
-## How can I edit this code?
+## Stack
 
-There are several ways of editing your application.
+Vite, React 18, TypeScript (strict), Tailwind + Radix/shadcn, TanStack Query, React Router, Supabase (Postgres + Auth + RLS).
 
-**Use Lovable**
+## Setup
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/aad7035e-9e08-4792-9139-6b58c0023a55) and start prompting.
-
-Changes made via Lovable will be committed automatically to this repo.
-
-**Use your preferred IDE**
-
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
-
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
-
-Follow these steps:
-
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
-
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
-
-# Step 3: Install the necessary dependencies.
-npm i
-
-# Step 4: Start the development server with auto-reloading and an instant preview.
-npm run dev
+```bash
+npm install
+cp .env.example .env     # then fill in VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY
+npm run dev              # http://localhost:8080
 ```
 
-**Edit a file directly in GitHub**
+`.env` holds only the project URL and the **publishable** key. Never put a service-role/secret key or the database password in a `VITE_` variable.
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+## Scripts
 
-**Use GitHub Codespaces**
+| Command | What it does |
+| :--- | :--- |
+| `npm run dev` / `npm run build` | Dev server / production build |
+| `npm run lint` | ESLint (0 errors, 0 warnings required) |
+| `npm run typecheck` | `tsc --noEmit` under `strict` |
+| `npm test` | Unit, component and integration tests (Vitest) |
+| `npm run test:coverage` | Same, with coverage gates for the new code |
+| `npm run test:db` | Offline RLS/permission suite: every migration run in an in-process Postgres |
+| `npm run test:live` | Live RLS suite against the linked Supabase project (see [supabase/README.md](supabase/README.md)) |
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+## Database
 
-## What technologies are used for this project?
+All schema changes are numbered migrations in `supabase/migrations/`, applied with the Supabase CLI. See [supabase/README.md](supabase/README.md) for the rules that must not be broken (explicit grants, the private schema, no anonymous access).
 
-This project is built with:
+## Documentation
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
-
-## How can I deploy this project?
-
-Simply open [Lovable](https://lovable.dev/projects/aad7035e-9e08-4792-9139-6b58c0023a55) and click on Share -> Publish.
-
-## Can I connect a custom domain to my Lovable project?
-
-Yes it is!
-
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
-
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/tips-tricks/custom-domain#step-by-step-guide)
+`docs/` is the source of truth: requirements, architecture, database, permission model, testing strategy, roadmap and the per-phase notes.

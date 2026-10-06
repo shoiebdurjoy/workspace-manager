@@ -23,6 +23,7 @@ const BOOTSTRAP = `
   CREATE TABLE auth.users (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     email text UNIQUE,
+    email_confirmed_at timestamptz,
     raw_user_meta_data jsonb DEFAULT '{}'::jsonb
   );
   CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS
@@ -65,8 +66,8 @@ const denied = (name, r) => record(name, !!r.error || (r.rows && r.rows.length =
 // For UPDATE/DELETE blocked by RLS (0 rows) we use rowcount via RETURNING
 const blocked = (name, r) => record(name, !!r.error || r.rows.length === 0, 'was allowed');
 
-async function mkUser(email, meta = {}) {
-  const [u] = await svc(`INSERT INTO auth.users (email, raw_user_meta_data) VALUES ($1, $2) RETURNING id`, [email, JSON.stringify(meta)]);
+async function mkUser(email, meta = {}, confirmed = false) {
+  const [u] = await svc(`INSERT INTO auth.users (email, raw_user_meta_data, email_confirmed_at) VALUES ($1, $2, ${confirmed ? 'now()' : 'NULL'}) RETURNING id`, [email, JSON.stringify(meta)]);
   return u.id;
 }
 
@@ -253,7 +254,10 @@ r = await as(pm, `UPDATE public.tasks SET created_by = $2 WHERE id = $1 RETURNIN
 record('created_by cannot be rewritten', r.rows[0]?.created_by === pm);
 
 // cross-workspace move
-const wsB = (await as(pm, `INSERT INTO public.workspaces (name, slug, owner_id) VALUES ('B','b',$1) RETURNING id`, [pm])).rows[0].id;
+// TBB is single-workspace: clients cannot create a second one, so the isolation fixture is created by the service role.
+r = await as(pm, `INSERT INTO public.workspaces (name, slug, owner_id) VALUES ('B2','b2',$1) RETURNING id`, [pm]);
+record('a second workspace cannot be created from the client (single-workspace rule)', !!r.error);
+const wsB = (await svc(`INSERT INTO public.workspaces (name, slug, owner_id) VALUES ('B','b',$1) RETURNING id`, [pm]))[0].id;
 const spB = (await as(pm, `INSERT INTO public.spaces (workspace_id, name, slug) VALUES ($1,'S','s') RETURNING id`, [wsB])).rows[0].id;
 const listB = (await as(pm, `INSERT INTO public.lists (space_id, name) VALUES ($1,'L') RETURNING id`, [spB])).rows[0].id;
 r = await as(pm, `UPDATE public.tasks SET list_id = $2 WHERE id = $1 RETURNING id`, [task, listB]);
@@ -278,6 +282,151 @@ r = await as(editor, `INSERT INTO public.subtasks (task_id, title) VALUES ($1,'x
 record('editor cannot add subtasks', !!r.error);
 r = await as(client, `SELECT id FROM public.subtasks`);
 record('client viewer sees no subtasks', r.rows.length === 0 && !r.error);
+
+console.log('\n== Phase 4: pods (teams) ==');
+{
+  r = await as(admin, `INSERT INTO public.teams (workspace_id, name, lead_id) VALUES ($1,'Pod Zim',$2) RETURNING id, workspace_id`, [ws, pm]);
+  ok('admin creates a pod with a workspace member as lead', r);
+  const team = r.rows[0]?.id;
+  r = await as(pm, `INSERT INTO public.teams (workspace_id, name) VALUES ($1,'Pod Myla')`, [ws]);
+  record('production manager cannot create pods', !!r.error);
+  r = await as(editor, `INSERT INTO public.teams (workspace_id, name) VALUES ($1,'Pod Editor')`, [ws]);
+  record('editor cannot create pods', !!r.error);
+  r = await as(stranger, `INSERT INTO public.teams (workspace_id, name) VALUES ($1,'Pod Intruder')`, [ws]);
+  record('outsider cannot create pods in the workspace', !!r.error);
+  r = await as(admin, `INSERT INTO public.teams (workspace_id, name) VALUES ($1,'pod zim')`, [ws]);
+  record('pod names are unique per workspace (case-insensitive)', !!r.error);
+  r = await as(admin, `INSERT INTO public.teams (workspace_id, name, lead_id) VALUES ($1,'Pod Bad Lead',$2)`, [ws, stranger]);
+  record('pod lead must belong to the workspace', !!r.error);
+  r = await as(editor, `SELECT id FROM public.teams WHERE workspace_id = $1`, [ws]);
+  record('staff can read pods', r.rows.length === 1);
+  r = await as(client, `SELECT id FROM public.teams WHERE workspace_id = $1`, [ws]);
+  record('client viewer cannot read pods', r.rows.length === 0 && !r.error);
+  r = await as(stranger, `SELECT id FROM public.teams`);
+  record('outsider cannot read pods', r.rows.length === 0 && !r.error);
+
+  r = await as(pm, `INSERT INTO public.team_members (team_id, user_id, workspace_id) VALUES ($1,$2,gen_random_uuid()) RETURNING workspace_id`, [team, editor]);
+  ok('production manager adds a member to a pod', r);
+  record('team_members.workspace_id is derived (forgery ignored)', r.rows[0]?.workspace_id === ws);
+  r = await as(editor, `INSERT INTO public.team_members (team_id, user_id) VALUES ($1,$2)`, [team, qc]);
+  record('editor cannot add pod members', !!r.error);
+  r = await as(pm, `INSERT INTO public.team_members (team_id, user_id) VALUES ($1,$2)`, [team, stranger]);
+  record('only workspace members can join a pod', !!r.error);
+  r = await as(editor, `DELETE FROM public.team_members WHERE team_id = $1 AND user_id = $2 RETURNING user_id`, [team, editor]);
+  blocked('editor cannot remove pod members', r);
+  r = await as(admin, `UPDATE public.teams SET workspace_id = $2 WHERE id = $1 RETURNING id`, [team, wsB]);
+  record('a pod cannot be moved to another workspace', !!r.error || r.rows.length === 0);
+  r = await as(pm, `DELETE FROM public.teams WHERE id = $1 RETURNING id`, [team]);
+  blocked('production manager cannot delete pods', r);
+
+  // removing someone from the workspace removes their pod seats and lead position
+  r = await as(admin, `DELETE FROM public.workspace_members WHERE workspace_id = $1 AND user_id = $2 RETURNING user_id`, [ws, editor]);
+  ok('admin removes a member from the workspace', r);
+  let left = await svc(`SELECT count(*)::int AS n FROM public.team_members WHERE user_id = $1`, [editor]);
+  record('leaving the workspace removes pod memberships', left[0].n === 0);
+  r = await as(admin, `DELETE FROM public.workspace_members WHERE workspace_id = $1 AND user_id = $2 RETURNING user_id`, [ws, pm]);
+  ok('admin removes the pod lead from the workspace', r);
+  left = await svc(`SELECT lead_id FROM public.teams WHERE id = $1`, [team]);
+  record('lead position is cleared when the lead leaves', left[0].lead_id === null);
+  // restore the two members so later checks keep their fixtures
+  await svc(`INSERT INTO public.workspace_members (workspace_id, user_id, role) VALUES ($1,$2,'EDITOR'), ($1,$3,'PRODUCTION_MANAGER')`, [ws, editor, pm]);
+  r = await as(admin, `DELETE FROM public.teams WHERE id = $1 RETURNING id`, [team]);
+  ok('admin deletes a pod', r);
+}
+
+console.log('\n== Phase 4: invitations ==');
+{
+  const inviteeEmail = 'new.hire@tbb.test';
+  r = await as(admin, `INSERT INTO public.workspace_invitations (workspace_id, email, role, invited_by) VALUES ($1,'  New.Hire@TBB.test ','QC_SPECIALIST',$2) RETURNING id, email, invited_by, accepted_at`, [ws, owner]);
+  ok('admin invites an e-mail address', r);
+  record('e-mail is normalised to lower case', r.rows[0]?.email === inviteeEmail);
+  record('invited_by is forced to the caller (forgery ignored)', r.rows[0]?.invited_by === admin);
+  const inv = r.rows[0]?.id;
+  r = await as(admin, `INSERT INTO public.workspace_invitations (workspace_id, email, role) VALUES ($1,$2,'EDITOR')`, [ws, inviteeEmail]);
+  record('a second open invitation for the same e-mail is rejected', !!r.error);
+  r = await as(admin, `INSERT INTO public.workspace_invitations (workspace_id, email, role) VALUES ($1,'boss@tbb.test','OWNER')`, [ws]);
+  record('OWNER can never be granted by invitation', !!r.error);
+  r = await as(admin, `INSERT INTO public.workspace_invitations (workspace_id, email, role, accepted_at, accepted_by) VALUES ($1,'sneaky@tbb.test','EDITOR', now(), $2) RETURNING accepted_at`, [ws, admin]);
+  record('a client cannot create a pre-accepted invitation', r.rows[0]?.accepted_at === null);
+  r = await as(admin, `INSERT INTO public.workspace_invitations (workspace_id, email) VALUES ($1,'not-an-email')`, [ws]);
+  record('malformed e-mail addresses are rejected', !!r.error);
+  for (const [name, who] of [['production manager', pm], ['QC specialist', qc], ['editor', editor], ['client viewer', client], ['outsider', stranger]]) {
+    r = await as(who, `INSERT INTO public.workspace_invitations (workspace_id, email) VALUES ($1,$2)`, [ws, `${name.replace(' ', '.')}@x.test`]);
+    record(`${name} cannot invite`, !!r.error);
+  }
+  for (const [name, who] of [['production manager', pm], ['editor', editor], ['client viewer', client], ['outsider', stranger]]) {
+    r = await as(who, `SELECT id FROM public.workspace_invitations`);
+    record(`${name} cannot see invitations`, r.rows.length === 0 && !r.error);
+  }
+  r = await as(admin, `UPDATE public.workspace_invitations SET role = 'ADMIN' WHERE id = $1 RETURNING id`, [inv]);
+  record('invitations cannot be edited from the client', !!r.error);
+
+  // 1) invited before the account exists: claimed only once the e-mail is CONFIRMED
+  const hire = await mkUser(inviteeEmail, { name: 'New Hire', role: 'OWNER' }, false);
+  let m = await svc(`SELECT 1 FROM public.workspace_members WHERE workspace_id = $1 AND user_id = $2`, [ws, hire]);
+  record('an UNCONFIRMED account does not claim the invitation', m.length === 0);
+  await svc(`UPDATE auth.users SET email_confirmed_at = now() WHERE id = $1`, [hire]);
+  m = await svc(`SELECT role FROM public.workspace_members WHERE workspace_id = $1 AND user_id = $2`, [ws, hire]);
+  record('confirming the e-mail grants the invited role (QC_SPECIALIST)', m[0]?.role === 'QC_SPECIALIST', JSON.stringify(m));
+  m = await svc(`SELECT accepted_by FROM public.workspace_invitations WHERE id = $1`, [inv]);
+  record('invitation is marked accepted by the new user', m[0]?.accepted_by === hire);
+  m = await svc(`SELECT role FROM public.profiles WHERE id = $1`, [hire]);
+  record('profile role stays EDITOR (metadata role ignored)', m[0]?.role === 'EDITOR');
+
+  // 2) account already confirmed at creation (e.g. confirmations disabled): claimed immediately
+  await as(admin, `INSERT INTO public.workspace_invitations (workspace_id, email, role) VALUES ($1,'early@tbb.test','PRODUCTION_MANAGER')`, [ws]);
+  const early = await mkUser('early@tbb.test', {}, true);
+  m = await svc(`SELECT role FROM public.workspace_members WHERE workspace_id = $1 AND user_id = $2`, [ws, early]);
+  record('a confirmed account claims an existing invitation at creation', m[0]?.role === 'PRODUCTION_MANAGER');
+
+  // 3) account exists and is confirmed BEFORE the invitation
+  const late = await mkUser('late@tbb.test', {}, true);
+  m = await svc(`SELECT 1 FROM public.workspace_members WHERE workspace_id = $1 AND user_id = $2`, [ws, late]);
+  record('a registered account has no access before being invited', m.length === 0);
+  r = await as(late, `SELECT id FROM public.workspaces`);
+  record('...and sees no workspace', r.rows.length === 0 && !r.error);
+  r = await as(late, `SELECT id FROM public.tasks`);
+  record('...and sees no tasks', r.rows.length === 0 && !r.error);
+  await as(admin, `INSERT INTO public.workspace_invitations (workspace_id, email, role) VALUES ($1,'late@tbb.test','EDITOR')`, [ws]);
+  m = await svc(`SELECT role FROM public.workspace_members WHERE workspace_id = $1 AND user_id = $2`, [ws, late]);
+  record('inviting a confirmed account grants access immediately', m[0]?.role === 'EDITOR');
+  r = await as(late, `SELECT id FROM public.workspaces`);
+  record('...and the new member now sees the workspace', r.rows.length === 1);
+
+  // 4) existing but UNCONFIRMED account stays pending
+  const pending = await mkUser('pending@tbb.test', {}, false);
+  await as(admin, `INSERT INTO public.workspace_invitations (workspace_id, email, role) VALUES ($1,'pending@tbb.test','EDITOR')`, [ws]);
+  m = await svc(`SELECT 1 FROM public.workspace_members WHERE workspace_id = $1 AND user_id = $2`, [ws, pending]);
+  record('an unconfirmed existing account stays pending', m.length === 0);
+
+  // 5) deactivated accounts never claim
+  const off = await mkUser('off@tbb.test', {}, true);
+  await svc(`UPDATE public.profiles SET is_active = false WHERE id = $1`, [off]);
+  await as(admin, `INSERT INTO public.workspace_invitations (workspace_id, email, role) VALUES ($1,'off@tbb.test','EDITOR')`, [ws]);
+  m = await svc(`SELECT 1 FROM public.workspace_members WHERE workspace_id = $1 AND user_id = $2`, [ws, off]);
+  record('a deactivated account does not claim invitations', m.length === 0);
+
+  // revoke
+  r = await as(admin, `SELECT id FROM public.workspace_invitations WHERE email = 'pending@tbb.test'`);
+  const pendingInv = r.rows[0]?.id;
+  r = await as(admin, `DELETE FROM public.workspace_invitations WHERE id = $1 RETURNING id`, [pendingInv]);
+  ok('admin revokes a pending invitation', r);
+  await svc(`UPDATE auth.users SET email_confirmed_at = now() WHERE id = $1`, [pending]);
+  m = await svc(`SELECT 1 FROM public.workspace_members WHERE workspace_id = $1 AND user_id = $2`, [ws, pending]);
+  record('a revoked invitation can no longer be claimed', m.length === 0);
+
+  // grants for the new tables
+  const g = await svc(`SELECT grantee, table_name, privilege_type FROM information_schema.role_table_grants
+    WHERE table_schema = 'public' AND table_name IN ('teams','team_members','workspace_invitations')
+      AND grantee IN ('anon','authenticated')`);
+  record('anon has no privileges on the new tables', !g.some((x) => x.grantee === 'anon'));
+  record('invitations cannot be UPDATEd by signed-in users (no grant)', !g.some((x) => x.grantee === 'authenticated' && x.table_name === 'workspace_invitations' && x.privilege_type === 'UPDATE'));
+  record('team_members has no UPDATE grant for signed-in users', !g.some((x) => x.grantee === 'authenticated' && x.table_name === 'team_members' && x.privilege_type === 'UPDATE'));
+
+  // single-workspace bootstrap
+  r = await as(late, `INSERT INTO public.workspaces (name, slug, owner_id) VALUES ('Rival','rival',$1)`, [late]);
+  record('a registered user cannot create a second workspace', !!r.error);
+}
 
 console.log('\n== Deactivation & service role ==');
 await svc(`UPDATE public.profiles SET is_active = false WHERE id = $1`, [editor]);
@@ -318,7 +467,7 @@ console.log('\n== NOT NULL defaults migration (20260930000002) ==');
   record('profile created without timezone still gets UTC', (await svc(`SELECT timezone FROM public.profiles WHERE id=$1`, [u]))[0].timezone === 'UTC');
   r = await as(u, `UPDATE public.profiles SET timezone = NULL WHERE id = $1 RETURNING id`, [u]);
   record('explicit NULL timezone is rejected', !!r.error);
-  const w = (await as(u, `INSERT INTO public.workspaces (name, slug, owner_id) VALUES ('NN','nn',$1) RETURNING id`, [u])).rows[0].id;
+  const w = (await svc(`INSERT INTO public.workspaces (name, slug, owner_id) VALUES ('NN','nn',$1) RETURNING id`, [u]))[0].id;
   r = await as(u, `INSERT INTO public.spaces (workspace_id, name, slug) VALUES ($1,'S','s') RETURNING icon, color`, [w]);
   record('space inserted without icon/color gets defaults', r.rows[0]?.icon === 'folder' && r.rows[0]?.color === '#7B68EE');
   r = await as(u, `INSERT INTO public.spaces (workspace_id, name, slug, icon) VALUES ($1,'S2','s2',NULL)`, [w]);

@@ -1,34 +1,53 @@
+import React, { Suspense, lazy } from 'react';
+import { Toaster } from '@/components/ui/toaster';
+import { Toaster as Sonner } from '@/components/ui/sonner';
+import { TooltipProvider } from '@/components/ui/tooltip';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
+import { AuthProvider } from '@/context/AuthProvider';
+import { useAuth } from '@/hooks/use-auth';
+import Layout from '@/components/layout/Layout';
+import ProtectedRoute, { FullScreen } from '@/components/auth/ProtectedRoute';
+import { LoadingState } from '@/components/ui/loading-state';
+import Login from '@/pages/Login';
+const Register = lazy(() => import('@/pages/Register'));
+const ForgotPassword = lazy(() => import('@/pages/ForgotPassword'));
+const ResetPassword = lazy(() => import('@/pages/ResetPassword'));
+const Onboarding = lazy(() => import('@/pages/Onboarding'));
+const Home = lazy(() => import('@/pages/Home'));
+const Team = lazy(() => import('@/pages/Team'));
+const Profile = lazy(() => import('@/pages/Profile'));
+const Settings = lazy(() => import('@/pages/Settings'));
+const Unauthorized = lazy(() => import('@/pages/Unauthorized'));
+const NotFound = lazy(() => import('@/pages/NotFound'));
+const DesignSystemShowcase = lazy(() => import('@/pages/DesignSystemShowcase'));
 
-import React from "react";
-import { Toaster } from "@/components/ui/toaster";
-import { Toaster as Sonner } from "@/components/ui/sonner";
-import { TooltipProvider } from "@/components/ui/tooltip";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
-import { AuthProvider } from "@/context/AuthContext";
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      // A 401/403 is never going to succeed on retry; everything else retries once.
+      retry: (failureCount, error) => {
+        const code = (error as { code?: string } | null)?.code;
+        if (code === 'PERMISSION_DENIED' || code === '42501' || code === 'PGRST301') return false;
+        return failureCount < 1;
+      },
+      refetchOnWindowFocus: true,
+    },
+  },
+});
 
-import Layout from "@/components/layout/Layout";
-import ProtectedRoute from "@/components/auth/ProtectedRoute";
-import LandingPage from "@/pages/LandingPage";
-import Login from "@/pages/Login";
-import Register from "@/pages/Register";
-import Dashboard from "@/pages/Dashboard";
-import Tasks from "@/pages/Tasks";
-import TaskNew from "@/pages/TaskNew";
-import Workspaces from "@/pages/Workspaces";
-import WorkspaceNew from "@/pages/WorkspaceNew";
-import WorkspaceDetail from "@/pages/WorkspaceDetail";
-import Profile from "@/pages/Profile";
-import Settings from "@/pages/Settings";
-import Payments from "@/pages/Payments";
-import Reports from "@/pages/Reports";
-import Unauthorized from "@/pages/Unauthorized";
-import NotFound from "@/pages/NotFound";
-import DesignSystemShowcase from "@/pages/DesignSystemShowcase";
-import { UserRole } from "./types";
-
-// Create a client
-const queryClient = new QueryClient();
+/** `/` sends people where they belong: the app when signed in, otherwise sign-in. */
+const RootRedirect: React.FC = () => {
+  const { status } = useAuth();
+  if (status === 'loading') {
+    return (
+      <FullScreen>
+        <LoadingState title="Loading TBB Workspace" />
+      </FullScreen>
+    );
+  }
+  return <Navigate to={status === 'unauthenticated' ? '/login' : '/home'} replace />;
+};
 
 const App = () => (
   <React.StrictMode>
@@ -36,80 +55,54 @@ const App = () => (
       <BrowserRouter>
         <AuthProvider>
           <TooltipProvider>
+            <Suspense
+              fallback={
+                <FullScreen>
+                  <LoadingState title="Loading..." />
+                </FullScreen>
+              }
+            >
             <Routes>
-              {/* Public Routes */}
-              <Route path="/" element={<LandingPage />} />
+              <Route path="/" element={<RootRedirect />} />
+
+              {/* Signed-out screens */}
               <Route path="/login" element={<Login />} />
               <Route path="/register" element={<Register />} />
-              <Route path="/unauthorized" element={<Unauthorized />} />
+              <Route path="/forgot-password" element={<ForgotPassword />} />
+              <Route path="/reset-password" element={<ResetPassword />} />
 
-              {/* Protected Routes */}
+              {/* Signed in, but not yet part of a workspace */}
               <Route
-                path="/dashboard"
+                path="/onboarding"
                 element={
-                  <ProtectedRoute>
-                    <Layout>
-                      <Dashboard />
-                    </Layout>
-                  </ProtectedRoute>
-                }
-              />
-
-              <Route
-                path="/tasks"
-                element={
-                  <ProtectedRoute>
-                    <Layout>
-                      <Tasks />
-                    </Layout>
-                  </ProtectedRoute>
-                }
-              />
-              
-              <Route
-                path="/workspaces/:id/tasks/new"
-                element={
-                  <ProtectedRoute>
-                    <Layout>
-                      <TaskNew />
-                    </Layout>
-                  </ProtectedRoute>
-                }
-              />
-              
-              <Route
-                path="/workspaces"
-                element={
-                  <ProtectedRoute>
-                    <Layout>
-                      <Workspaces />
-                    </Layout>
+                  <ProtectedRoute requireWorkspace={false}>
+                    <Onboarding />
                   </ProtectedRoute>
                 }
               />
 
+              {/* Workspace members */}
               <Route
-                path="/workspaces/new"
+                path="/home"
                 element={
                   <ProtectedRoute>
                     <Layout>
-                      <WorkspaceNew />
+                      <Home />
                     </Layout>
                   </ProtectedRoute>
                 }
               />
-              
+              <Route path="/dashboard" element={<Navigate to="/home" replace />} />
               <Route
-                path="/workspaces/:id"
+                path="/team"
                 element={
-                  <ProtectedRoute>
+                  <ProtectedRoute capability="team:view">
                     <Layout>
-                      <WorkspaceDetail />
+                      <Team />
                     </Layout>
                   </ProtectedRoute>
                 }
               />
-
               <Route
                 path="/profile"
                 element={
@@ -120,7 +113,6 @@ const App = () => (
                   </ProtectedRoute>
                 }
               />
-
               <Route
                 path="/settings"
                 element={
@@ -131,54 +123,20 @@ const App = () => (
                   </ProtectedRoute>
                 }
               />
-
-              <Route
-                path="/payments"
-                element={
-                  <ProtectedRoute>
-                    <Layout>
-                      <Payments />
-                    </Layout>
-                  </ProtectedRoute>
-                }
-              />
-
-              <Route
-                path="/reports"
-                element={
-                  <ProtectedRoute allowedRoles={[UserRole.AUTHOR]}>
-                    <Layout>
-                      <Reports />
-                    </Layout>
-                  </ProtectedRoute>
-                }
-              />
-
-              {/* Author Only Routes */}
-              <Route
-                path="/employees"
-                element={
-                  <ProtectedRoute allowedRoles={[UserRole.AUTHOR]}>
-                    <Layout>
-                      <div className="p-4">Employees Management (Admin Only)</div>
-                    </Layout>
-                  </ProtectedRoute>
-                }
-              />
-
-              {/* Design System Showcase (Phase 2) */}
               <Route
                 path="/design-system"
                 element={
-                  <Layout>
-                    <DesignSystemShowcase />
-                  </Layout>
+                  <ProtectedRoute>
+                    <Layout>
+                      <DesignSystemShowcase />
+                    </Layout>
+                  </ProtectedRoute>
                 }
               />
-
-              {/* Fallback */}
+              <Route path="/unauthorized" element={<Unauthorized />} />
               <Route path="*" element={<NotFound />} />
             </Routes>
+            </Suspense>
             <Toaster />
             <Sonner />
           </TooltipProvider>

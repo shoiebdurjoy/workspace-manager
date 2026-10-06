@@ -11,18 +11,15 @@ const Unauthorized: React.FC = () => {
         <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-6">
           <ShieldX className="h-8 w-8 text-red-500" />
         </div>
-        <h1 className="text-5xl font-bold text-gray-900 mb-4">401</h1>
-        <h2 className="text-2xl font-bold text-gray-900 mb-2">Access Denied</h2>
+        <h1 className="text-5xl font-bold text-foreground mb-4">403</h1>
+        <h2 className="text-2xl font-bold text-foreground mb-2">Access denied</h2>
         <p className="text-muted-foreground mb-8">
-          You don't have permission to access this page. Please contact your administrator
+          You don't have permission to access this page. Ask a TBB Owner or Admin
           if you believe this is a mistake.
         </p>
         <div className="flex flex-col sm:flex-row gap-4 justify-center">
           <Button asChild>
-            <Link to="/dashboard">Back to Dashboard</Link>
-          </Button>
-          <Button variant="outline" asChild>
-            <Link to="/">Go to Home</Link>
+            <Link to="/home">Back to Home</Link>
           </Button>
         </div>
       </div>

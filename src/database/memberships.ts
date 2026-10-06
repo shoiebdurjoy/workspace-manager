@@ -1,5 +1,5 @@
 import { getSupabaseClient } from './client';
-import { WorkspaceMember, TbbRole } from '@/types/database';
+import { WorkspaceMember, TbbRole, MyMembership } from '@/types/database';
 import { DatabaseError, NotFoundError, ValidationError } from './errors';
 
 interface MemberRowWithProfile {
@@ -183,4 +183,61 @@ export async function getUserRoleInWorkspace(
   }
 
   return data ? (data.role as TbbRole) : null;
+}
+
+interface MyMembershipRow {
+  role: TbbRole;
+  created_at: string;
+  workspaces: {
+    id: string;
+    name: string;
+    slug: string;
+    description: string | null;
+    logo_url: string | null;
+    owner_id: string;
+    settings: unknown;
+    created_at: string;
+    updated_at: string;
+  } | null;
+}
+
+/**
+ * The signed-in user's memberships together with their workspace. RLS already limits the
+ * result to the caller's own rows; the filter is explicit so the intent is obvious.
+ */
+export async function getMyMemberships(userId: string): Promise<MyMembership[]> {
+  if (!userId) throw new ValidationError('User ID is required.');
+
+  const { data, error } = await getSupabaseClient()
+    .from('workspace_members')
+    .select(
+      'role, created_at, workspaces:workspace_id ( id, name, slug, description, logo_url, owner_id, settings, created_at, updated_at )'
+    )
+    .eq('user_id', userId);
+
+  if (error) {
+    throw new DatabaseError(`Failed to load your workspaces: ${error.message}`, error.code, error);
+  }
+
+  const rows = (data ?? []) as unknown as MyMembershipRow[];
+  const memberships: MyMembership[] = [];
+  for (const r of rows) {
+    if (!r.workspaces) continue;
+    memberships.push({
+      role: r.role,
+      joinedAt: r.created_at,
+      workspace: {
+        id: r.workspaces.id,
+        name: r.workspaces.name,
+        slug: r.workspaces.slug,
+        description: r.workspaces.description,
+        logoUrl: r.workspaces.logo_url,
+        ownerId: r.workspaces.owner_id,
+        settings: (r.workspaces.settings as Record<string, unknown>) ?? {},
+        createdAt: r.workspaces.created_at,
+        updatedAt: r.workspaces.updated_at,
+      },
+    });
+  }
+  return memberships;
 }

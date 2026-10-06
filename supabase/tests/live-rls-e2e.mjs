@@ -109,6 +109,15 @@ VALUES (gen_random_uuid(), '${u.id}', '${u.id}', jsonb_build_object('sub','${u.i
 `;
 }
 
+// TBB is a single-workspace system: clients cannot create workspaces once one exists (migration 5).
+// The three fixture workspaces are therefore created by the database owner.
+SETUP_SQL += `
+INSERT INTO public.workspaces (name, slug, owner_id) VALUES
+  ('E2E Workspace', 'e2e-${RUN}', '${U.owner.id}'),
+  ('E2E B', 'e2e-b-${RUN}', '${U.pm.id}'),
+  ('E2E Stranger', 'e2e-s-${RUN}', '${U.stranger.id}');
+`;
+
 // Start from a known state: remove leftovers of an earlier aborted run, then create users.
 cleanup();
 runSql(SETUP_SQL);
@@ -186,9 +195,11 @@ try {
   grantRefusals = grantBefore;
 
   console.log('\n== Workspace + membership ==');
-  res = await clients.owner.from('workspaces').insert({ name: 'E2E Workspace', slug: `e2e-${RUN}`, owner_id: U.owner.id }).select().single();
-  rec('owner creates workspace and reads it back (RETURNING)', !res.error && !!res.data?.id, res.error?.message);
+  res = await clients.owner.from('workspaces').select('id,slug').eq('slug', `e2e-${RUN}`).single();
+  rec('owner can read their workspace', !res.error && !!res.data?.id, res.error?.message);
   const ws = res.data?.id;
+  res = await clients.owner.from('workspaces').insert({ name: 'Second', slug: `e2e-second-${RUN}`, owner_id: U.owner.id });
+  rec('a second workspace cannot be created from the client (single-workspace rule)', !!res.error, res.error?.message);
   res = await clients.owner.from('workspace_members').select('role').eq('workspace_id', ws).eq('user_id', U.owner.id);
   rec('creator became OWNER automatically', res.data?.[0]?.role === 'OWNER');
   res = await clients.stranger.from('workspaces').insert({ name: 'Forged', slug: `e2e-forged-${RUN}`, owner_id: U.owner.id });
@@ -303,8 +314,9 @@ try {
   rec('manager can complete and edit', !res.error && res.data?.length === 1, res.error?.message);
 
   console.log('\n== Cross-workspace isolation ==');
-  res = await clients.pm.from('workspaces').insert({ name: 'E2E B', slug: `e2e-b-${RUN}`, owner_id: U.pm.id }).select().single();
+  res = await clients.pm.from('workspaces').select('id').eq('slug', `e2e-b-${RUN}`).single();
   const wsB = res.data?.id;
+  rec('pm can read their own second workspace', !!wsB, res.error?.message);
   res = await clients.pm.from('spaces').insert({ workspace_id: wsB, name: 'S', slug: 's' }).select().single();
   const spB = res.data?.id;
   res = await clients.pm.from('lists').insert({ space_id: spB, name: 'L' }).select().single();
@@ -329,6 +341,114 @@ try {
   res = await clients.client.from('subtasks').select('id');
   noRows('client viewer sees no subtasks', res);
 
+  console.log('\n== Phase 4: invitations, sign-in gate and pods (live) ==');
+  const createAuthUser = (email, confirmed) => {
+    const u = { id: crypto.randomUUID(), email, password: crypto.randomBytes(18).toString('base64url') + 'aA1!' };
+    runSql(`
+INSERT INTO auth.users (instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
+  raw_app_meta_data, raw_user_meta_data, created_at, updated_at,
+  confirmation_token, recovery_token, email_change_token_new, email_change, email_change_token_current, reauthentication_token)
+VALUES ('00000000-0000-0000-0000-000000000000', '${u.id}', 'authenticated', 'authenticated', '${u.email}',
+  extensions.crypt('${q(u.password)}', extensions.gen_salt('bf')), ${confirmed ? 'now()' : 'NULL'},
+  '{"provider":"email","providers":["email"]}'::jsonb, '{"name":"E2E invitee","role":"OWNER"}'::jsonb, now(), now(), '', '', '', '', '', '');
+INSERT INTO auth.identities (id, provider_id, user_id, identity_data, provider, last_sign_in_at, created_at, updated_at)
+VALUES (gen_random_uuid(), '${u.id}', '${u.id}', jsonb_build_object('sub','${u.id}','email','${u.email}','email_verified',${confirmed}), 'email', now(), now(), now());`);
+    return u;
+  };
+  const inviteeEmail = `e2e-invitee-${RUN}${TEST_EMAIL_SUFFIX}`;
+  res = await clients.admin.from('workspace_invitations').insert({ workspace_id: ws, email: inviteeEmail.toUpperCase(), role: 'QC_SPECIALIST' }).select().single();
+  rec('admin invites an unregistered address (stored lower-case)', !res.error && res.data?.email === inviteeEmail, res.error?.message);
+  const invId = res.data?.id;
+  rec('invited_by is the admin', res.data?.invited_by === U.admin.id);
+  for (const role of ['pm', 'qc', 'editor', 'client', 'stranger']) {
+    res = await clients[role].from('workspace_invitations').insert({ workspace_id: ws, email: `x-${role}@tbb-e2e.invalid`, role: 'EDITOR' });
+    rec(`${role} cannot invite`, !!res.error);
+    res = await clients[role].from('workspace_invitations').select('id').eq('workspace_id', ws);
+    noRows(`${role} cannot see invitations`, res);
+  }
+  res = await clients.admin.from('workspace_invitations').insert({ workspace_id: ws, email: 'boss@tbb-e2e.invalid', role: 'OWNER' });
+  rec('OWNER cannot be granted by invitation', !!res.error);
+  res = await clients.admin.from('workspace_invitations').insert({ workspace_id: ws, email: inviteeEmail, role: 'EDITOR' });
+  rec('duplicate open invitation rejected', !!res.error);
+  {
+    const before = grantRefusals; // the missing UPDATE grant is the intended refusal here
+    res = await clients.admin.from('workspace_invitations').update({ role: 'ADMIN' }).eq('id', invId).select();
+    rec('invitations cannot be edited from the client', !!res.error);
+    grantRefusals = before;
+  }
+
+  // The invitee registers. Until the e-mail is confirmed they cannot even sign in, and
+  // confirming it is what grants the invited role.
+  const invitee = createAuthUser(inviteeEmail, false);
+  {
+    const c = mk();
+    const login = await c.auth.signInWithPassword({ email: invitee.email, password: invitee.password });
+    rec('unconfirmed account cannot sign in', !!login.error && login.error.code === 'email_not_confirmed', login.error?.code);
+  }
+  runSql(`UPDATE auth.users SET email_confirmed_at = now() WHERE id = '${invitee.id}'`);
+  {
+    const c = mk();
+    const login = await c.auth.signInWithPassword({ email: invitee.email, password: invitee.password });
+    rec('after confirmation the invitee signs in', !login.error, login.error?.message);
+    const mine = await c.from('workspace_members').select('role,workspace_id').eq('user_id', invitee.id);
+    rec('invitee received exactly the invited role (QC_SPECIALIST)', mine.data?.length === 1 && mine.data[0].role === 'QC_SPECIALIST' && mine.data[0].workspace_id === ws, JSON.stringify(mine.data));
+    const prof = await c.from('profiles').select('role').eq('id', invitee.id).single();
+    rec('invitee profile role is EDITOR (metadata role ignored)', prof.data?.role === 'EDITOR', prof.data?.role);
+    const seen = await c.from('workspaces').select('id');
+    rec('invitee sees only the workspace they were invited to', seen.data?.length === 1 && seen.data[0].id === ws);
+    const esc = await c.from('workspace_members').update({ role: 'OWNER' }).eq('user_id', invitee.id).select();
+    rec('invitee cannot escalate their role', !!esc.error || esc.data?.length === 0);
+  }
+  res = await clients.admin.from('workspace_invitations').select('accepted_at,accepted_by').eq('id', invId).single();
+  rec('invitation shows as accepted by the invitee', !!res.data?.accepted_at && res.data?.accepted_by === invitee.id);
+
+  // A registered but never-invited, confirmed account has no access to anything.
+  const uninvited = createAuthUser(`e2e-uninvited-${RUN}${TEST_EMAIL_SUFFIX}`, true);
+  {
+    const c = mk();
+    const login = await c.auth.signInWithPassword({ email: uninvited.email, password: uninvited.password });
+    rec('uninvited user can sign in (they have an account)', !login.error, login.error?.message);
+    for (const t of ['workspaces', 'workspace_members', 'spaces', 'lists', 'tasks', 'teams', 'workspace_invitations']) {
+      const r2 = await c.from(t).select('*');
+      rec(`...but sees no rows in ${t}`, !r2.error && r2.data.length === (t === 'workspace_members' ? 0 : 0), r2.error?.message);
+    }
+    const mkWs = await c.from('workspaces').insert({ name: 'Rogue', slug: `e2e-rogue-${RUN}`, owner_id: uninvited.id });
+    rec('...and cannot create their own workspace', !!mkWs.error);
+    const self = await c.from('profiles').select('id').eq('id', uninvited.id);
+    rec('...but can read their own profile', self.data?.length === 1);
+  }
+
+  // Pods
+  res = await clients.admin.from('teams').insert({ workspace_id: ws, name: 'E2E Pod Zim', lead_id: U.pm.id }).select().single();
+  rec('admin creates a pod with a lead', !res.error, res.error?.message);
+  const team = res.data?.id;
+  for (const role of ['pm', 'editor', 'qc', 'client', 'stranger']) {
+    res = await clients[role].from('teams').insert({ workspace_id: ws, name: `Pod by ${role}` });
+    rec(`${role} cannot create pods`, !!res.error);
+  }
+  res = await clients.admin.from('teams').insert({ workspace_id: ws, name: 'e2e pod zim' });
+  rec('pod names are unique per workspace', !!res.error);
+  res = await clients.admin.from('teams').insert({ workspace_id: ws, name: 'Bad lead', lead_id: U.stranger.id });
+  rec('pod lead must be a workspace member', !!res.error);
+  res = await clients.editor.from('teams').select('id').eq('workspace_id', ws);
+  rec('staff can read pods', res.data?.length === 1);
+  res = await clients.client.from('teams').select('id');
+  noRows('client viewer cannot read pods', res);
+  res = await clients.stranger.from('teams').select('id');
+  noRows('outsider cannot read pods', res);
+  res = await clients.pm.from('team_members').insert({ team_id: team, user_id: U.editor.id }).select();
+  rec('production manager adds a pod member', !res.error && res.data?.[0]?.workspace_id === ws, res.error?.message);
+  res = await clients.editor.from('team_members').insert({ team_id: team, user_id: U.qc.id });
+  rec('editor cannot add pod members', !!res.error);
+  res = await clients.pm.from('team_members').insert({ team_id: team, user_id: U.stranger.id });
+  rec('non-members cannot join a pod', !!res.error);
+  res = await clients.editor.from('team_members').delete().eq('team_id', team).eq('user_id', U.editor.id).select();
+  noRows('editor cannot remove pod members', res);
+  res = await clients.pm.from('teams').delete().eq('id', team).select();
+  noRows('production manager cannot delete pods', res);
+  res = await clients.admin.from('teams').delete().eq('id', team).select();
+  rec('admin deletes the pod (members cascade)', !res.error && res.data?.length === 1);
+
   console.log('\n== Privilege-escalation & cross-tenant attacks ==');
   // anon write attempts
   res = await anon.from('workspaces').insert({ name: 'anon', slug: `e2e-anon-${RUN}`, owner_id: U.owner.id });
@@ -338,8 +458,10 @@ try {
   res = await anon.from('profiles').update({ role: 'OWNER' }).eq('id', U.editor.id).select();
   rec('anon cannot update profiles', !!res.error);
   // stranger owns their own workspace and tries to reach into workspace A
-  res = await clients.stranger.from('workspaces').insert({ name: 'Stranger WS', slug: `e2e-s-${RUN}`, owner_id: U.stranger.id }).select().single();
-  rec('outsider can create their own separate workspace', !res.error, res.error?.message);
+  res = await clients.stranger.from('workspaces').select('id,slug').eq('slug', `e2e-s-${RUN}`).single();
+  rec('outsider only sees their own separate workspace', !res.error && !!res.data?.id, res.error?.message);
+  res = await clients.stranger.from('workspaces').select('id');
+  rec('...and nothing else (exactly one workspace visible)', res.data?.length === 1);
   res = await clients.stranger.from('spaces').insert({ workspace_id: ws, name: 'Intruder', slug: 'intruder' });
   rec('outsider (even as owner elsewhere) cannot create a space in workspace A', !!res.error);
   res = await clients.stranger.from('folders').insert({ space_id: space, name: 'Intruder' });

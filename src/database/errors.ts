@@ -68,3 +68,27 @@ export class ValidationError extends DatabaseError {
     this.name = 'ValidationError';
   }
 }
+
+interface PostgrestLikeError {
+  code?: string;
+  message: string;
+}
+
+/**
+ * Converts a PostgREST/Postgres error into a domain error with a message that is safe to show.
+ * 42501 (insufficient privilege / RLS) -> PermissionDeniedError, 23505 -> duplicate,
+ * 23514 / 23503 -> validation. Anything else keeps the database message for debugging.
+ */
+export function toDatabaseError(action: string, error: PostgrestLikeError): DatabaseError {
+  switch (error.code) {
+    case '42501':
+      return new PermissionDeniedError(`You do not have permission to ${action}.`);
+    case '23505':
+      return new ValidationError(`Could not ${action}: that already exists.`, error);
+    case '23514':
+    case '23503':
+      return new ValidationError(error.message, error);
+    default:
+      return new DatabaseError(`Failed to ${action}: ${error.message}`, error.code, error);
+  }
+}

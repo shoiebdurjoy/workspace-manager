@@ -26,6 +26,8 @@ export function getSupabaseClient(): SupabaseClient<Database> {
       persistSession: true,
       autoRefreshToken: true,
       detectSessionInUrl: true,
+      // PKCE per docs/TBB_ARCHITECTURE_PROPOSAL.md 4.1
+      flowType: 'pkce',
     },
   });
 

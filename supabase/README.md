@@ -17,6 +17,7 @@
 | `…000002_not_null_defaults.sql` | `NOT NULL` on defaulted columns |
 | `…000003_table_grants.sql` | Explicit table privileges (this project grants nothing automatically) |
 | `…000004_private_helpers_and_initplan.sql` | Auth helpers moved to the non-exposed `private` schema; `(select auth.uid())` in policies |
+| `…000005_teams_and_invitations.sql` | Phase 4: pods (`teams`, `team_members`), `workspace_invitations` (claimed on confirmed e-mail), first-workspace-only rule |
 
 ## Rules that must not be broken
 
@@ -27,6 +28,9 @@
   `config.toml` `[api].schemas`. It holds the SECURITY DEFINER authorization helpers.
 - **`anon` has no access** to application tables. Do not add anonymous policies or grants.
 - **Role lives in `workspace_members.role`**, never in `profiles.role`.
+- **TBB is single-workspace.** After the first workspace exists the database refuses client-created workspaces.
+- **Invitations only match confirmed e-mails** (`auth.users.email_confirmed_at`). Never claim on an unconfirmed address.
+- **Auth settings live in `config.toml`** and are pushed with `npx supabase config push`. Run `npx supabase config diff` first: it must show only the changes you intend.
 
 ## Connect to the hosted project (once)
 

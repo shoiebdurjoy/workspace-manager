@@ -2,7 +2,6 @@ import React, { useState, useEffect } from "react";
 import { AppSidebar } from "@/components/layout/AppSidebar";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { CommandPalette } from "@/components/layout/CommandPalette";
-import QuickTaskModal from "@/components/kanban/QuickTaskModal";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
 
@@ -29,7 +28,6 @@ export const AppShell: React.FC<AppShellProps> = ({
 
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
-  const [isQuickTaskOpen, setIsQuickTaskOpen] = useState(false);
 
   useEffect(() => {
     try {
@@ -79,7 +77,6 @@ export const AppShell: React.FC<AppShellProps> = ({
         <AppHeader
           onToggleMobileSidebar={() => setIsMobileOpen(true)}
           onOpenSearch={() => setIsSearchOpen(true)}
-          onQuickTask={() => setIsQuickTaskOpen(true)}
         />
 
         {/* Scrollable Content Container */}
@@ -98,13 +95,6 @@ export const AppShell: React.FC<AppShellProps> = ({
       <CommandPalette
         open={isSearchOpen}
         onOpenChange={setIsSearchOpen}
-        onQuickTask={() => setIsQuickTaskOpen(true)}
-      />
-
-      {/* Global Quick Task Modal */}
-      <QuickTaskModal
-        isOpen={isQuickTaskOpen}
-        onClose={() => setIsQuickTaskOpen(false)}
       />
     </div>
   );
