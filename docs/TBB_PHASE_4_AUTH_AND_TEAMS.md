@@ -56,13 +56,36 @@ Route gating: signed-out → `/login` (with a validated return path); signed in 
 | Item | State |
 | :--- | :--- |
 | Password policy (min 8, upper, lower, digit) enforced **server-side** | Pushed with `supabase config push` |
-| Redirect allow-list and site URL for confirmation / reset links | Pushed (`http://localhost:8080`). **Change both when TBB has a production URL.** |
+| Redirect allow-list and Site URL for confirmation / reset links | Pushed with `supabase config push`: Site URL `https://workspace-manager-five.vercel.app`; allow-list `https://workspace-manager-five.vercel.app/**`, `http://localhost:8080/**`, `http://127.0.0.1:8080/**`. **Add the custom domain here (and set `VITE_APP_URL`) when one is attached.** |
 | Confirm e-mail required | On |
 | Public sign-ups | On (required for invited people to create their login). Safe: a login grants no access. |
 | **Custom SMTP** | **Not configured.** Supabase's built-in sender is limited to a few e-mails per hour and is not for production. Configure SMTP (Dashboard → Authentication → SMTP) before onboarding the team. |
 | Leaked-password protection, CAPTCHA | Plan-dependent; consider before wider rollout. |
 
 Never put the service-role / secret key or the database password in any `VITE_` variable.
+
+### Deployment and e-mail links (Vercel)
+
+Every link Supabase e-mails is built from the app's public URL (`src/lib/app-url.ts`):
+
+| Link | Requested redirect |
+| :--- | :--- |
+| Sign-up confirmation | `<app URL>/auth/callback` (exchanges the PKCE code, then continues to Home / onboarding) |
+| Password reset | `<app URL>/reset-password` |
+
+`<app URL>` is `VITE_APP_URL` when set (a valid https origin, or http only for localhost), otherwise `window.location.origin`. Locally this is `http://localhost:8080`; nothing is hard-coded and an automated audit fails if a host appears in auth code.
+
+**Supabase silently replaces a redirect that is not on its allow-list with the Site URL.** That is how a production sign-up once produced `http://localhost:8080/?code=...`: the allow-list matched only the bare origin, not `/login`, and the Site URL was still localhost. The URL Configuration above (path wildcards plus a production Site URL) is therefore part of the app's correctness, and is verified by requesting `/auth/v1/verify?redirect_to=...` and checking where it lands.
+
+Vercel environment variables (Project -> Settings -> Environment Variables):
+
+| Variable | Value | Scope |
+| :--- | :--- | :--- |
+| `VITE_SUPABASE_URL` | the project URL | Production, Preview, Development |
+| `VITE_SUPABASE_ANON_KEY` | the **publishable** key (never the secret / service-role key) | Production, Preview, Development |
+| `VITE_APP_URL` | `https://workspace-manager-five.vercel.app` (your custom domain later) | **Production only** |
+
+`vercel.json` rewrites every path to `index.html` so deep links (`/auth/callback`, `/reset-password`, `/team`) work on refresh. Preview deployments use their own origin, which is not allow-listed, so e-mail links created there fall back to the production Site URL; test e-mail flows on production or add the preview pattern to the allow-list. Vite bakes `VITE_` variables in at build time: **redeploy after changing them.**
 
 ## 6. Verification performed
 

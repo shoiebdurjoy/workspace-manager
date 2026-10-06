@@ -1,5 +1,5 @@
 import React from 'react';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { Session } from '@supabase/supabase-js';
@@ -228,7 +228,7 @@ describe('signUp', () => {
     expect(arg.email).toBe('new@thinkbigbrand.com');
     expect(arg.options.data).toEqual({ full_name: 'New Hire' });
     expect(Object.keys(arg.options.data)).not.toContain('role');
-    expect(arg.options.emailRedirectTo).toBe(`${window.location.origin}/login`);
+    expect(arg.options.emailRedirectTo).toBe(`${window.location.origin}/auth/callback`);
     expect(result).toEqual({ ok: true, needsConfirmation: true });
   });
 
@@ -292,6 +292,30 @@ describe('signOut', () => {
       await current.signOut();
     });
     expect(status()).toBe('unauthenticated');
+  });
+});
+
+describe('environment-aware e-mail links', () => {
+  beforeEach(async () => {
+    renderProvider();
+    await waitFor(() => expect(status()).toBe('unauthenticated'));
+  });
+  afterEach(() => vi.unstubAllEnvs());
+
+  it('production: sign-up confirmation and password reset use VITE_APP_URL, never localhost', async () => {
+    vi.stubEnv('VITE_APP_URL', 'https://workspace-manager-five.vercel.app');
+    authApi.signUp.mockResolvedValue({ data: { session: null, user: { id: 'n' } }, error: null });
+    authApi.resetPasswordForEmail.mockResolvedValue({ data: {}, error: null });
+    await act(async () => {
+      await current.signUp('A B', 'a@b.co', 'Secret123');
+      await current.requestPasswordReset('a@b.co');
+    });
+    const signUpArg = authApi.signUp.mock.calls[0][0] as { options: { emailRedirectTo: string } };
+    expect(signUpArg.options.emailRedirectTo).toBe('https://workspace-manager-five.vercel.app/auth/callback');
+    expect(authApi.resetPasswordForEmail).toHaveBeenCalledWith('a@b.co', {
+      redirectTo: 'https://workspace-manager-five.vercel.app/reset-password',
+    });
+    expect(JSON.stringify(authApi.signUp.mock.calls)).not.toMatch(/localhost/);
   });
 });
 

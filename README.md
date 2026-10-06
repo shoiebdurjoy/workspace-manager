@@ -22,7 +22,7 @@ cp .env.example .env     # then fill in VITE_SUPABASE_URL and VITE_SUPABASE_ANON
 npm run dev              # http://localhost:8080
 ```
 
-`.env` holds only the project URL and the **publishable** key. Never put a service-role/secret key or the database password in a `VITE_` variable.
+`.env` holds the project URL and the **publishable** key (plus an optional `VITE_APP_URL`, left empty locally and set to the public URL in Vercel production; see [docs/TBB_PHASE_4_AUTH_AND_TEAMS.md](docs/TBB_PHASE_4_AUTH_AND_TEAMS.md)). Never put a service-role/secret key or the database password in a `VITE_` variable.
 
 ## Scripts
 

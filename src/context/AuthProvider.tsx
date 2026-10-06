@@ -6,6 +6,7 @@ import { getMyMemberships } from '@/database/memberships';
 import { getProfileById } from '@/database/profiles';
 import type { MyMembership, Profile } from '@/types/database';
 import { describeAuthError } from '@/lib/auth-errors';
+import { getAuthCallbackUrl, getPasswordResetUrl } from '@/lib/app-url';
 import {
   ActionResult,
   AuthContext,
@@ -139,7 +140,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           password,
           options: {
             data: { full_name: fullName.trim() },
-            emailRedirectTo: `${window.location.origin}/login`,
+            emailRedirectTo: getAuthCallbackUrl(),
           },
         });
         if (signUpError) return { ok: false, message: describeAuthError(signUpError) };
@@ -175,7 +176,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const requestPasswordReset = useCallback(async (email: string): Promise<ActionResult> => {
     try {
       const { error: resetError } = await getSupabaseClient().auth.resetPasswordForEmail(email.trim(), {
-        redirectTo: `${window.location.origin}/reset-password`,
+        redirectTo: getPasswordResetUrl(),
       });
       if (resetError) return { ok: false, message: describeAuthError(resetError) };
       return { ok: true };

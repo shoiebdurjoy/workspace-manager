@@ -18,6 +18,11 @@ function walk(dir: string): string[] {
 
 const FILES = walk(SRC).filter((f) => !f.endsWith(`pages${path.sep}DesignSystemShowcase.tsx`));
 
+/** Files allowed to contain a pattern (the single, reviewed place that owns that concern). */
+const ALLOWED: Record<string, string[]> = {
+  'hard-coded host in auth code (use getAppUrl)': [`lib${path.sep}app-url.ts`],
+};
+
 const FORBIDDEN: Array<[string, RegExp]> = [
   ['offline mode flag', /isOfflineMode/],
   ['demo login', /demoLogin|demo[_-]?login/i],
@@ -28,6 +33,7 @@ const FORBIDDEN: Array<[string, RegExp]> = [
   ['legacy two-role enum', /\bUserRole\b|AUTHOR|EMPLOYEE/],
   ['service-role key in browser code', /service_role|SERVICE_ROLE|sb_secret_/],
   ['hard-coded Supabase JWT or publishable key', /eyJ[A-Za-z0-9_-]{20,}\.|sb_publishable_[A-Za-z0-9_-]{20,}/],
+  ['hard-coded host in auth code (use getAppUrl)', /(?:localhost|127\.0\.0\.1|vercel\.app)/],
   ['fake notification copy', /10 minutes ago|1 hour ago/],
   ['fake demo clients', /EDAPTX|Shorts Episode|KRAV_FITNESS/],
 ];
@@ -39,7 +45,9 @@ describe('no mock data or fake auth in production source', () => {
 
   for (const [name, pattern] of FORBIDDEN) {
     it(`has no ${name}`, () => {
-      const offenders = FILES.filter((f) => pattern.test(fs.readFileSync(f, 'utf8'))).map((f) => path.relative(SRC, f));
+      const offenders = FILES.filter((f) => pattern.test(fs.readFileSync(f, 'utf8')))
+        .map((f) => path.relative(SRC, f))
+        .filter((rel) => !(ALLOWED[name] ?? []).includes(rel));
       expect(offenders).toEqual([]);
     });
   }

@@ -13,6 +13,7 @@ import Login from '@/pages/Login';
 const Register = lazy(() => import('@/pages/Register'));
 const ForgotPassword = lazy(() => import('@/pages/ForgotPassword'));
 const ResetPassword = lazy(() => import('@/pages/ResetPassword'));
+const AuthCallback = lazy(() => import('@/pages/AuthCallback'));
 const Onboarding = lazy(() => import('@/pages/Onboarding'));
 const Home = lazy(() => import('@/pages/Home'));
 const Team = lazy(() => import('@/pages/Team'));
@@ -70,6 +71,7 @@ const App = () => (
               <Route path="/register" element={<Register />} />
               <Route path="/forgot-password" element={<ForgotPassword />} />
               <Route path="/reset-password" element={<ResetPassword />} />
+              <Route path="/auth/callback" element={<AuthCallback />} />
 
               {/* Signed in, but not yet part of a workspace */}
               <Route
