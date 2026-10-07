@@ -670,7 +670,8 @@ VALUES (gen_random_uuid(), '${u.id}', '${u.id}', jsonb_build_object('sub','${u.i
     rec('create_task: third task appends at position 2', res.data?.position === 2);
 
     // ---- the exact query shapes the app uses, through the real PostgREST ----
-    const SUMMARY = 'id, list_id, title, status, priority, position, aspect_ratio, due_date, client_deadline, created_at, updated_at, task_assignees(role_type, user_id), subtasks(is_completed)';
+    // exactly TASK_SUMMARY_SELECT from src/database/task-mappers.ts (the list workspace's row query)
+    const SUMMARY = 'id, list_id, title, status, priority, position, aspect_ratio, due_date, client_deadline, raw_footage_link, project_file_link, review_link, final_export_link, created_at, updated_at, task_assignees(role_type, user_id), subtasks(is_completed)';
     res = await clients.editor.from('tasks').select(SUMMARY, { count: 'exact' }).eq('list_id', l6).order('position', { ascending: true }).order('created_at', { ascending: true }).order('id', { ascending: true }).range(0, 99);
     rec('list query: one request returns rows with assignees + checklist embedded, exact count', !res.error && res.count === 3 && res.data?.length === 3, res.error?.message);
     const rowA = res.data?.find((r) => r.id === ids.a);

@@ -31,12 +31,9 @@ import { hierarchyPaths, isUuid } from '@/lib/hierarchy';
 import {
   ASPECT_RATIOS,
   LINK_FIELDS,
-  TASK_PRIORITIES,
-  TASK_STATUSES,
   deadlineWarning,
   isFinished,
   readOnlyReason,
-  statusOption,
   taskAccess,
   validateTaskDescription,
   validateTaskTitle,
@@ -52,7 +49,7 @@ import PropertyRow from './PropertyRow';
 import SaveIndicator from './SaveIndicator';
 import SubtaskChecklist from './SubtaskChecklist';
 import { InlineText } from './fields';
-import { PriorityFlag, TaskStatusPill } from './TaskBadges';
+import { PriorityControl, StatusControl } from './TaskControls';
 import { GHOST_SELECT_TRIGGER, STATIC_VALUE } from './task-styles';
 
 const NO_RATIO = '__none__';
@@ -62,6 +59,8 @@ interface TaskDetailSheetProps {
   space: HierarchySpace;
   folder: HierarchyFolder | null;
   list: HierarchyList;
+  /** The order the list shows tasks in right now (filters, sort, groups), for previous / next. */
+  orderedIds?: readonly string[];
   onClose: () => void;
 }
 
@@ -99,7 +98,7 @@ const Section: React.FC<{ title: string; aside?: React.ReactNode; children: Reac
  * further <Section>s below the checklist, or as tabs around the body, without touching the fields
  * above them. Nothing is simulated for them here.
  */
-const TaskDetailSheet: React.FC<TaskDetailSheetProps> = ({ taskId, space, folder, list, onClose }) => {
+const TaskDetailSheet: React.FC<TaskDetailSheetProps> = ({ taskId, space, folder, list, orderedIds: visibleOrder, onClose }) => {
   const navigate = useNavigate();
   const { user, role } = useAuth();
   const malformed = !isUuid(taskId);
@@ -120,9 +119,11 @@ const TaskDetailSheet: React.FC<TaskDetailSheetProps> = ({ taskId, space, folder
       : null;
 
   // Previous / next task in the list's own order, from the page the list already loaded.
-  const orderedIds = useMemo(() => siblings.data?.pages.flatMap((p) => p.items.map((t) => t.id)) ?? [], [siblings.data]);
+  const loadedIds = useMemo(() => siblings.data?.pages.flatMap((p) => p.items.map((t) => t.id)) ?? [], [siblings.data]);
+  // follow what the list shows (filtered / sorted / grouped) when the task is in it, else the list's own order
+  const orderedIds = visibleOrder && visibleOrder.includes(taskId) ? visibleOrder : loadedIds;
   const index = orderedIds.indexOf(taskId);
-  const total = siblings.data?.pages[0]?.total ?? orderedIds.length;
+  const total = orderedIds === loadedIds ? siblings.data?.pages[0]?.total ?? loadedIds.length : orderedIds.length;
   const goTo = (id: string | undefined) => {
     if (id) navigate(hierarchyPaths.task(space.id, list.id, id), { replace: true });
   };
@@ -175,7 +176,6 @@ const TaskDetailSheet: React.FC<TaskDetailSheetProps> = ({ taskId, space, folder
     const finished = isFinished(task.status);
     const warning = deadlineWarning(task.dueDate, task.clientDeadline);
     const reason = readOnlyReason(role, access);
-    const statusChoices = TASK_STATUSES.filter((s) => access.statusOptions.includes(s.value) || s.value === task.status);
     const creator = task.createdBy ? members.find((m) => m.userId === task.createdBy)?.profile?.fullName ?? 'a former member' : null;
     const ratio = ASPECT_RATIOS.find((a) => a.value === task.aspectRatio);
 
@@ -280,50 +280,22 @@ const TaskDetailSheet: React.FC<TaskDetailSheetProps> = ({ taskId, space, folder
 
           <Section title="Overview">
             <div className="grid gap-x-6 gap-y-0.5 sm:grid-cols-2">
-              <PropertyRow label="Status" htmlFor="task-status">
-                {access.statusOptions.length > 0 ? (
-                  <Select value={task.status} onValueChange={(v) => saveQuietly({ status: v as TaskStatus })}>
-                    <SelectTrigger id="task-status" aria-label="Status" className={GHOST_SELECT_TRIGGER}>
-                      <SelectValue>
-                        <TaskStatusPill status={task.status} className="border-0 bg-transparent px-0" />
-                      </SelectValue>
-                    </SelectTrigger>
-                    <SelectContent>
-                      {statusChoices.map((s) => (
-                        <SelectItem key={s.value} value={s.value} disabled={!access.statusOptions.includes(s.value)}>
-                          <TaskStatusPill status={s.value} className="border-0 bg-transparent px-0" />
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                ) : (
-                  <div className={STATIC_VALUE}>
-                    <TaskStatusPill status={task.status} className="border-0 bg-transparent px-0" />
-                  </div>
-                )}
+              <PropertyRow label="Status">
+                <StatusControl
+                  variant="field"
+                  status={task.status}
+                  allowed={access.statusOptions}
+                  onChange={(status: TaskStatus) => saveQuietly({ status })}
+                />
               </PropertyRow>
 
-              <PropertyRow label="Priority" htmlFor="task-priority">
-                {access.editBrief ? (
-                  <Select value={task.priority} onValueChange={(v) => saveQuietly({ priority: v as TaskPriority })}>
-                    <SelectTrigger id="task-priority" aria-label="Priority" className={GHOST_SELECT_TRIGGER}>
-                      <SelectValue>
-                        <PriorityFlag priority={task.priority} withLabel />
-                      </SelectValue>
-                    </SelectTrigger>
-                    <SelectContent>
-                      {TASK_PRIORITIES.map((p) => (
-                        <SelectItem key={p.value} value={p.value}>
-                          <PriorityFlag priority={p.value} withLabel />
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                ) : (
-                  <div className={STATIC_VALUE}>
-                    <PriorityFlag priority={task.priority} withLabel />
-                  </div>
-                )}
+              <PropertyRow label="Priority">
+                <PriorityControl
+                  variant="field"
+                  priority={task.priority}
+                  editable={access.editBrief}
+                  onChange={(priority: TaskPriority) => saveQuietly({ priority })}
+                />
               </PropertyRow>
 
               <PropertyRow label="Editor" htmlFor="task-editor">

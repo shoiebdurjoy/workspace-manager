@@ -120,3 +120,23 @@ An application-layer refinement of the detail sheet; **no schema, RLS or data-la
 * **Responsive.** 640px sheet (720px on large screens), full width on phones with a sticky header and a single-column body; no horizontal overflow at 375 / 768 / desktop.
 * **Extension point.** Comments, attachments, activity and QC history are added as further `Section`s below the checklist; nothing is simulated for them.
 
+
+## 9. The list workspace (interaction pass)
+
+The list page is the operating surface: most work is done on the rows, the sheet is for the brief, links and the full checklist. Application-layer only: **no schema, RLS or data-layer change**; every write goes through the same per-task calls as before.
+
+**On every row** (only where `taskAccess()` allows it; read-only values are plain text):
+status (searchable menu), editor and QC reviewer (searchable person picker), internal QC due and client deadline (calendar with shortcuts), priority, inline rename, production links as one-click icons, checklist progress, and an expandable checklist that can be ticked in place (loaded only when expanded).
+
+**Organising:** group by status (default, workflow order, counts, collapsible), editor or priority, or not at all; sort by manual order, either deadline, priority, title or date created; search; quick filters "Assigned to me" and "Overdue"; status / people / priority filters; "Hide finished". The view is remembered per list in the browser (a UI preference like the sidebar; never task data, never search text). Manual move up / down is offered only when the screen shows the manual order (ungrouped, unsorted, unfiltered).
+
+**Many at once:** checkboxes, shift-click ranges, "select all in group", and a bulk bar for status, priority, editor, QC reviewer and delete. A bulk action applies only to the selected tasks the person may change that way (the rest are reported as skipped), runs through the normal per-task calls six at a time, and puts back exactly the rows whose write failed.
+
+**Keyboard:** `/` search, `N` quick add, `J`/`K` (or arrows) move, `Enter` open, `X` select, `Esc` clears the selection then the cursor. Previous / next in the sheet follow the order on screen.
+
+**Creation:** quick add at the top, and "Add task" inside a group (a task added under a status, priority or editor group gets that value).
+
+**Data and performance:** a list loads all its rows (500 per request, capped at 5,000 with a notice) so groups, counts and filters are exact, and everything after that is computed in the browser. Inline and bulk edits patch the cached rows and the open detail at once (optimistic) and do NOT refetch the list; only create / delete / reorder do. Rows are memoised; on phones a row becomes a two-line card.
+
+**Pulled forward from later phases (client-side, on the loaded list):** grouped list with inline row creation (Phase 8), filters and sorting (Phase 9).
+**Still deferred:** Board / Table / Calendar views, drag-and-drop and batch `reorder_tasks` (Phase 8); server-side search across lists, saved views, virtualised rows for very large lists (Phases 8-9); per-list task counts in the sidebar (needs a server aggregate); activity, comments, notifications, Inbox (Phase 10); My Tasks / Home dashboard (Phase 11); the TBB workflow statuses (Phase 7) — `TASK_STATUSES` remains the single source the menus, groups and filters read.

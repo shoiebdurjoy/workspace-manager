@@ -87,7 +87,8 @@ describe('listTasks', () => {
     const select = String(at('tasks', 'select')[0].args[0]);
     expect(select).toContain('task_assignees(role_type, user_id)');
     expect(select).toContain('subtasks(is_completed)');
-    expect(select).not.toMatch(/description|link/); // rows stay small: no brief, no links
+    expect(select).not.toMatch(/description/); // rows never carry the (long) brief
+    expect(select).toMatch(/raw_footage_link, project_file_link, review_link, final_export_link/); // links open from the row
     expect(at('tasks', 'select')[0].args[1]).toEqual({ count: 'exact' });
     expect(calls.map((c) => c.table)).toEqual(Array(calls.length).fill('tasks')); // one table, one request
     expect(page.total).toBe(130);
@@ -95,10 +96,10 @@ describe('listTasks', () => {
     expect(page.items[1]).toMatchObject({ editorId: null, qcId: null, subtaskTotal: 0, subtaskDone: 0 });
   });
 
-  it('defaults to the first page of 100', async () => {
+  it('defaults to pages of 500 rows (a list then loads page after page)', async () => {
     results.tasks = { data: [], count: 0 };
     await listTasks(LIST);
-    expect(at('tasks', 'range')[0].args).toEqual([0, 99]);
+    expect(at('tasks', 'range')[0].args).toEqual([0, 499]);
   });
 
   it('requires a list and surfaces failures as readable errors', async () => {

@@ -37,6 +37,8 @@ export default defineConfig({
         'src/database/health.ts',
         // Phase 6: task engine
         'src/lib/tasks.ts',
+        'src/lib/task-view.ts',
+        'src/hooks/use-task-view.ts',
         'src/database/tasks.ts',
         'src/database/task-mappers.ts',
         'src/hooks/use-tasks.ts',

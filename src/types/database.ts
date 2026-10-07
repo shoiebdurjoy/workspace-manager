@@ -106,7 +106,21 @@ export interface TaskAssignee {
 export interface TaskSummary
   extends Pick<
     Task,
-    'id' | 'listId' | 'title' | 'status' | 'priority' | 'position' | 'aspectRatio' | 'dueDate' | 'clientDeadline' | 'createdAt' | 'updatedAt'
+    | 'id'
+    | 'listId'
+    | 'title'
+    | 'status'
+    | 'priority'
+    | 'position'
+    | 'aspectRatio'
+    | 'dueDate'
+    | 'clientDeadline'
+    | 'rawFootageLink'
+    | 'projectFileLink'
+    | 'reviewLink'
+    | 'finalExportLink'
+    | 'createdAt'
+    | 'updatedAt'
   > {
   editorId: string | null;
   qcId: string | null;

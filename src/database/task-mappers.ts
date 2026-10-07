@@ -46,15 +46,30 @@ function slot(assignees: readonly AssigneeRow[] | null | undefined, role: Assign
   return assignees?.find((a) => a.role_type === role)?.user_id ?? null;
 }
 
-/** Columns the list view reads (no description, no links): keeps a page of tasks small. */
+/** Columns the list view reads: everything a row shows or edits inline, never the (long) brief. */
 export const TASK_SUMMARY_SELECT =
-  'id, list_id, title, status, priority, position, aspect_ratio, due_date, client_deadline, created_at, updated_at, ' +
+  'id, list_id, title, status, priority, position, aspect_ratio, due_date, client_deadline, ' +
+  'raw_footage_link, project_file_link, review_link, final_export_link, created_at, updated_at, ' +
   'task_assignees(role_type, user_id), subtasks(is_completed)';
 
 export interface TaskSummaryRow
   extends Pick<
     TaskRow,
-    'id' | 'list_id' | 'title' | 'status' | 'priority' | 'position' | 'aspect_ratio' | 'due_date' | 'client_deadline' | 'created_at' | 'updated_at'
+    | 'id'
+    | 'list_id'
+    | 'title'
+    | 'status'
+    | 'priority'
+    | 'position'
+    | 'aspect_ratio'
+    | 'due_date'
+    | 'client_deadline'
+    | 'raw_footage_link'
+    | 'project_file_link'
+    | 'review_link'
+    | 'final_export_link'
+    | 'created_at'
+    | 'updated_at'
   > {
   task_assignees: AssigneeRow[] | null;
   subtasks: Array<{ is_completed: boolean }> | null;
@@ -72,6 +87,10 @@ export function mapTaskSummaryRow(row: TaskSummaryRow): TaskSummary {
     aspectRatio: row.aspect_ratio,
     dueDate: row.due_date,
     clientDeadline: row.client_deadline,
+    rawFootageLink: row.raw_footage_link,
+    projectFileLink: row.project_file_link,
+    reviewLink: row.review_link,
+    finalExportLink: row.final_export_link,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     editorId: slot(row.task_assignees, 'EDITOR'),

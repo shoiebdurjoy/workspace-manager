@@ -24,7 +24,10 @@ import { can } from '@/lib/permissions';
 export const TITLE_MAX_LENGTH = 500;
 export const DESCRIPTION_MAX_LENGTH = 20000;
 export const URL_MAX_LENGTH = 2048;
-export const TASK_PAGE_SIZE = 100;
+/** Rows per request. A list loads all its pages (up to TASK_LOAD_CAP) so groups, counts and filters are exact. */
+export const TASK_PAGE_SIZE = 500;
+/** Safety cap for one list in the browser; server-side search / virtualisation (Phases 8-9) lift it. */
+export const TASK_LOAD_CAP = 5000;
 
 // ---------------------------------------------------------------------------------------
 // Labels

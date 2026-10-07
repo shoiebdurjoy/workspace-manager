@@ -20,8 +20,11 @@ interface PersonPickerProps {
   onChange: (userId: string | null) => void;
   disabled?: boolean;
   /** "field" is a bordered form control (dialogs); "ghost" looks like text until hovered (the detail sheet). */
-  variant?: 'field' | 'ghost';
+  /** "avatar" is the compact list-row form: just the face (or an empty slot), the name in its label. */
+  variant?: 'field' | 'ghost' | 'avatar';
   className?: string;
+  /** What an empty slot says (default "Unassigned"). */
+  emptyText?: string;
 }
 
 /**
@@ -40,6 +43,7 @@ const PersonPicker: React.FC<PersonPickerProps> = ({
   disabled,
   variant = 'field',
   className,
+  emptyText = 'Unassigned',
 }) => {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -72,16 +76,18 @@ const PersonPicker: React.FC<PersonPickerProps> = ({
           id={id}
           type="button"
           role="combobox"
-          aria-label={label}
+          aria-label={variant === 'avatar' ? `${label}: ${currentName ?? 'unassigned'}` : label}
+          title={variant === 'avatar' ? `${label}: ${currentName ?? 'unassigned'}` : undefined}
           aria-expanded={open}
           aria-haspopup="listbox"
           disabled={disabled}
+          onClick={(e) => e.stopPropagation()}
           className={cn(
-            'flex w-full min-w-0 items-center gap-2 rounded-md text-left text-sm outline-none transition-colors',
+            'flex min-w-0 items-center gap-2 rounded-md text-left text-sm outline-none transition-colors',
             'focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60',
-            variant === 'field'
-              ? 'h-9 border border-input bg-background px-3 hover:bg-muted/40'
-              : 'h-8 border border-transparent px-2 hover:bg-muted data-[state=open]:bg-muted',
+            variant === 'field' && 'h-9 w-full border border-input bg-background px-3 hover:bg-muted/40',
+            variant === 'ghost' && 'h-8 w-full border border-transparent px-2 hover:bg-muted data-[state=open]:bg-muted',
+            variant === 'avatar' && 'rounded-full p-0.5 hover:ring-2 hover:ring-border data-[state=open]:ring-2 data-[state=open]:ring-ring',
             className
           )}
         >
@@ -92,11 +98,15 @@ const PersonPicker: React.FC<PersonPickerProps> = ({
               <UserRound className="h-3 w-3" />
             </span>
           )}
-          <span className={cn('min-w-0 flex-1 truncate', !value && 'text-muted-foreground')}>{currentName ?? 'Unassigned'}</span>
-          <ChevronsUpDown aria-hidden className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+          {variant !== 'avatar' && (
+            <>
+              <span className={cn('min-w-0 flex-1 truncate', !value && 'text-muted-foreground')}>{currentName ?? emptyText}</span>
+              <ChevronsUpDown aria-hidden className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+            </>
+          )}
         </button>
       </PopoverTrigger>
-      <PopoverContent align="start" className="w-[var(--radix-popover-trigger-width)] min-w-[260px] p-0">
+      <PopoverContent align="start" className="w-[var(--radix-popover-trigger-width)] min-w-[260px] p-0" onClick={(e) => e.stopPropagation()}>
         {/* Filtering is done above as a plain substring match; fuzzy matching surfaces unrelated people. */}
         <Command shouldFilter={false}>
           <CommandInput value={query} onValueChange={setQuery} placeholder="Search people..." aria-label={`Search ${label.toLowerCase()}`} />

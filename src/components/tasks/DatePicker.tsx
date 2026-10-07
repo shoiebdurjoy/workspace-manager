@@ -4,7 +4,7 @@ import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { dateToIso, daysFromNowIso, dueState, formatDayLong, isoToDate } from '@/lib/tasks';
+import { dateToIso, daysFromNowIso, dueState, formatDay, formatDayLong, isoToDate } from '@/lib/tasks';
 
 interface DatePickerProps {
   id?: string;
@@ -17,6 +17,10 @@ interface DatePickerProps {
   /** A finished task is never shown as overdue. */
   finished?: boolean;
   className?: string;
+  /** "cell" is the compact list-row form: short date, no icon until hovered when empty. */
+  variant?: 'field' | 'cell';
+  /** cell only: a short word shown when empty (where there is no column header to say what it is). */
+  emptyLabel?: string;
 }
 
 const TONE: Record<string, string> = {
@@ -31,7 +35,7 @@ const TONE: Record<string, string> = {
  * tomorrow, next week) and a way to clear it. Overdue dates are tinted. Picking a day saves it
  * straight away; the stored value is that day at local noon (see dateToIso).
  */
-const DatePicker: React.FC<DatePickerProps> = ({ id, label, value, onChange, disabled, finished = false, className }) => {
+const DatePicker: React.FC<DatePickerProps> = ({ id, label, value, onChange, disabled, finished = false, className, variant = 'field', emptyLabel }) => {
   const [open, setOpen] = useState(false);
   const selected = isoToDate(value);
   const state = finished ? 'later' : dueState(value) ?? 'later';
@@ -50,12 +54,25 @@ const DatePicker: React.FC<DatePickerProps> = ({ id, label, value, onChange, dis
           disabled={disabled}
           aria-label={value ? `${label}: ${formatDayLong(value)}` : `${label}: not set`}
           title={label}
+          onClick={(e) => e.stopPropagation()}
           className={cn(
-            'flex h-8 w-full min-w-0 items-center gap-2 rounded-md border border-transparent px-2 text-left text-sm outline-none transition-colors',
+            'flex min-w-0 items-center gap-2 rounded-md border border-transparent text-left outline-none transition-colors',
             'hover:bg-muted data-[state=open]:bg-muted focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60',
+            variant === 'field' ? 'h-8 w-full px-2 text-sm' : 'h-7 px-1.5 text-xs',
             className
           )}
         >
+          {variant === 'cell' ? (
+            value ? (
+              <span className={cn('truncate tabular-nums', TONE[state] || 'text-muted-foreground')}>{formatDay(value)}</span>
+            ) : (
+              <span className="inline-flex items-center gap-1 text-muted-foreground/60">
+                <CalendarDays aria-hidden className="h-3.5 w-3.5" />
+                {emptyLabel && <span>{emptyLabel}</span>}
+              </span>
+            )
+          ) : (
+          <>
           <CalendarDays aria-hidden className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
           {value ? (
             <span className={cn('truncate tabular-nums', TONE[state])}>
@@ -65,9 +82,11 @@ const DatePicker: React.FC<DatePickerProps> = ({ id, label, value, onChange, dis
           ) : (
             <span className="text-muted-foreground">Set date</span>
           )}
+          </>
+          )}
         </button>
       </PopoverTrigger>
-      <PopoverContent align="start" className="w-auto p-0">
+      <PopoverContent align="start" className="w-auto p-0" onClick={(e) => e.stopPropagation()}>
         <Calendar
           mode="single"
           selected={selected}

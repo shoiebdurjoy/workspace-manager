@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useMatch, useNavigate, useParams } from 'react-router-dom';
 import { ListTodo } from 'lucide-react';
 import HierarchyGate from '@/components/hierarchy/HierarchyGate';
@@ -16,6 +16,12 @@ const ListView: React.FC<{
   taskId?: string;
 }> = ({ space, folder, list, taskId }) => {
   const navigate = useNavigate();
+  const [visibleOrder, setVisibleOrderState] = useState<string[]>([]);
+  // only a real change of order re-renders the page (the list reports it after every render)
+  const setVisibleOrder = useCallback(
+    (ids: string[]) => setVisibleOrderState((prev) => (prev.length === ids.length && prev.every((id, i) => id === ids[i]) ? prev : ids)),
+    []
+  );
   useEffect(() => {
     document.title = `${list.name} · TBB Workspace`;
   }, [list.name]);
@@ -35,7 +41,7 @@ const ListView: React.FC<{
         actions={<ListMenu space={space} folder={folder} list={list} />}
       />
 
-      <TaskList space={space} list={list} selectedTaskId={taskId} />
+      <TaskList space={space} list={list} selectedTaskId={taskId} onVisibleOrder={setVisibleOrder} />
 
       {/* The task opens as a side sheet over the list; closing it returns to the plain list URL. */}
       {taskId && (
@@ -44,6 +50,7 @@ const ListView: React.FC<{
           space={space}
           folder={folder}
           list={list}
+          orderedIds={visibleOrder}
           onClose={() => navigate(hierarchyPaths.list(space.id, list.id), { replace: true })}
         />
       )}
