@@ -65,7 +65,10 @@ function runSqlJson(sql) {
   return row;
 }
 const TASK_TABLE_COUNTS_SQL =
-  'SELECT (SELECT count(*) FROM public.tasks) AS tasks, (SELECT count(*) FROM public.task_assignees) AS task_assignees, (SELECT count(*) FROM public.subtasks) AS subtasks;';
+  'SELECT (SELECT count(*) FROM public.tasks) AS tasks, (SELECT count(*) FROM public.task_assignees) AS task_assignees, (SELECT count(*) FROM public.subtasks) AS subtasks, ' +
+  '(SELECT count(*) FROM public.task_status_events) AS task_status_events, (SELECT count(*) FROM public.workflows) AS workflows, ' +
+  '(SELECT count(*) FROM public.workflow_statuses) AS workflow_statuses, (SELECT count(*) FROM public.workflow_transitions) AS workflow_transitions, ' +
+  '(SELECT count(*) FROM public.task_production_credits) AS task_production_credits;';
 
 const CLEANUP_SQL = `
 DELETE FROM public.workspaces
@@ -293,42 +296,55 @@ try {
   noRows('outsider sees no tasks', res);
   res = await clients.client.from('tasks').select('id');
   noRows('client viewer sees no tasks (fail closed)', res);
-  res = await clients.client.from('tasks').update({ status: 'COMPLETED' }).eq('id', task).select();
+  res = await clients.client.from('tasks').update({ status: 'CLOSED' }).eq('id', task).select();
   noRows('client viewer cannot update tasks', res);
   res = await clients.stranger.from('tasks').update({ title: 'pwn' }).eq('id', task).select();
   noRows('outsider cannot update tasks', res);
 
-  // Phase 6 tightening (migration 7): an editor acts only on tasks assigned to them.
-  res = await clients.editor.from('tasks').update({ status: 'IN_PROGRESS' }).eq('id', task).select();
+  // The TBB workflow (migration 8) is enforced on every write path, including a plain REST PATCH.
+  res = await clients.pm.from('tasks').select('status,revision_count').eq('id', task).single();
+  rec('a new task starts at TO_BE_EDITED with no revisions', res.data?.status === 'TO_BE_EDITED' && res.data?.revision_count === 0, JSON.stringify(res.data));
+  res = await clients.editor.from('tasks').update({ status: 'STARTED_EDITING' }).eq('id', task).select();
   rec('editor cannot change a task that is NOT assigned to them', code(res) === '42501', JSON.stringify(res.error));
+  res = await clients.pm.from('tasks').update({ status: 'ASSIGNED' }).eq('id', task).select();
+  rec('ASSIGNED needs an editor first (even for a manager)', code(res) === '23514' && /needs an editor assigned/.test(res.error?.message), JSON.stringify(res.error));
   res = await clients.pm.rpc('set_task_assignee', { p_task_id: task, p_role_type: 'EDITOR', p_user_id: U.editor.id });
   rec('manager assigns the editor to the task', !res.error, res.error?.message);
-  res = await clients.editor.from('tasks').update({ status: 'IN_PROGRESS' }).eq('id', task).select();
-  rec('editor can start work', !res.error && res.data?.length === 1, res.error?.message);
-  res = await clients.editor.from('tasks').update({ status: 'IN_QC', position: 2 }).eq('id', task).select();
-  rec('editor can submit to QC and reorder', !res.error && res.data?.length === 1, res.error?.message);
-  res = await clients.editor.from('tasks').update({ status: 'READY_TO_DELIVER' }).eq('id', task).select();
-  rec('EDITOR CANNOT SELF-APPROVE (READY_TO_DELIVER)', code(res) === '42501', JSON.stringify(res.error));
-  res = await clients.editor.from('tasks').update({ status: 'COMPLETED' }).eq('id', task).select();
-  rec('editor cannot complete tasks', code(res) === '42501');
+  res = await clients.pm.from('tasks').update({ status: 'ASSIGNED' }).eq('id', task).select();
+  rec('manager moves it to ASSIGNED (a valid step, plain PATCH)', !res.error && res.data?.length === 1, res.error?.message);
+  res = await clients.editor.from('tasks').update({ status: 'STARTED_EDITING' }).eq('id', task).select();
+  rec('editor starts editing', !res.error && res.data?.length === 1, res.error?.message);
+  res = await clients.editor.from('tasks').update({ status: 'QC_FIRST_APPROVAL', position: 2 }).eq('id', task).select();
+  rec('submitting for QC without the review link is refused', code(res) === '23514' && /review link/.test(res.error?.message), JSON.stringify(res.error));
+  res = await clients.editor.from('tasks').update({ status: 'QC_FIRST_APPROVAL', review_link: 'https://app.frame.io/reviews/1', position: 2 }).eq('id', task).select();
+  rec('editor submits the cut for QC with its review link (and reorders)', !res.error && res.data?.length === 1, res.error?.message);
+  res = await clients.editor.from('tasks').update({ status: 'QC_APPROVED_RTD' }).eq('id', task).select();
+  rec('EDITOR CANNOT SELF-APPROVE (QC_APPROVED_RTD)', code(res) === '42501', JSON.stringify(res.error));
+  res = await clients.editor.from('tasks').update({ status: 'CLOSED' }).eq('id', task).select();
+  rec('editor cannot close tasks', code(res) === '42501');
   res = await clients.editor.from('tasks').update({ title: 'Renamed' }).eq('id', task).select();
   rec('editor cannot edit title', code(res) === '42501');
   res = await clients.editor.from('tasks').update({ list_id: list2 }).eq('id', task).select();
   rec('editor cannot move task to another list', code(res) === '42501');
+  res = await clients.editor.from('tasks').update({ revision_count: 99 }).eq('id', task).select();
+  res = await clients.pm.from('tasks').select('revision_count').eq('id', task).single();
+  rec('nobody can set the revision counter directly', res.data?.revision_count === 0, JSON.stringify(res.data));
   res = await clients.editor.from('tasks').delete().eq('id', task).select();
   noRows('editor cannot delete tasks', res);
-  res = await clients.qc.from('tasks').update({ status: 'READY_TO_DELIVER' }).eq('id', task).select();
-  rec('QC approves (IN_QC -> READY_TO_DELIVER)', !res.error && res.data?.length === 1, res.error?.message);
-  res = await clients.qc.from('tasks').update({ status: 'CLIENT_REVIEW' }).eq('id', task).select();
-  rec('QC delivers to client review', !res.error && res.data?.length === 1, res.error?.message);
-  res = await clients.qc.from('tasks').update({ status: 'COMPLETED' }).eq('id', task).select();
-  rec('QC cannot complete tasks', code(res) === '42501');
+  res = await clients.qc.from('tasks').update({ status: 'QC_APPROVED_RTD' }).eq('id', task).select();
+  rec('QC approves (QC - FIRST APPROVAL -> QC - APPROVED (RTD))', !res.error && res.data?.length === 1, res.error?.message);
+  res = await clients.qc.from('tasks').update({ status: 'SENT_TO_CLIENT' }).eq('id', task).select();
+  rec('delivering without the final export is refused', code(res) === '23514' && /final export/.test(res.error?.message), JSON.stringify(res.error));
+  res = await clients.qc.from('tasks').update({ status: 'SENT_TO_CLIENT', final_export_link: 'https://drive.google.com/final' }).eq('id', task).select();
+  rec('QC delivers to the client with the final export', !res.error && res.data?.length === 1, res.error?.message);
+  res = await clients.qc.from('tasks').update({ status: 'CLOSED' }).eq('id', task).select();
+  rec('QC cannot close tasks', code(res) === '42501');
   res = await clients.qc.from('tasks').update({ title: 'QC edit' }).eq('id', task).select();
   rec('QC cannot edit task fields', code(res) === '42501');
-  res = await clients.editor.from('tasks').update({ status: 'IN_PROGRESS' }).eq('id', task).select();
+  res = await clients.editor.from('tasks').update({ status: 'STARTED_EDITING' }).eq('id', task).select();
   rec('editor cannot pull a delivered task back', code(res) === '42501');
-  res = await clients.pm.from('tasks').update({ status: 'COMPLETED', title: 'Final cut' }).eq('id', task).select();
-  rec('manager can complete and edit', !res.error && res.data?.length === 1, res.error?.message);
+  res = await clients.pm.from('tasks').update({ status: 'CLOSED', title: 'Final cut' }).eq('id', task).select();
+  rec('manager closes and edits', !res.error && res.data?.length === 1, res.error?.message);
 
   console.log('\n== Cross-workspace isolation ==');
   res = await clients.pm.from('workspaces').select('id').eq('slug', `e2e-b-${RUN}`).single();
@@ -664,14 +680,14 @@ VALUES (gen_random_uuid(), '${u.id}', '${u.id}', jsonb_build_object('sub','${u.i
     rec('create_task: title trimmed, created_by + workspace derived, position 0', res.data?.title === 'Episode A' && res.data?.created_by === U.pm.id && res.data?.workspace_id === ws && res.data?.position === 0, JSON.stringify(res.data));
     res = await rpc('admin', 'create_task', { p_list_id: l6, p_title: 'Episode B' });
     ids.b = res.data?.id;
-    rec('create_task: next task appends at position 1 with defaults', !res.error && res.data?.position === 1 && res.data?.status === 'TODO' && res.data?.priority === 'MEDIUM', res.error?.message);
+    rec('create_task: next task appends at position 1 with defaults', !res.error && res.data?.position === 1 && res.data?.status === 'TO_BE_EDITED' && res.data?.priority === 'MEDIUM', res.error?.message);
     res = await rpc('owner', 'create_task', { p_list_id: l6, p_title: 'Episode C' });
     ids.c = res.data?.id;
     rec('create_task: third task appends at position 2', res.data?.position === 2);
 
     // ---- the exact query shapes the app uses, through the real PostgREST ----
     // exactly TASK_SUMMARY_SELECT from src/database/task-mappers.ts (the list workspace's row query)
-    const SUMMARY = 'id, list_id, title, status, priority, position, aspect_ratio, due_date, client_deadline, raw_footage_link, project_file_link, review_link, final_export_link, created_at, updated_at, task_assignees(role_type, user_id), subtasks(is_completed)';
+    const SUMMARY = 'id, list_id, title, status, priority, position, aspect_ratio, due_date, client_deadline, revision_count, raw_footage_link, project_file_link, review_link, final_export_link, created_at, updated_at, task_assignees(role_type, user_id), subtasks(is_completed)';
     res = await clients.editor.from('tasks').select(SUMMARY, { count: 'exact' }).eq('list_id', l6).order('position', { ascending: true }).order('created_at', { ascending: true }).order('id', { ascending: true }).range(0, 99);
     rec('list query: one request returns rows with assignees + checklist embedded, exact count', !res.error && res.count === 3 && res.data?.length === 3, res.error?.message);
     const rowA = res.data?.find((r) => r.id === ids.a);
@@ -757,11 +773,13 @@ VALUES (gen_random_uuid(), '${u.id}', '${u.id}', jsonb_build_object('sub','${u.i
     }
 
     // ---- editor rules: only assigned tasks, only operational columns ----
-    res = await clients.editor.from('tasks').update({ status: 'IN_PROGRESS' }).eq('id', ids.c).select();
+    res = await rpc('pm', 'transition_task', { p_task_id: ids.a, p_to: 'ASSIGNED' });
+    rec('manager puts the task in the editor\'s queue (transition_task)', !res.error && res.data?.status === 'ASSIGNED', res.error?.message);
+    res = await clients.editor.from('tasks').update({ status: 'IN_EDIT' }).eq('id', ids.c).select();
     rec('editor cannot change a task nobody assigned them', code(res) === '42501', JSON.stringify(res.error));
-    res = await clients.editor2.from('tasks').update({ status: 'IN_PROGRESS' }).eq('id', ids.a).select();
+    res = await clients.editor2.from('tasks').update({ status: 'STARTED_EDITING' }).eq('id', ids.a).select();
     rec("editor cannot change a colleague's task", code(res) === '42501');
-    res = await clients.editor.from('tasks').update({ status: 'IN_PROGRESS' }).eq('id', ids.a).select();
+    res = await clients.editor.from('tasks').update({ status: 'STARTED_EDITING' }).eq('id', ids.a).select();
     rec('assigned editor starts work', !res.error && res.data?.length === 1, res.error?.message);
     res = await clients.editor.from('tasks').update({ review_link: 'https://app.frame.io/reviews/9', project_file_link: 'https://drive.google.com/p' }).eq('id', ids.a).select();
     rec('assigned editor submits review + project file links', !res.error && res.data?.length === 1, res.error?.message);
@@ -769,16 +787,16 @@ VALUES (gen_random_uuid(), '${u.id}', '${u.id}', jsonb_build_object('sub','${u.i
       res = await clients.editor.from('tasks').update(patch).eq('id', ids.a).select();
       rec(`assigned editor cannot change ${Object.keys(patch)[0]}`, code(res) === '42501');
     }
-    res = await clients.editor.from('tasks').update({ status: 'READY_TO_DELIVER' }).eq('id', ids.a).select();
+    res = await clients.editor.from('tasks').update({ status: 'QC_APPROVED_RTD' }).eq('id', ids.a).select();
     rec('assigned editor still cannot self-approve', code(res) === '42501');
     res = await clients.editor.from('tasks').update({ review_link: 'javascript:alert(1)' }).eq('id', ids.a).select();
     rec('even an assigned editor cannot store a javascript: link', !!res.error);
     res = await clients.editor.from('tasks').delete().eq('id', ids.a).select();
     noRows('assigned editor cannot delete the task', res);
     res = await clients.qc.from('tasks').update({ review_link: 'https://x.co/qc' }).eq('id', ids.a).select();
-    rec('QC cannot edit the brief or links', code(res) === '42501');
+    rec('QC cannot edit the brief or the editor\'s links', code(res) === '42501');
     res = await clients.pm.from('tasks').select('status,review_link,title').eq('id', ids.a).single();
-    rec('after those attempts the task holds exactly what was legitimately saved', res.data?.status === 'IN_PROGRESS' && res.data?.review_link === 'https://app.frame.io/reviews/9' && res.data?.title === 'Episode A', JSON.stringify(res.data));
+    rec('after those attempts the task holds exactly what was legitimately saved', res.data?.status === 'STARTED_EDITING' && res.data?.review_link === 'https://app.frame.io/reviews/9' && res.data?.title === 'Episode A', JSON.stringify(res.data));
 
     // ---- managers edit everything; clear optional fields ----
     res = await clients.pm.from('tasks').update({ title: 'Episode A (final)', description: 'd', priority: 'URGENT', aspect_ratio: '4:5', final_export_link: 'https://x.co/final', client_deadline: dt(7) }).eq('id', ids.a).select();
@@ -836,6 +854,282 @@ VALUES (gen_random_uuid(), '${u.id}', '${u.id}', jsonb_build_object('sub','${u.i
     rec('deleting a task removes its assignments and subtasks', res.a === 0 && res.s === 0, JSON.stringify(res));
   }
 
+  console.log('\n== Phase 7: TBB workflow engine (live) ==');
+  {
+    // These sections deliberately attempt writes the API must refuse at GRANT level (the tables have no
+    // write privileges); they must not count as "missing grant" refusals.
+    const grantsBefore = grantRefusals;
+    const tr = (who, p_task_id, p_to, extra = {}) => clients[who].rpc('transition_task', { p_task_id, p_to, ...extra });
+    const statusOf = async (id) => (await clients.pm.from('tasks').select('status,revision_count').eq('id', id).single()).data;
+    const CANONICAL = ['TO BE EDITED', 'IN EDIT', 'ASSIGNED', 'STARTED EDITING', 'QC - FIRST APPROVAL', 'QC - REVISION NEEDED', 'QC - FINAL APPROVAL', 'QC - APPROVED (RTD)', 'SENT TO CLIENT', 'CLOSED'];
+
+    // ---- configuration: seeded for the new workspace, readable by staff only, writable by nobody ----
+    res = await clients.editor.from('workflows').select('id, name, workflow_statuses!workflow_id(key, name, position), workflow_transitions!workflow_id(from_key, to_key)').eq('workspace_id', ws).eq('is_default', true).maybeSingle();
+    rec('a new workspace gets the TBB workflow automatically', !res.error && !!res.data?.id, res.error?.message);
+    const wf = res.data;
+    const names = (wf?.workflow_statuses ?? []).sort((x, y) => x.position - y.position).map((st) => st.name);
+    rec('its ten stages are the canonical TBB stages, in order', JSON.stringify(names) === JSON.stringify(CANONICAL), JSON.stringify(names));
+    rec('it has the 20 defined moves', wf?.workflow_transitions?.length === 20, String(wf?.workflow_transitions?.length));
+    for (const who of ['owner', 'admin', 'pm', 'qc']) {
+      res = await clients[who].from('workflow_statuses').select('key').eq('workflow_id', wf?.id);
+      rec(`${who} reads the workflow`, !res.error && res.data?.length === 10, res.error?.message);
+    }
+    for (const who of ['client', 'stranger']) {
+      res = await clients[who].from('workflow_transitions').select('from_key').eq('workflow_id', wf?.id);
+      noRows(`${who} cannot read the workflow`, res);
+    }
+    res = await anon.from('workflows').select('id');
+    rec('anon cannot read workflows', !!res.error);
+    res = await clients.owner.from('workflow_statuses').insert({ workflow_id: wf?.id, key: 'HACK', name: 'HACK', category: 'IN_PROGRESS', color: '#000000', position: 99 });
+    rec('even the owner cannot add a stage through the API', !!res.error);
+    res = await clients.owner.from('workflow_transitions').update({ roles: ['EDITOR'] }).eq('workflow_id', wf?.id).select();
+    rec('even the owner cannot rewrite who may make a move', !!res.error || (res.data?.length ?? 0) === 0, JSON.stringify(res.error));
+    res = await clients.owner.from('workflow_transitions').delete().eq('workflow_id', wf?.id).select();
+    rec('even the owner cannot delete moves', !!res.error || (res.data?.length ?? 0) === 0);
+    res = await clients.owner.from('workflows').delete().eq('id', wf?.id).select();
+    rec('even the owner cannot delete the workflow', !!res.error || (res.data?.length ?? 0) === 0);
+    res = await clients.pm.from('workflow_transitions').select('from_key', { count: 'exact', head: true }).eq('workflow_id', wf?.id);
+    rec('...and the workflow is intact afterwards', res.count === 20, String(res.count));
+
+    // ---- a fresh list for the workflow checks ----
+    res = await clients.pm.from('lists').insert({ space_id: space, folder_id: folder, name: 'P7 WORKFLOW' }).select().single();
+    const l7 = res.data?.id;
+    res = await clients.pm.rpc('create_task', { p_list_id: l7, p_title: 'Cycle', p_qc_id: U.qc.id });
+    const t = res.data?.id;
+    rec('create_task starts at TO_BE_EDITED', res.data?.status === 'TO_BE_EDITED' && res.data?.revision_count === 0, JSON.stringify(res.data && { s: res.data.status, r: res.data.revision_count }));
+    res = await clients.pm.from('tasks').insert({ list_id: l7, title: 'Born closed', status: 'CLOSED' }).select();
+    rec('a manager cannot create a task in a later stage (direct INSERT)', !!res.error, JSON.stringify(res.data));
+    res = await tr('pm', t, 'DONE');
+    rec('an unknown stage is refused', !!res.error);
+
+    // ---- the full cycle through transition_task (the app's path), each step by its role ----
+    const step = async (who, to, extra, name) => {
+      res = await tr(who, t, to, extra);
+      rec(name, !res.error && res.data?.status === to, res.error?.message);
+      return res.data;
+    };
+    await step('pm', 'IN_EDIT', {}, 'manager: TO BE EDITED -> IN EDIT');
+    res = await tr('pm', t, 'ASSIGNED');
+    rec('IN EDIT -> ASSIGNED needs an editor', res.error?.code === '23514', JSON.stringify(res.error));
+    await clients.pm.rpc('set_task_assignee', { p_task_id: t, p_role_type: 'EDITOR', p_user_id: U.editor.id });
+    await step('pm', 'ASSIGNED', {}, 'manager: IN EDIT -> ASSIGNED');
+    res = await tr('qc', t, 'STARTED_EDITING');
+    rec('QC cannot start editing', res.error?.code === '42501' && /your role cannot move/.test(res.error?.message), JSON.stringify(res.error));
+    res = await tr('editor2', t, 'STARTED_EDITING');
+    rec('another editor cannot start this task', res.error?.code === '42501', JSON.stringify(res.error));
+    await step('editor', 'STARTED_EDITING', {}, 'assigned editor: ASSIGNED -> STARTED EDITING');
+    res = await tr('editor', t, 'QC_FIRST_APPROVAL');
+    rec('submitting for QC needs the review link', res.error?.code === '23514' && /review link/.test(res.error?.message), JSON.stringify(res.error));
+    await step('editor', 'QC_FIRST_APPROVAL', { p_review_link: 'https://app.frame.io/reviews/cut1' }, 'assigned editor submits for QC with the review link in the same call');
+    res = await clients.pm.from('tasks').select('review_link').eq('id', t).single();
+    rec('...and the review link was saved with the move', res.data?.review_link === 'https://app.frame.io/reviews/cut1');
+    res = await tr('editor', t, 'QC_APPROVED_RTD');
+    rec('EDITOR CANNOT APPROVE THEIR OWN CUT (live, via the RPC)', res.error?.code === '42501', JSON.stringify(res.error));
+    res = await clients.qc.from('tasks').update({ status: 'QC_REVISION_NEEDED' }).eq('id', t).select();
+    rec('a revision cannot be requested by a plain PATCH (no way to give the note)', res.error?.code === '23514' && /needs a note/.test(res.error?.message), JSON.stringify(res.error));
+    res = await tr('qc', t, 'QC_REVISION_NEEDED', { p_note: '   ' });
+    rec('a blank note is not a note', res.error?.code === '23514', JSON.stringify(res.error));
+    res = await tr('qc', t, 'QC_REVISION_NEEDED', { p_note: 'x'.repeat(2001) });
+    rec('a note over 2000 characters is refused', !!res.error);
+    let d = await step('qc', 'QC_REVISION_NEEDED', { p_note: 'Tighten the intro' }, 'QC requests revision 1 (with a note)');
+    rec('revision counter is 1', d?.revision_count === 1, String(d?.revision_count));
+    res = await tr('editor', t, 'QC_FIRST_APPROVAL');
+    rec('a revision goes to FINAL approval, not back to first approval', res.error?.code === '42501' && /cannot move/.test(res.error?.message), JSON.stringify(res.error));
+    await step('editor', 'QC_FINAL_APPROVAL', {}, 'assigned editor submits the revision');
+    d = await step('qc', 'QC_REVISION_NEEDED', { p_note: 'Music too loud' }, 'QC requests another revision from final approval');
+    rec('revision counter is 2', d?.revision_count === 2, String(d?.revision_count));
+    await step('editor', 'QC_FINAL_APPROVAL', {}, 'assigned editor resubmits');
+    res = await tr('qc', t, 'QC_APPROVED_RTD', { p_expected_from: 'QC_FIRST_APPROVAL' });
+    rec('a decision on a stage the task already left is refused (stale, TB409)', res.error?.code === 'TB409', JSON.stringify(res.error));
+    rec('...and changed nothing', (await statusOf(t))?.status === 'QC_FINAL_APPROVAL');
+    await step('qc', 'QC_APPROVED_RTD', { p_expected_from: 'QC_FINAL_APPROVAL' }, 'QC approves: ready to deliver');
+    res = await tr('qc', t, 'SENT_TO_CLIENT');
+    rec('delivery needs the final export', res.error?.code === '23514' && /final export/.test(res.error?.message), JSON.stringify(res.error));
+    await step('qc', 'SENT_TO_CLIENT', { p_final_export_link: 'https://drive.google.com/final-cut' }, 'QC delivers with the final export');
+    res = await tr('qc', t, 'CLOSED');
+    rec('QC cannot close', res.error?.code === '42501', JSON.stringify(res.error));
+    d = await step('qc', 'QC_REVISION_NEEDED', { p_note: 'Client: swap the logo' }, 'client changes go back as a revision');
+    rec('revision counter is 3', d?.revision_count === 3, String(d?.revision_count));
+    await step('editor', 'QC_FINAL_APPROVAL', {}, 'editor submits the client revision');
+    await step('pm', 'QC_APPROVED_RTD', {}, 'a manager can approve too');
+    await step('pm', 'SENT_TO_CLIENT', {}, 'a manager delivers (export already attached)');
+    await step('pm', 'CLOSED', {}, 'manager closes');
+    res = await tr('editor', t, 'SENT_TO_CLIENT');
+    rec('an editor cannot reopen', res.error?.code === '42501');
+    await step('pm', 'SENT_TO_CLIENT', {}, 'manager reopens a closed task');
+    await step('pm', 'CLOSED', {}, 'manager closes it again');
+    res = await tr('pm', t, 'TO_BE_EDITED');
+    rec('a Production Manager cannot jump outside the steps', res.error?.code === '42501' && /cannot move/.test(res.error?.message), JSON.stringify(res.error));
+    rec('revision counter is still 3 at the end', (await statusOf(t))?.revision_count === 3);
+
+    // ---- Owner / Admin override: allowed, recorded, requirements still apply ----
+    res = await clients.pm.rpc('create_task', { p_list_id: l7, p_title: 'Override' });
+    const o = res.data?.id;
+    res = await tr('owner', o, 'SENT_TO_CLIENT');
+    rec('even an override needs what the stage needs (final export)', res.error?.code === '23514', JSON.stringify(res.error));
+    res = await tr('owner', o, 'QC_APPROVED_RTD', { p_note: 'Approved in the client call' });
+    rec('owner overrides TO BE EDITED -> QC - APPROVED (RTD)', !res.error && res.data?.status === 'QC_APPROVED_RTD', res.error?.message);
+    res = await tr('admin', o, 'TO_BE_EDITED');
+    rec('admin overrides back to TO BE EDITED', !res.error && res.data?.status === 'TO_BE_EDITED', res.error?.message);
+    res = await clients.pm.from('task_status_events').select('to_status,is_override,actor_id,note').eq('task_id', o).order('created_at');
+    const oe = res.data ?? [];
+    rec('overrides are recorded as such, with who and why', oe.length === 3 && oe[0].is_override === false && oe[1].is_override === true && oe[1].actor_id === U.owner.id && oe[1].note === 'Approved in the client call' && oe[2].is_override === true && oe[2].actor_id === U.admin.id, JSON.stringify(oe));
+
+    // ---- history: complete, correct, readable by staff only, append-only ----
+    res = await clients.qc.from('task_status_events').select('from_status,to_status,actor_id,note,is_override,revision_number').eq('task_id', t).order('created_at').order('id');
+    const ev = res.data ?? [];
+    rec('every move is in the history, in order (creation + 17 moves)', !res.error && ev.length === 18, `${ev.length} ${res.error?.message ?? ''}`);
+    rec('the history starts with the creation (no from-status)', ev[0]?.from_status === null && ev[0]?.to_status === 'TO_BE_EDITED');
+    const revs = ev.filter((e) => e.revision_number !== null);
+    rec('revision events carry their number and the note', JSON.stringify(revs.map((e) => [e.revision_number, e.note])) === JSON.stringify([[1, 'Tighten the intro'], [2, 'Music too loud'], [3, 'Client: swap the logo']]), JSON.stringify(revs));
+    rec('a note never carries over to the next move', ev.filter((e) => e.note).length === 3, JSON.stringify(ev.map((e) => e.note)));
+    rec('each move records who made it', ev.find((e) => e.to_status === 'STARTED_EDITING')?.actor_id === U.editor.id && ev.find((e) => e.to_status === 'SENT_TO_CLIENT')?.actor_id === U.qc.id);
+    rec('no normal step is flagged as an override', ev.every((e) => e.is_override === false));
+    res = await clients.editor.from('task_status_events').select('id').eq('task_id', t);
+    rec('the editor can read the history', !res.error && res.data?.length === 18);
+    for (const who of ['client', 'stranger']) {
+      res = await clients[who].from('task_status_events').select('id').eq('task_id', t);
+      noRows(`${who} cannot read the history`, res);
+    }
+    res = await anon.from('task_status_events').select('id');
+    rec('anon cannot read the history', !!res.error);
+    res = await clients.owner.from('task_status_events').insert({ task_id: t, workspace_id: ws, to_status: 'CLOSED' });
+    rec('nobody can write history directly (owner INSERT refused)', !!res.error);
+    res = await clients.owner.from('task_status_events').update({ note: 'rewritten' }).eq('task_id', t).select();
+    rec('nobody can rewrite history (owner UPDATE)', !!res.error || (res.data?.length ?? 0) === 0);
+    res = await clients.owner.from('task_status_events').delete().eq('task_id', t).select();
+    rec('nobody can erase history (owner DELETE)', !!res.error || (res.data?.length ?? 0) === 0);
+    res = await clients.pm.from('task_status_events').select('id', { count: 'exact', head: true }).eq('task_id', t);
+    rec('...and the history is intact afterwards', res.count === 18, String(res.count));
+
+    // ---- outsiders and the security posture ----
+    for (const who of ['client', 'stranger']) {
+      res = await tr(who, t, 'SENT_TO_CLIENT');
+      rec(`${who} cannot move a task`, !!res.error);
+    }
+    res = await anon.rpc('transition_task', { p_task_id: t, p_to: 'SENT_TO_CLIENT' });
+    rec('anon cannot call transition_task', !!res.error);
+    rec('nothing those attempts did changed the task', (await statusOf(t))?.status === 'CLOSED');
+    const posture = runSqlJson(`SELECT
+      (SELECT count(*) FROM pg_proc WHERE proname = 'transition_task' AND prosecdef) AS definer,
+      has_function_privilege('anon', 'public.transition_task(uuid,text,text,text,text,text)', 'EXECUTE')::int AS anon_exec,
+      (SELECT count(*) FROM information_schema.role_table_grants WHERE grantee IN ('anon', 'authenticated')
+         AND table_name IN ('workflows', 'workflow_statuses', 'workflow_transitions', 'task_status_events')
+         AND privilege_type IN ('INSERT', 'UPDATE', 'DELETE', 'TRUNCATE')) AS write_grants;`);
+    rec('transition_task runs as the caller (RLS applies), anon cannot execute it, no write grants on workflow/history', posture.definer === 0 && posture.anon_exec === 0 && posture.write_grants === 0, JSON.stringify(posture));
+    grantRefusals = grantsBefore;
+  }
+
+  console.log('\n== Phase 7b: first-QC production credits (live) ==');
+  {
+    // These sections deliberately attempt writes the API must refuse at GRANT level (the tables have no
+    // write privileges); they must not count as "missing grant" refusals.
+    const grantsBefore = grantRefusals;
+    // Fresh list + tasks in the TEMPORARY workspace only; everything is removed with the workspace.
+    res = await clients.pm.from('lists').insert({ space_id: space, folder_id: folder, name: 'P9 PRODUCTION' }).select().single();
+    const l9 = res.data?.id;
+    const mk = async (title, ed) => (await clients.pm.rpc('create_task', { p_list_id: l9, p_title: title, p_editor_id: ed, p_qc_id: U.qc.id })).data?.id;
+    const tr9 = (who, id, to, extra = {}) => clients[who].rpc('transition_task', { p_task_id: id, p_to: to, ...extra });
+    const credits = async (id) => (await clients.owner.from('task_production_credits').select('editor_id, first_qc_submitted_at, submitted_by').eq('task_id', id)).data ?? [];
+    const toQc = async (id, who, link = 'https://app.frame.io/r/p9') => {
+      await tr9('pm', id, 'ASSIGNED');
+      await tr9(who, id, 'STARTED_EDITING');
+      return tr9(who, id, 'QC_FIRST_APPROVAL', { p_review_link: link });
+    };
+
+    const a = await mk('P9 A', U.editor.id);
+    rec('no credit before first QC', (await credits(a)).length === 0);
+    res = await toQc(a, 'editor');
+    rec('first QC submission succeeds', !res.error, res.error?.message);
+    let c = await credits(a);
+    rec('1. exactly one credit, owned by the submitting editor, stamped now', c.length === 1 && c[0].editor_id === U.editor.id && c[0].submitted_by === U.editor.id && Math.abs(Date.now() - new Date(c[0].first_qc_submitted_at)) < 300000, JSON.stringify(c));
+    const stamp = c[0]?.first_qc_submitted_at;
+
+    // 2 + 4: later stages and reassignment never change it
+    for (const [who, to, extra] of [['qc', 'QC_FINAL_APPROVAL'], ['qc', 'QC_APPROVED_RTD'], ['qc', 'SENT_TO_CLIENT', { p_final_export_link: 'https://drive.google.com/p9' }], ['pm', 'CLOSED']]) await tr9(who, a, to, extra);
+    await clients.pm.rpc('set_task_assignee', { p_task_id: a, p_role_type: 'EDITOR', p_user_id: U.editor2.id });
+    c = await credits(a);
+    rec('2/4. approval, delivery, closing and reassignment leave the credit (editor and time) unchanged', c.length === 1 && c[0].editor_id === U.editor.id && c[0].first_qc_submitted_at === stamp, JSON.stringify(c));
+
+    // 3: reassignment before first QC
+    const b = await mk('P9 B', U.editor.id);
+    await tr9('pm', b, 'ASSIGNED');
+    await clients.pm.rpc('set_task_assignee', { p_task_id: b, p_role_type: 'EDITOR', p_user_id: U.editor2.id });
+    res = await tr9('editor', b, 'STARTED_EDITING');
+    rec('the previous editor cannot start the reassigned task', !!res.error);
+    await tr9('editor2', b, 'STARTED_EDITING');
+    await tr9('editor2', b, 'QC_FIRST_APPROVAL', { p_review_link: 'https://app.frame.io/r/p9b' });
+    c = await credits(b);
+    rec('3. reassigned BEFORE first QC: the new editor earns it', c.length === 1 && c[0].editor_id === U.editor2.id, JSON.stringify(c));
+
+    // 5 + 6: revision cycle and repeated entries
+    const d = await mk('P9 D', U.editor.id);
+    await toQc(d, 'editor');
+    const dStamp = (await credits(d))[0]?.first_qc_submitted_at;
+    await tr9('qc', d, 'QC_REVISION_NEEDED', { p_note: 'fix intro' });
+    await tr9('editor', d, 'QC_FINAL_APPROVAL');
+    await tr9('qc', d, 'QC_REVISION_NEEDED', { p_note: 'again' });
+    await tr9('owner', d, 'STARTED_EDITING');
+    await tr9('editor', d, 'QC_FIRST_APPROVAL');
+    await tr9('editor', d, 'STARTED_EDITING');
+    await tr9('editor', d, 'QC_FIRST_APPROVAL');
+    c = await credits(d);
+    const ev = (await clients.pm.from('task_status_events').select('id').eq('task_id', d).eq('to_status', 'QC_FIRST_APPROVAL')).data ?? [];
+    rec('5/6. three submissions to first QC and two revisions: still ONE credit, same editor, same time', ev.length === 3 && c.length === 1 && c[0].editor_id === U.editor.id && c[0].first_qc_submitted_at === dStamp, `${ev.length} ${JSON.stringify(c)}`);
+
+    // 7 + 9 + 10: this month's real videos
+    const now = new Date();
+    res = await clients.admin.rpc('production_monthly', { p_workspace_id: ws, p_timezone: 'UTC' });
+    const mine = (res.data ?? []).filter((x) => x.editor_id === U.editor.id);
+    const own = (await clients.owner.from('task_production_credits').select('task_id').eq('editor_id', U.editor.id)).data?.length;
+    rec("7. the monthly summary counts exactly this editor's credits, all in the month of their first QC", !res.error && mine.length === 1 && mine[0].credits === own && own >= 2 && mine[0].year === now.getUTCFullYear() && mine[0].month === now.getUTCMonth() + 1, JSON.stringify([res.data, own]));
+    res = await clients.admin.rpc('production_videos', { p_workspace_id: ws, p_editor_id: U.editor.id, p_year: now.getUTCFullYear(), p_month: now.getUTCMonth() + 1, p_timezone: 'UTC' });
+    const all = res.data ?? [];
+    rec('the month list has one row per credit of this editor', !res.error && all.length === own, `${all.length} vs ${own}`);
+    const vids = all.filter((x) => x.list_id === l9);
+    const va = vids.find((x) => x.task_id === a);
+    rec('9/10. the month lists the real tasks with their own list context and review link', !res.error && vids.length === 2 && vids.some((x) => x.task_id === d) && va?.list_id === l9 && va.list_name === 'P9 PRODUCTION' && va.review_link === 'https://app.frame.io/r/p9' && va.status === 'CLOSED', res.error?.message ?? JSON.stringify(vids.map((x) => x.title)));
+    res = await clients.admin.rpc('production_monthly', { p_workspace_id: ws, p_timezone: 'Not/AZone' });
+    rec('an unknown time zone is refused', !!res.error);
+
+    // 11 + 12: only Owner / Admin, through the API as well
+    for (const who of ['pm', 'qc', 'editor', 'client', 'stranger']) {
+      const s1 = await clients[who].rpc('production_monthly', { p_workspace_id: ws, p_timezone: 'UTC' });
+      const s2 = await clients[who].rpc('production_videos', { p_workspace_id: ws, p_editor_id: U.editor.id, p_year: now.getUTCFullYear(), p_month: now.getUTCMonth() + 1, p_timezone: 'UTC' });
+      const s3 = await clients[who].from('task_production_credits').select('task_id');
+      rec(`11/12. ${who}: summary and month list refused, credits table returns nothing`, !!s1.error && !!s2.error && !s3.error && (s3.data?.length ?? 0) === 0, `${s1.error?.code} ${s2.error?.code} ${s3.data?.length}`);
+    }
+    res = await anon.rpc('production_monthly', { p_workspace_id: ws, p_timezone: 'UTC' });
+    rec('anon cannot call production_monthly', !!res.error);
+    res = await anon.from('task_production_credits').select('task_id');
+    rec('anon cannot read the credits table', !!res.error);
+    res = await clients.owner.from('task_production_credits').select('task_id', { count: 'exact', head: true });
+    rec('the owner reads the credits', !res.error && res.count >= 3, String(res.count));
+
+    // permanence through the API
+    res = await clients.owner.from('task_production_credits').insert({ task_id: a, workspace_id: ws, editor_id: U.editor2.id, first_qc_submitted_at: new Date().toISOString() });
+    rec('nobody can insert a credit (owner)', !!res.error);
+    res = await clients.owner.from('task_production_credits').update({ editor_id: U.editor2.id }).eq('task_id', a).select();
+    rec('nobody can re-attribute a credit (owner)', !!res.error || (res.data?.length ?? 0) === 0);
+    res = await clients.owner.from('task_production_credits').delete().eq('task_id', a).select();
+    rec('nobody can delete a credit (owner)', !!res.error || (res.data?.length ?? 0) === 0);
+    res = await clients.pm.from('tasks').delete().eq('id', a).select();
+    rec('a credited task cannot be deleted', !!res.error || (res.data?.length ?? 0) === 0, JSON.stringify(res.error));
+    res = await clients.editor.from('tasks').update({ status: 'QC_FIRST_APPROVAL' }).eq('id', a).select();
+    rec('a plain PATCH cannot create a credit (the workflow refuses the move)', !!res.error);
+    c = await credits(a);
+    rec('...and the credit is exactly as it was', c.length === 1 && c[0].editor_id === U.editor.id && c[0].first_qc_submitted_at === stamp);
+    const pg = runSqlJson(`SELECT
+      has_table_privilege('authenticated', 'public.task_production_credits', 'INSERT')::int AS i,
+      has_table_privilege('authenticated', 'public.task_production_credits', 'UPDATE')::int AS u,
+      has_table_privilege('authenticated', 'public.task_production_credits', 'DELETE')::int AS d,
+      has_table_privilege('anon', 'public.task_production_credits', 'SELECT')::int AS anon_select,
+      (SELECT count(*) FROM pg_proc WHERE proname IN ('production_monthly','production_videos','record_production_credit') AND prosecdef AND proname <> 'record_production_credit') AS definer_readers,
+      has_function_privilege('anon', 'public.production_monthly(uuid,text)', 'EXECUTE')::int AS anon_exec;`);
+    rec('security posture: no write or anon grants, readers run as the caller', pg.i === 0 && pg.u === 0 && pg.d === 0 && pg.anon_select === 0 && pg.definer_readers === 0 && pg.anon_exec === 0, JSON.stringify(pg));
+    grantRefusals = grantsBefore;
+  }
+
   console.log('\n== Deactivation (flag flipped by the service owner) ==');
   const run = runSql;
   run(`UPDATE public.profiles SET is_active = false WHERE id = '${U.editor.id}'`);
@@ -863,7 +1157,7 @@ try { clean = cleanup(); } catch (e) { console.log('CLEANUP ERROR:', e.message, 
 if (!clean) { fail++; failures.push('cleanup could not be verified'); }
 try {
   const after = runSqlJson(TASK_TABLE_COUNTS_SQL);
-  const same = ['tasks', 'task_assignees', 'subtasks'].every((k) => after[k] === BASELINE[k]);
+  const same = ['tasks', 'task_assignees', 'subtasks', 'task_status_events', 'workflows', 'workflow_statuses', 'workflow_transitions', 'task_production_credits'].every((k) => after[k] === BASELINE[k]);
   console.log(`Task tables before the run: ${JSON.stringify(BASELINE)}; after cleanup: ${JSON.stringify(after)}`);
   if (!same) { fail++; failures.push(`task tables changed: before ${JSON.stringify(BASELINE)}, after ${JSON.stringify(after)}`); }
 } catch (e) { fail++; failures.push('could not verify the task tables after cleanup: ' + e.message); }

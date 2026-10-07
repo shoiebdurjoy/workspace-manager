@@ -5,7 +5,8 @@ import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Command, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
 import { UserAvatar } from '@/components/ui/user-avatar';
-import { TASK_PRIORITIES, TASK_STATUSES } from '@/lib/tasks';
+import { TASK_PRIORITIES } from '@/lib/tasks';
+import { useWorkflow } from '@/hooks/use-workflow';
 import {
   GROUP_OPTIONS,
   SORT_OPTIONS,
@@ -149,8 +150,8 @@ interface TaskToolbarProps {
 }
 
 /**
- * The list's command strip: search, quick filters for the two questions people ask all day ("what's
- * mine?", "what's late?"), property filters, grouping and sorting, and the new-task button. All of it
+ * The list's command strip: search, quick filters for the questions people ask all day ("what's
+ * mine?", "what's waiting on me?", "what's late?"), property filters, grouping and sorting, and the new-task button. All of it
  * works on the list's loaded rows and is remembered per list.
  */
 const TaskToolbar = forwardRef<HTMLInputElement, TaskToolbarProps>(
@@ -158,6 +159,7 @@ const TaskToolbar = forwardRef<HTMLInputElement, TaskToolbarProps>(
     const f = view.filters;
     const active = countActiveFilters(f);
     const staff = members.filter((m) => m.role !== 'CLIENT_VIEWER');
+    const statuses = useWorkflow().data?.statuses ?? [];
     return (
       <div className="flex flex-col gap-2" role="toolbar" aria-label="Task view">
         <div className="flex flex-wrap items-center gap-2">
@@ -181,6 +183,9 @@ const TaskToolbar = forwardRef<HTMLInputElement, TaskToolbarProps>(
           </div>
           <Toggle pressed={f.mine} onChange={(v) => onFilters({ mine: v })}>
             Assigned to me
+          </Toggle>
+          <Toggle pressed={f.needsAction} onChange={(v) => onFilters({ needsAction: v })}>
+            Needs my action
           </Toggle>
           <Toggle pressed={f.overdue} onChange={(v) => onFilters({ overdue: v })}>
             Overdue
@@ -225,7 +230,7 @@ const TaskToolbar = forwardRef<HTMLInputElement, TaskToolbarProps>(
             label="Status"
             selected={f.statuses}
             onChange={(v) => onFilters({ statuses: v as TaskFilters['statuses'] })}
-            options={TASK_STATUSES.map((s) => ({ value: s.value, label: s.label, render: <TaskStatusPill status={s.value} className="border-0 bg-transparent px-0" /> }))}
+            options={statuses.map((s) => ({ value: s.key, label: s.name, render: <TaskStatusPill status={s.key} /> }))}
           />
           <MultiFilter
             label="People"

@@ -9,8 +9,26 @@ import { vi } from 'vitest';
  *
  * Every export the hooks import exists as a vi.fn(), so nothing ever reaches a network.
  */
+/** The real error is a class the hooks check with instanceof; a stand-in with the same name and code. */
+class StaleTransitionError extends Error {
+  code = 'STALE';
+  constructor() {
+    super('Someone else moved this task in the meantime. It now shows its current stage; please check and try again.');
+    this.name = 'StaleTransitionError';
+  }
+}
+
 export function createDatabaseMock() {
   return {
+    // workflow
+    getWorkflow: vi.fn(),
+    transitionTask: vi.fn(),
+    getLatestRevisionRequest: vi.fn(),
+    // production analytics
+    getProductionMonthly: vi.fn(),
+    getProductionVideos: vi.fn(),
+    StaleTransitionError,
+    NOTE_MAX_LENGTH: 2000,
     // hierarchy
     getWorkspaceHierarchy: vi.fn(),
     createSpace: vi.fn(),

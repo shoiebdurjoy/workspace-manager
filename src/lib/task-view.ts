@@ -1,5 +1,6 @@
-import type { TaskPriority, TaskStatus, TaskSummary, WorkspaceMember } from '@/types/database';
-import { TASK_PRIORITIES, TASK_STATUSES, dueState, isFinished, priorityOption, statusOption } from '@/lib/tasks';
+import type { TaskPriority, TaskStatus, TaskSummary, TbbRole, Workflow, WorkspaceMember } from '@/types/database';
+import { TASK_PRIORITIES, dueState, priorityOption } from '@/lib/tasks';
+import { isFinishedStatus, needsMyAction } from '@/lib/workflow';
 
 /**
  * Pure view logic for the list workspace: filtering, searching, sorting and grouping a list's tasks,
@@ -23,6 +24,8 @@ export interface TaskFilters {
   priorities: TaskPriority[];
   people: string[];
   mine: boolean;
+  /** Tasks assigned to me where the next workflow step is mine. */
+  needsAction: boolean;
   overdue: boolean;
   /** Completed / closed work is shown unless switched off. */
   hideFinished: boolean;
@@ -43,9 +46,18 @@ export const EMPTY_FILTERS: TaskFilters = {
   priorities: [],
   people: [],
   mine: false,
+  needsAction: false,
   overdue: false,
   hideFinished: false,
 };
+
+/** Who is looking and with which workflow: what the filters and groups depend on besides the tasks. */
+export interface ViewContext {
+  me?: string | null;
+  role?: TbbRole | null;
+  workflow?: Workflow | null;
+  members?: readonly WorkspaceMember[];
+}
 
 export const DEFAULT_VIEW: TaskViewState = {
   groupBy: 'status',
@@ -82,23 +94,29 @@ export function countActiveFilters(f: TaskFilters): number {
     (f.priorities.length ? 1 : 0) +
     (f.people.length ? 1 : 0) +
     (f.mine ? 1 : 0) +
+    (f.needsAction ? 1 : 0) +
     (f.overdue ? 1 : 0) +
     (f.hideFinished ? 1 : 0)
   );
 }
 
 /** Overdue = an unfinished task whose internal QC date or client deadline is before today. */
-export function isOverdue(task: Pick<TaskSummary, 'status' | 'dueDate' | 'clientDeadline'>, now: Date = new Date()): boolean {
-  if (isFinished(task.status)) return false;
+export function isOverdue(
+  task: Pick<TaskSummary, 'status' | 'dueDate' | 'clientDeadline'>,
+  workflow: Workflow | null | undefined,
+  now: Date = new Date()
+): boolean {
+  if (isFinishedStatus(workflow, task.status)) return false;
   return dueState(task.dueDate, now) === 'overdue' || dueState(task.clientDeadline, now) === 'overdue';
 }
 
 export function applyFilters(
   tasks: readonly TaskSummary[],
   f: TaskFilters,
-  me: string | null | undefined,
+  ctx: ViewContext,
   now: Date = new Date()
 ): TaskSummary[] {
+  const { me, role, workflow } = ctx;
   const needle = f.search.trim().toLowerCase();
   return tasks.filter((t) => {
     if (needle && !t.title.toLowerCase().includes(needle)) return false;
@@ -111,8 +129,9 @@ export function applyFilters(
       if (!hit) return false;
     }
     if (f.mine && (!me || (t.editorId !== me && t.qcId !== me))) return false;
-    if (f.overdue && !isOverdue(t, now)) return false;
-    if (f.hideFinished && isFinished(t.status)) return false;
+    if (f.needsAction && !needsMyAction(workflow, t, me, role)) return false;
+    if (f.overdue && !isOverdue(t, workflow, now)) return false;
+    if (f.hideFinished && isFinishedStatus(workflow, t.status)) return false;
     return true;
   });
 }
@@ -162,19 +181,23 @@ export interface TaskGroup {
 export function groupTasks(
   tasks: readonly TaskSummary[],
   groupBy: GroupBy,
-  members: readonly WorkspaceMember[] = [],
+  ctx: ViewContext = {},
   options: { keepEmpty?: boolean } = {}
 ): TaskGroup[] {
+  const members = ctx.members ?? [];
   if (groupBy === 'none') return [{ key: 'all', label: 'All tasks', kind: 'none', value: null, tasks: [...tasks] }];
 
   let groups: TaskGroup[];
   if (groupBy === 'status') {
-    groups = TASK_STATUSES.map((s) => ({
-      key: `status:${s.value}`,
-      label: s.label,
+    // the workflow's stages in order; a status the workflow does not know (never expected) still shows
+    const keys = ctx.workflow?.statuses.map((s) => s.key) ?? [];
+    for (const t of tasks) if (!keys.includes(t.status)) keys.push(t.status);
+    groups = keys.map((key) => ({
+      key: `status:${key}`,
+      label: ctx.workflow?.statuses.find((s) => s.key === key)?.name ?? key.replace(/_/g, ' '),
       kind: 'status' as const,
-      value: s.value,
-      tasks: tasks.filter((t) => t.status === s.value),
+      value: key,
+      tasks: tasks.filter((t) => t.status === key),
     }));
   } else if (groupBy === 'priority') {
     groups = TASK_PRIORITIES.map((p) => ({
@@ -203,24 +226,16 @@ export function groupTasks(
   return options.keepEmpty ? groups : groups.filter((g) => g.tasks.length > 0);
 }
 
-/** The colour cue for a group header (status dot / priority flag); null for people. */
-export function groupAccent(group: TaskGroup): string | null {
-  if (group.kind === 'status' && group.value) return statusOption(group.value as TaskStatus).dot;
-  if (group.kind === 'priority' && group.value) return priorityOption(group.value as TaskPriority).flag;
-  return null;
-}
-
 /** Filter, sort and group in one go: what the list renders, plus the flat visible order. */
 export function buildView(
   tasks: readonly TaskSummary[],
   view: TaskViewState,
-  me: string | null | undefined,
-  members: readonly WorkspaceMember[] = [],
+  ctx: ViewContext,
   now: Date = new Date()
 ): { groups: TaskGroup[]; visible: TaskSummary[]; matched: number } {
-  const filtered = applyFilters(tasks, view.filters, me, now);
+  const filtered = applyFilters(tasks, view.filters, ctx, now);
   const sorted = sortTasks(filtered, view.sort, view.dir);
-  const groups = groupTasks(sorted, view.groupBy, members);
+  const groups = groupTasks(sorted, view.groupBy, ctx);
   // the visible order is the reading order: group by group, skipping collapsed groups
   const visible = groups.filter((g) => !view.collapsed.includes(g.key)).flatMap((g) => g.tasks);
   return { groups, visible, matched: filtered.length };
@@ -238,10 +253,20 @@ export function canReorderInView(view: TaskViewState): boolean {
 const pick = <T extends string>(value: unknown, allowed: readonly T[], fallback: T): T =>
   typeof value === 'string' && (allowed as readonly string[]).includes(value) ? (value as T) : fallback;
 
-const stringList = (value: unknown, allowed?: readonly string[]): string[] =>
+const stringList = (value: unknown, allowed?: readonly string[] | RegExp): string[] =>
   Array.isArray(value)
-    ? value.filter((v): v is string => typeof v === 'string' && v.length <= 100 && (!allowed || allowed.includes(v))).slice(0, 50)
+    ? value
+        .filter(
+          (v): v is string =>
+            typeof v === 'string' &&
+            v.length <= 100 &&
+            (!allowed || (allowed instanceof RegExp ? allowed.test(v) : allowed.includes(v)))
+        )
+        .slice(0, 50)
     : [];
+
+/** Workflow status keys are configuration; a stored one only has to look like a key. */
+const STATUS_KEY = /^[A-Z][A-Z0-9_]{0,63}$/;
 
 /** Reads a stored view defensively: anything unknown or malformed falls back to the default. */
 export function parseStoredView(raw: string | null | undefined): TaskViewState {
@@ -261,10 +286,11 @@ export function parseStoredView(raw: string | null | undefined): TaskViewState {
     filters: {
       // the search box is deliberately not restored: it is a momentary thing
       search: '',
-      statuses: stringList(f.statuses, TASK_STATUSES.map((s) => s.value)) as TaskStatus[],
+      statuses: stringList(f.statuses, STATUS_KEY) as TaskStatus[],
       priorities: stringList(f.priorities, TASK_PRIORITIES.map((p) => p.value)) as TaskPriority[],
       people: stringList(f.people),
       mine: f.mine === true,
+      needsAction: f.needsAction === true,
       overdue: f.overdue === true,
       hideFinished: f.hideFinished === true,
     },

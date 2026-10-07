@@ -10,6 +10,7 @@ import * as dbModule from '@/database';
 import { IDS, makeTree } from '@/test/hierarchy-fixtures';
 import { MEMBERS, PEOPLE, TASK_IDS, makeDetail, makeSummary } from '@/test/task-fixtures';
 import { taskViewStorageKey } from '@/hooks/use-task-view';
+import { TBB_WORKFLOW } from '@/test/workflow-fixture';
 import type { TbbRole } from '@/types/database';
 
 vi.mock('@/database', async () => (await import('@/test/database-mock')).createDatabaseMock());
@@ -33,12 +34,12 @@ const renderList = (role: TbbRole = 'PRODUCTION_MANAGER', route = LIST_URL) => r
 
 const ROWS = [
   makeSummary({
-    id: TASK_IDS.one, title: 'Episode 12 - Founder story', status: 'IN_PROGRESS', priority: 'URGENT', aspectRatio: '9:16',
+    id: TASK_IDS.one, title: 'Episode 12 - Founder story', status: 'STARTED_EDITING', priority: 'URGENT', aspectRatio: '9:16',
     dueDate: '2020-01-02T12:00:00.000Z', clientDeadline: '2099-01-02T12:00:00.000Z', editorId: PEOPLE.me, qcId: PEOPLE.qc,
     subtaskTotal: 4, subtaskDone: 1, position: 0, rawFootageLink: 'https://drive.google.com/x', reviewLink: 'https://app.frame.io/r/1',
   }),
-  makeSummary({ id: TASK_IDS.two, title: 'Product teaser', status: 'COMPLETED', priority: 'LOW', position: 1, editorId: PEOPLE.editor2 }),
-  makeSummary({ id: TASK_IDS.three, title: 'Behind the scenes', status: 'TODO', position: 2 }),
+  makeSummary({ id: TASK_IDS.two, title: 'Product teaser', status: 'CLOSED', priority: 'LOW', position: 1, editorId: PEOPLE.editor2 }),
+  makeSummary({ id: TASK_IDS.three, title: 'Behind the scenes', status: 'TO_BE_EDITED', position: 2 }),
 ];
 
 /** The row (list item) of a task, found from its title link. */
@@ -61,7 +62,16 @@ beforeEach(() => {
   db.deleteTask.mockResolvedValue(undefined);
   db.moveTask.mockResolvedValue(true);
   db.updateSubtask.mockResolvedValue({});
+  db.getWorkflow.mockResolvedValue(TBB_WORKFLOW);
+  db.transitionTask.mockImplementation(async (id: string, input: { to: string }) => ({ ...makeDetail({ id }), status: input.to, updatedAt: 'now' }));
+  db.getLatestRevisionRequest.mockResolvedValue(null);
 });
+
+/** Opens a row's stage picker. */
+const openPicker = async (title: string) => {
+  await userEvent.click(first(within(row(title)).getAllByRole('combobox', { name: 'Status' })));
+  return screen.findByRole('listbox');
+};
 
 describe('the list workspace: real data, grouped', () => {
   it('groups tasks by status (in workflow order) with counts, and shows each row with its properties', async () => {
@@ -69,11 +79,11 @@ describe('the list workspace: real data, grouped', () => {
     await screen.findByRole('link', { name: 'Product teaser' });
     expect(db.listTasks).toHaveBeenCalledWith(IDS.listEdaptx, 0);
     const groups = screen.getAllByRole('group').map((g) => g.getAttribute('aria-label'));
-    expect(groups).toEqual(['To do, 1', 'In progress, 1', 'Completed, 1']); // empty statuses are not shown
+    expect(groups).toEqual(['TO BE EDITED, 1', 'STARTED EDITING, 1', 'CLOSED, 1']); // workflow order; empty stages are not shown
 
     const r = row('Episode 12 - Founder story');
     expect(screen.getByRole('link', { name: 'Episode 12 - Founder story' })).toHaveAttribute('href', `${LIST_URL}/tasks/${TASK_IDS.one}`);
-    expect(first(within(r).getAllByRole('combobox', { name: 'Status' }))).toHaveTextContent('In progress');
+    expect(first(within(r).getAllByRole('combobox', { name: 'Status' }))).toHaveTextContent('STARTED EDITING');
     expect(first(within(r).getAllByRole('combobox', { name: 'Editor: Pat Person' }))).toBeInTheDocument();
     expect(first(within(r).getAllByRole('combobox', { name: 'QC reviewer: Quinn QC' }))).toBeInTheDocument();
     expect(within(r).getAllByLabelText('1 of 4 subtasks done').length).toBeGreaterThan(0);
@@ -97,7 +107,7 @@ describe('the list workspace: real data, grouped', () => {
     renderList();
     expect(await screen.findByRole('link', { name: 'Clip 500' }, { timeout: 5000 })).toBeInTheDocument();
     expect(db.listTasks).toHaveBeenCalledWith(IDS.listEdaptx, 1);
-    expect(screen.getByRole('group', { name: 'To do, 501' })).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'TO BE EDITED, 501' })).toBeInTheDocument();
   }, 30_000);
 
   it('highlights the task whose sheet is open', async () => {
@@ -152,32 +162,94 @@ describe('the list workspace: real data, grouped', () => {
 });
 
 describe('editing right in the list (inline, optimistic, rolled back on failure)', () => {
-  it('changes status from the row: only that field is sent, and the row moves to its new group at once', async () => {
+  it('moves a task one workflow step from the row: one atomic call, and the row moves to its new group at once', async () => {
     let finish: (v: unknown) => void = () => undefined;
-    db.updateTask.mockReturnValue(new Promise((r) => (finish = r)));
+    db.transitionTask.mockReturnValue(new Promise((r) => (finish = r)));
     renderList();
     await screen.findByRole('link', { name: 'Behind the scenes' });
-    await userEvent.click(first(within(row('Behind the scenes')).getAllByRole('combobox', { name: 'Status' })));
-    await userEvent.click(await screen.findByRole('option', { name: /In QC/ }));
-    expect(db.updateTask).toHaveBeenCalledWith(TASK_IDS.three, { status: 'IN_QC' });
+    const menu = await openPicker('Behind the scenes');
+    // the steps from here come first, named as actions
+    expect(within(menu).getAllByRole('option')[0]).toHaveTextContent(/Move to edit queue/);
+    await userEvent.click(within(menu).getByRole('option', { name: /Move to edit queue/ }));
+    expect(db.transitionTask).toHaveBeenCalledWith(TASK_IDS.three, expect.objectContaining({ to: 'IN_EDIT', expectedFrom: 'TO_BE_EDITED' }));
+    expect(db.updateTask).not.toHaveBeenCalled();
     // before the server answers
-    expect(screen.getByRole('group', { name: 'In QC, 1' })).toBeInTheDocument();
-    expect(screen.queryByRole('group', { name: /^To do/ })).not.toBeInTheDocument();
-    finish({ ...makeDetail({ id: TASK_IDS.three }), updatedAt: 'now' });
+    expect(screen.getByRole('group', { name: 'IN EDIT, 1' })).toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: /^TO BE EDITED/ })).not.toBeInTheDocument();
+    finish({ ...makeDetail({ id: TASK_IDS.three }), status: 'IN_EDIT', updatedAt: 'now' });
     // a field edit does not refetch the whole list
     await waitFor(() => expect(db.listTasks).toHaveBeenCalledTimes(1));
     expect(screen.getByTestId('where')).toHaveTextContent(new RegExp(`${LIST_URL}$`)); // did not open the task
   });
 
-  it('a refused change puts the row back where it was and says why', async () => {
-    db.updateTask.mockRejectedValue(new Error('You do not have permission to update the task.'));
+  it('a refused move puts the row back where it was and says why', async () => {
+    db.transitionTask.mockRejectedValue(new Error('Your role cannot move a task from TO BE EDITED to IN EDIT.'));
     renderList();
     await screen.findByRole('link', { name: 'Behind the scenes' });
-    await userEvent.click(first(within(row('Behind the scenes')).getAllByRole('combobox', { name: 'Status' })));
-    await userEvent.click(await screen.findByRole('option', { name: /Closed/ }));
-    await waitFor(() => expect(toasts.error).toHaveBeenCalledWith('You do not have permission to update the task.'));
-    expect(await screen.findByRole('group', { name: 'To do, 1' })).toBeInTheDocument();
-    expect(screen.queryByRole('group', { name: /^Closed/ })).not.toBeInTheDocument();
+    await userEvent.click(within(await openPicker('Behind the scenes')).getByRole('option', { name: /Move to edit queue/ }));
+    await waitFor(() => expect(toasts.error).toHaveBeenCalledWith('Your role cannot move a task from TO BE EDITED to IN EDIT.'));
+    expect(await screen.findByRole('group', { name: 'TO BE EDITED, 1' })).toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: /^IN EDIT/ })).not.toBeInTheDocument();
+  });
+
+  it('someone else moved it first: the move is undone and the list reloads to show the real stage', async () => {
+    db.transitionTask.mockRejectedValue(new db.StaleTransitionError());
+    renderList();
+    await screen.findByRole('link', { name: 'Behind the scenes' });
+    await userEvent.click(within(await openPicker('Behind the scenes')).getByRole('option', { name: /Move to edit queue/ }));
+    await waitFor(() => expect(toasts.error).toHaveBeenCalledWith(expect.stringMatching(/Someone else moved this task/)));
+    await waitFor(() => expect(db.listTasks.mock.calls.length).toBeGreaterThan(1));
+  });
+
+  it('a step that needs something asks for it first (assigning an editor), then moves', async () => {
+    renderList();
+    await screen.findByRole('link', { name: 'Behind the scenes' });
+    await userEvent.click(within(await openPicker('Behind the scenes')).getByRole('option', { name: /Assign to editor/ }));
+    const dialog = await screen.findByRole('dialog');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Assign to editor' }));
+    expect(await within(dialog).findByText('Choose the editor.')).toBeInTheDocument();
+    expect(db.transitionTask).not.toHaveBeenCalled();
+    await userEvent.click(within(dialog).getByRole('combobox', { name: 'Editor' }));
+    await userEvent.click(await screen.findByRole('option', { name: /Eva Editor/ }));
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Assign to editor' }));
+    await waitFor(() => expect(db.transitionTask).toHaveBeenCalledWith(TASK_IDS.three, expect.objectContaining({ to: 'ASSIGNED' })));
+    // the editor is assigned BEFORE the move (the database requires an editor for ASSIGNED)
+    expect(db.setTaskAssignee.mock.invocationCallOrder[0]).toBeLessThan(db.transitionTask.mock.invocationCallOrder[0]);
+    expect(db.setTaskAssignee).toHaveBeenCalledWith(TASK_IDS.three, 'EDITOR', PEOPLE.editor2);
+  });
+
+  it('shows what is not possible from here and why, and admins see their override separately', async () => {
+    renderList('PRODUCTION_MANAGER');
+    await screen.findByRole('link', { name: 'Behind the scenes' });
+    const menu = await openPicker('Behind the scenes');
+    const closed = within(menu).getByRole('option', { name: /^CLOSED/ });
+    expect(closed).toHaveAttribute('aria-disabled', 'true');
+    expect(closed).toHaveTextContent('Not a step from TO BE EDITED.');
+    expect(within(menu).queryByText('Admin override')).not.toBeInTheDocument();
+    await userEvent.keyboard('{Escape}');
+  });
+
+  it('an Owner can override a step; it is offered apart from the normal steps', async () => {
+    renderList('OWNER');
+    await screen.findByRole('link', { name: 'Behind the scenes' });
+    const menu = await openPicker('Behind the scenes');
+    expect(within(menu).getByText('Admin override')).toBeInTheDocument();
+    await userEvent.click(within(menu).getByRole('option', { name: /QC - APPROVED \(RTD\).*override/ }));
+    await waitFor(() => expect(db.transitionTask).toHaveBeenCalledWith(TASK_IDS.three, expect.objectContaining({ to: 'QC_APPROVED_RTD' })));
+  });
+
+  it('a cut sent back for changes is unmistakable in the list: red stage, revision number', async () => {
+    db.listTasks.mockResolvedValue({
+      items: [...ROWS, makeSummary({ id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa4', title: 'Recut ad', status: 'QC_REVISION_NEEDED', revisionCount: 2, editorId: PEOPLE.me, reviewLink: 'https://frame.io/x', position: 3 })],
+      total: 4,
+    });
+    renderList();
+    await screen.findByRole('link', { name: 'Recut ad' });
+    const r = row('Recut ad');
+    expect(within(r).getByText('Revision 2')).toBeInTheDocument();
+    expect(r.className).toMatch(/destructive/);
+    expect(first(within(r).getAllByRole('combobox', { name: 'Status' }))).toHaveTextContent('QC - REVISION NEEDED');
+    expect(within(row('Behind the scenes')).queryByText(/^Revision/)).not.toBeInTheDocument();
   });
 
   it('assigns the editor and the QC reviewer from the row with a searchable picker', async () => {
@@ -237,7 +309,7 @@ describe('who can change what, row by row (the database enforces the same)', () 
     expect(screen.getByLabelText('Add a task')).toBeInTheDocument();
   });
 
-  it('an EDITOR can change status only on tasks assigned to them, and nothing else', async () => {
+  it('an EDITOR can move only tasks assigned to them, only along editing steps, and change nothing else', async () => {
     renderList('EDITOR');
     await screen.findByRole('link', { name: 'Behind the scenes' });
     expect(within(row('Episode 12 - Founder story')).getAllByRole('combobox', { name: 'Status' }).length).toBeGreaterThan(0); // theirs
@@ -249,17 +321,40 @@ describe('who can change what, row by row (the database enforces the same)', () 
     expect(screen.queryByRole('button', { name: 'New task' })).not.toBeInTheDocument();
     // people are still visible, as read-only faces
     expect(within(row('Episode 12 - Founder story')).getAllByRole('img', { name: 'Editor: Pat Person' }).length).toBeGreaterThan(0);
-    // and an editor's status menu never offers approval
-    await userEvent.click(first(within(row('Episode 12 - Founder story')).getAllByRole('combobox', { name: 'Status' })));
-    const enabled = (await screen.findAllByRole('option')).filter((o) => o.getAttribute('aria-disabled') !== 'true').map((o) => o.textContent);
-    expect(enabled.join(' ')).not.toMatch(/Ready to deliver|Completed|Closed/);
+    // an editor's stage menu offers their own steps, never approval or delivery
+    const menu = await openPicker('Episode 12 - Founder story');
+    const enabled = within(menu).getAllByRole('option').filter((o) => o.getAttribute('aria-disabled') !== 'true').map((o) => o.textContent ?? '');
+    expect(enabled).toHaveLength(2);
+    expect(enabled[0]).toMatch(/Submit for QC/);
+    expect(enabled[1]).toMatch(/Pause editing/);
+    expect(enabled.join(' ')).not.toMatch(/APPROVED|SENT TO CLIENT|CLOSED/);
   });
 
-  it('a QC SPECIALIST changes status on any task (never to Completed / Closed), nothing else', async () => {
+  it('a QC SPECIALIST approves or sends back cuts in QC (with a note), and has no editing or closing steps', async () => {
+    db.listTasks.mockResolvedValue({
+      items: [...ROWS, makeSummary({ id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa4', title: 'First cut', status: 'QC_FIRST_APPROVAL', editorId: PEOPLE.editor2, reviewLink: 'https://frame.io/x', position: 3 })],
+      total: 4,
+    });
     renderList('QC_SPECIALIST');
-    await screen.findByRole('link', { name: 'Behind the scenes' });
-    expect(within(row('Behind the scenes')).getAllByRole('combobox', { name: 'Status' }).length).toBeGreaterThan(0);
-    expect(within(row('Product teaser')).queryByRole('combobox', { name: 'Status' })).not.toBeInTheDocument(); // completed: locked
+    await screen.findByRole('link', { name: 'First cut' });
+    // nothing for QC to do before QC or after closing: a plain pill
+    expect(within(row('Behind the scenes')).queryByRole('combobox', { name: 'Status' })).not.toBeInTheDocument();
+    expect(within(row('Product teaser')).queryByRole('combobox', { name: 'Status' })).not.toBeInTheDocument();
+    const menu = await openPicker('First cut');
+    const enabled = within(menu).getAllByRole('option').filter((o) => o.getAttribute('aria-disabled') !== 'true').map((o) => o.textContent ?? '');
+    expect(enabled.map((t) => t.match(/^[^A-Z]*([A-Z][a-z].*?)(?=[A-Z]{2})/)?.[1] ?? t)).toEqual(['Pass to final approval', 'Approve (ready to deliver)', 'Request revision']);
+    await userEvent.click(within(menu).getByRole('option', { name: /Request revision/ }));
+    const dialog = await screen.findByRole('dialog');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Request revision' }));
+    expect(await within(dialog).findByText('Say what needs to change.')).toBeInTheDocument();
+    await userEvent.type(within(dialog).getByLabelText('What needs to change?'), 'Tighten the intro');
+    db.transitionTask.mockReturnValue(new Promise(() => undefined)); // the server has not answered yet
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Request revision' }));
+    await waitFor(() =>
+      expect(db.transitionTask).toHaveBeenCalledWith('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa4', expect.objectContaining({ to: 'QC_REVISION_NEEDED', note: 'Tighten the intro', expectedFrom: 'QC_FIRST_APPROVAL' }))
+    );
+    // counted at once, before the server answers back
+    expect(within(row('First cut')).getByText('Revision 1')).toBeInTheDocument();
     expect(screen.queryByRole('combobox', { name: 'Priority' })).not.toBeInTheDocument();
     expect(screen.queryByRole('combobox', { name: /^(Editor|QC reviewer):/ })).not.toBeInTheDocument();
   });
@@ -278,6 +373,14 @@ describe('finding work: search, filters, grouping, sorting (remembered per list)
     await userEvent.type(screen.getByRole('searchbox', { name: 'Search tasks' }), 'teaser');
     expect(screen.getByRole('link', { name: 'Product teaser' })).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Behind the scenes' })).not.toBeInTheDocument();
+    expect(screen.getByText('1 of 3 tasks')).toBeInTheDocument();
+  });
+
+  it('"Needs my action" shows only the tasks waiting on me', async () => {
+    renderList('EDITOR');
+    await screen.findByRole('link', { name: 'Product teaser' });
+    await userEvent.click(screen.getByRole('button', { name: 'Needs my action' }));
+    expect(screen.getAllByRole('listitem').map((li) => within(li).getAllByRole('link')[0].textContent)).toEqual(['Episode 12 - Founder story']);
     expect(screen.getByText('1 of 3 tasks')).toBeInTheDocument();
   });
 
@@ -342,8 +445,8 @@ describe('finding work: search, filters, grouping, sorting (remembered per list)
 });
 
 describe('many at once: selection and bulk actions', () => {
-  it('selects with checkboxes, shift-click ranges and "select all in group", then changes status in bulk', async () => {
-    renderList();
+  it('selects with checkboxes, shift-click ranges and "select all in group", then moves them in bulk', async () => {
+    renderList('OWNER');
     await screen.findByRole('link', { name: 'Product teaser' });
     await userEvent.click(screen.getByRole('checkbox', { name: 'Select Behind the scenes' }));
     const user = userEvent.setup();
@@ -352,27 +455,62 @@ describe('many at once: selection and bulk actions', () => {
     await user.keyboard('{/Shift}');
     const bar = screen.getByRole('region', { name: 'Bulk actions' });
     expect(bar).toHaveTextContent('3 selected');
-    await userEvent.click(within(bar).getByRole('combobox', { name: 'Set status for selected tasks' }));
-    await userEvent.click(await screen.findByRole('option', { name: /In QC/ }));
-    await waitFor(() => expect(db.updateTask).toHaveBeenCalledTimes(3));
-    for (const id of [TASK_IDS.one, TASK_IDS.two, TASK_IDS.three]) expect(db.updateTask).toHaveBeenCalledWith(id, { status: 'IN_QC' });
-    await waitFor(() => expect(toasts.success).toHaveBeenCalledWith('Updated 3 tasks'));
-    expect(screen.getByRole('group', { name: 'In QC, 3' })).toBeInTheDocument();
+    await userEvent.click(within(bar).getByRole('combobox', { name: 'Move selected tasks to a stage' }));
+    await userEvent.click(await screen.findByRole('option', { name: /QC - APPROVED \(RTD\)/ }));
+    await waitFor(() => expect(db.transitionTask).toHaveBeenCalledTimes(3));
+    // each task goes through the workflow on its own, from the stage the person saw
+    expect(db.transitionTask).toHaveBeenCalledWith(TASK_IDS.one, expect.objectContaining({ to: 'QC_APPROVED_RTD', expectedFrom: 'STARTED_EDITING' }));
+    expect(db.transitionTask).toHaveBeenCalledWith(TASK_IDS.two, expect.objectContaining({ to: 'QC_APPROVED_RTD', expectedFrom: 'CLOSED' }));
+    expect(db.transitionTask).toHaveBeenCalledWith(TASK_IDS.three, expect.objectContaining({ to: 'QC_APPROVED_RTD', expectedFrom: 'TO_BE_EDITED' }));
+    expect(db.updateTask).not.toHaveBeenCalled();
+    await waitFor(() => expect(toasts.success).toHaveBeenCalledWith('Moved to QC - APPROVED (RTD): 3 tasks'));
+    expect(screen.getByRole('group', { name: 'QC - APPROVED (RTD), 3' })).toBeInTheDocument();
   });
 
-  it('a bulk change only touches the tasks the person may change, and says how many were skipped', async () => {
+  it('a bulk move only touches the tasks where it is a valid step for this person, and says why the rest were skipped', async () => {
     renderList('EDITOR');
     await screen.findByRole('link', { name: 'Product teaser' });
-    await userEvent.click(screen.getByRole('checkbox', { name: 'Select all in To do' }));
-    await userEvent.click(screen.getByRole('checkbox', { name: 'Select all in In progress' }));
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Select all in TO BE EDITED' }));
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Select all in STARTED EDITING' }));
     const bar = screen.getByRole('region', { name: 'Bulk actions' });
     expect(within(bar).queryByRole('button', { name: /Delete/ })).not.toBeInTheDocument();
     expect(within(bar).queryByRole('combobox', { name: /priority/ })).not.toBeInTheDocument();
-    await userEvent.click(within(bar).getByRole('combobox', { name: 'Set status for selected tasks' }));
-    await userEvent.click(await screen.findByRole('option', { name: /In QC/ }));
-    await waitFor(() => expect(db.updateTask).toHaveBeenCalledTimes(1));
-    expect(db.updateTask).toHaveBeenCalledWith(TASK_IDS.one, { status: 'IN_QC' }); // only their own task
-    await waitFor(() => expect(toasts.message).toHaveBeenCalledWith(expect.stringMatching(/1 selected task was skipped/)));
+    await userEvent.click(within(bar).getByRole('combobox', { name: 'Move selected tasks to a stage' }));
+    // stages nobody selected can reach are shown but disabled, with the reason
+    const closed = await screen.findByRole('option', { name: /^CLOSED/ });
+    expect(closed).toHaveAttribute('aria-disabled', 'true');
+    await userEvent.click(screen.getByRole('option', { name: /QC - FIRST APPROVAL.*1 of 2/ }));
+    await waitFor(() => expect(db.transitionTask).toHaveBeenCalledTimes(1));
+    expect(db.transitionTask).toHaveBeenCalledWith(TASK_IDS.one, expect.objectContaining({ to: 'QC_FIRST_APPROVAL' })); // only their own task
+    await waitFor(() =>
+      expect(toasts.message).toHaveBeenCalledWith('1 selected task was skipped: only the editor assigned to this task can move it (1).')
+    );
+  });
+
+  it('a bulk request for changes asks once for the note every task gets; failures go back and are reported', async () => {
+    const inQc = (id: string, title: string, position: number) =>
+      makeSummary({ id, title, status: 'QC_FIRST_APPROVAL', editorId: PEOPLE.editor2, reviewLink: 'https://frame.io/x', position });
+    db.listTasks.mockResolvedValue({ items: [inQc(TASK_IDS.one, 'Cut A', 0), inQc(TASK_IDS.two, 'Cut B', 1)], total: 2 });
+    db.transitionTask.mockImplementation(async (id: string, input: { to: string }) => {
+      if (id === TASK_IDS.two) throw new Error('Someone else moved this task in the meantime.');
+      return { ...makeDetail({ id }), status: input.to, revisionCount: 1, updatedAt: 'now' };
+    });
+    renderList('QC_SPECIALIST');
+    await screen.findByRole('link', { name: 'Cut A' });
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Select all in QC - FIRST APPROVAL' }));
+    await userEvent.click(within(screen.getByRole('region', { name: 'Bulk actions' })).getByRole('combobox', { name: 'Move selected tasks to a stage' }));
+    await userEvent.click(await screen.findByRole('option', { name: /QC - REVISION NEEDED/ }));
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog).toHaveTextContent('2 tasks move to');
+    await userEvent.type(within(dialog).getByLabelText('What needs to change?'), 'Fix the captions');
+    await userEvent.click(within(dialog).getByRole('button', { name: /Request revision/ }));
+    await waitFor(() => expect(db.transitionTask).toHaveBeenCalledTimes(2));
+    for (const id of [TASK_IDS.one, TASK_IDS.two]) {
+      expect(db.transitionTask).toHaveBeenCalledWith(id, expect.objectContaining({ to: 'QC_REVISION_NEEDED', note: 'Fix the captions' }));
+    }
+    await waitFor(() => expect(toasts.error).toHaveBeenCalledWith(expect.stringMatching(/1 task; 1 task could not be changed: Someone else moved/)));
+    // the failed one is back in QC, and the list is reloaded to show the truth
+    await waitFor(() => expect(db.listTasks.mock.calls.length).toBeGreaterThan(1));
   });
 
   it('when some bulk writes fail, exactly those rows go back and the person is told', async () => {
@@ -444,14 +582,19 @@ describe('quick add', () => {
     await waitFor(() => expect(db.listTasks.mock.calls.length).toBeGreaterThan(1));
   });
 
-  it('adding inside a status group creates the task there', async () => {
-    db.createTask.mockResolvedValue({ id: 'new-task', title: 'Teaser v2' });
+  it('adding inside a stage group moves the new task there through the workflow, only where that is one plain step', async () => {
+    db.listTasks.mockResolvedValue({ items: [...ROWS, makeSummary({ id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa4', title: 'Queued', status: 'IN_EDIT', position: 3 })], total: 4 });
+    db.createTask.mockResolvedValue({ id: 'new-task', title: 'Teaser v2', status: 'TO_BE_EDITED' });
     renderList();
     await screen.findByRole('link', { name: 'Product teaser' });
-    await userEvent.click(screen.getByRole('button', { name: 'Add a task to In progress' }));
-    await userEvent.type(screen.getByRole('textbox', { name: 'Add a task to In progress' }), 'Teaser v2{Enter}');
+    // a new task cannot start mid-edit or closed
+    expect(screen.queryByRole('button', { name: 'Add a task to STARTED EDITING' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Add a task to CLOSED' })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Add a task to IN EDIT' }));
+    await userEvent.type(screen.getByRole('textbox', { name: 'Add a task to IN EDIT' }), 'Teaser v2{Enter}');
     await waitFor(() => expect(db.createTask).toHaveBeenCalledWith(IDS.listEdaptx, { title: 'Teaser v2' }));
-    await waitFor(() => expect(db.updateTask).toHaveBeenCalledWith('new-task', { status: 'IN_PROGRESS' }));
+    await waitFor(() => expect(db.transitionTask).toHaveBeenCalledWith('new-task', expect.objectContaining({ to: 'IN_EDIT', expectedFrom: 'TO_BE_EDITED' })));
+    expect(db.updateTask).not.toHaveBeenCalled();
   });
 
   it('refuses a blank title and keeps what was typed when the save fails', async () => {

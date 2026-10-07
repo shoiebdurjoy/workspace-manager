@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { Check } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -26,6 +26,8 @@ interface ChoicePickerProps<T extends string> {
   disabled?: boolean;
   className?: string;
   align?: 'start' | 'center' | 'end';
+  /** True when choosing this value opens a dialog: focus must then not jump back to the trigger. */
+  opensDialog?: (value: T) => boolean;
 }
 
 /**
@@ -44,8 +46,10 @@ function ChoicePicker<T extends string>({
   disabled,
   className,
   align = 'start',
+  opensDialog,
 }: ChoicePickerProps<T>): React.ReactElement {
   const [open, setOpen] = useState(false);
+  const toDialog = useRef(false);
   const [query, setQuery] = useState('');
   const needle = query.trim().toLowerCase();
   const shown = choices.filter((c) => !needle || c.label.toLowerCase().includes(needle));
@@ -77,7 +81,15 @@ function ChoicePicker<T extends string>({
           {trigger}
         </button>
       </PopoverTrigger>
-      <PopoverContent align={align} className="w-56 p-0" onClick={(e) => e.stopPropagation()}>
+      <PopoverContent
+        align={align}
+        className="w-56 p-0"
+        onClick={(e) => e.stopPropagation()}
+        onCloseAutoFocus={(e) => {
+          if (toDialog.current) e.preventDefault();
+          toDialog.current = false;
+        }}
+      >
         <Command shouldFilter={false}>
           {searchable && <CommandInput value={query} onValueChange={setQuery} placeholder="Search..." aria-label={`Search ${label.toLowerCase()}`} />}
           <CommandList>
@@ -89,6 +101,7 @@ function ChoicePicker<T extends string>({
                   value={c.value}
                   disabled={c.disabled}
                   onSelect={() => {
+                    toDialog.current = !!opensDialog?.(c.value);
                     setOpen(false);
                     if (c.value !== value) onChange(c.value);
                   }}

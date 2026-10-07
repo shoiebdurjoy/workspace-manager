@@ -16,7 +16,6 @@ import {
   LINK_FIELDS,
   TASK_PAGE_SIZE,
   TASK_PRIORITIES,
-  TASK_STATUSES,
   validateTaskDescription,
   validateTaskTitle,
   validateTaskUrl,
@@ -89,7 +88,8 @@ function validateFields(input: TaskPatch, requireTitle: boolean): void {
   if (input.priority !== undefined && !TASK_PRIORITIES.some((p) => p.value === input.priority)) {
     throw new ValidationError('Choose a valid priority.');
   }
-  if (input.status !== undefined && !TASK_STATUSES.some((s) => s.value === input.status)) {
+  // statuses are workflow configuration: the database checks the stage exists and the move is allowed
+  if (input.status !== undefined && !/^[A-Z][A-Z0-9_]{0,63}$/.test(input.status)) {
     throw new ValidationError('Choose a valid status.');
   }
   if (input.aspectRatio !== undefined && input.aspectRatio !== null && !ASPECT_RATIOS.some((a) => a.value === input.aspectRatio)) {
@@ -117,6 +117,12 @@ export function mapTaskError(action: string, error: { code?: string; message: st
   if (error.code === '23514' && /violates check constraint/.test(error.message)) {
     const known = CONSTRAINT_MESSAGES.find(([pattern]) => pattern.test(error.message));
     return new ValidationError(known ? known[1] : 'Some of the information is not valid. Please check it and try again.', error);
+  }
+  if (error.code === '23503' && /task_production_credits/.test(error.message)) {
+    return new ValidationError(
+      'This video was already submitted for first QC, so it is part of production history and cannot be deleted.',
+      error
+    );
   }
   if (error.code === '23503') {
     return new ValidationError('That list or person no longer exists.', error);

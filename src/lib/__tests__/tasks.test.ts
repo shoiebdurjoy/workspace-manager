@@ -1,10 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   ASPECT_RATIOS,
-  EDITOR_LOCKED_STATUSES,
-  QC_LOCKED_STATUSES,
   TASK_PRIORITIES,
-  TASK_STATUSES,
   dateInputToIso,
   dateToIso,
   daysFromNowIso,
@@ -14,7 +11,6 @@ import {
   dueState,
   eligibleAssignees,
   formatDay,
-  isFinished,
   isValidTaskUrl,
   isoToDateInput,
   linkHost,
@@ -24,14 +20,13 @@ import {
   priorityOption,
   progressOf,
   readOnlyReason,
-  statusOption,
   subtaskProgress,
   taskAccess,
   validateTaskDescription,
   validateTaskTitle,
   validateTaskUrl,
 } from '../tasks';
-import type { TaskStatus, TbbRole, WorkspaceMember } from '@/types/database';
+import type { TbbRole, WorkspaceMember } from '@/types/database';
 
 const member = (userId: string, role: TbbRole, fullName: string, isActive = true): WorkspaceMember => ({
   workspaceId: 'w', userId, role, createdAt: 'c', updatedAt: 'u',
@@ -39,16 +34,13 @@ const member = (userId: string, role: TbbRole, fullName: string, isActive = true
 });
 
 describe('labels', () => {
-  it('knows every status and priority the database allows, in order', () => {
-    expect(TASK_STATUSES.map((s) => s.value)).toEqual(['TODO', 'IN_PROGRESS', 'IN_QC', 'READY_TO_DELIVER', 'CLIENT_REVIEW', 'COMPLETED', 'CLOSED']);
+  it('knows every priority and aspect ratio the database allows, in order (statuses are workflow data)', () => {
     expect(TASK_PRIORITIES.map((p) => p.value)).toEqual(['URGENT', 'HIGH', 'MEDIUM', 'LOW']);
     expect(ASPECT_RATIOS.map((a) => a.value)).toEqual(['9:16', '16:9', '1:1', '4:5', 'OTHER']);
   });
 
   it('falls back safely for an unknown value instead of crashing', () => {
-    expect(statusOption('NOPE' as TaskStatus).value).toBe('TODO');
     expect(priorityOption('NOPE' as never).value).toBe('MEDIUM');
-    expect(statusOption('IN_QC').label).toBe('In QC');
     expect(priorityOption('MEDIUM').label).toBe('Normal');
   });
 
@@ -137,12 +129,6 @@ describe('dates', () => {
     expect(dueState(at(3), now)).toBe('later');
     expect(dueState(null, now)).toBeNull();
     expect(dueState('garbage', now)).toBeNull();
-  });
-
-  it('finished tasks are recognised (they are never shown as overdue)', () => {
-    expect(isFinished('COMPLETED')).toBe(true);
-    expect(isFinished('CLOSED')).toBe(true);
-    expect(isFinished('IN_QC')).toBe(false);
   });
 
   it('formats a day compactly and omits the current year', () => {
@@ -243,47 +229,34 @@ describe('assignee eligibility (mirrors guard_task_assignee)', () => {
 describe('taskAccess (UI mirror of the database guards)', () => {
   const MANAGERS: TbbRole[] = ['OWNER', 'ADMIN', 'PRODUCTION_MANAGER'];
 
-  it.each(MANAGERS)('%s can edit, assign, add and manage subtasks, reorder and pick any status', (role) => {
-    const a = taskAccess(role, { isAssignedEditor: false, currentStatus: 'CLOSED' });
-    expect(a).toMatchObject({ editBrief: true, editWorkLinks: true, assign: true, addSubtasks: true, manageSubtasks: true, tickSubtasks: true, reorder: true, delete: true });
-    expect(a.statusOptions).toHaveLength(TASK_STATUSES.length);
+  it.each(MANAGERS)('%s can edit, assign, add and manage subtasks, reorder and set every link', (role) => {
+    const a = taskAccess(role, { isAssignedEditor: false });
+    expect(a).toMatchObject({ editBrief: true, editWorkLinks: true, editFinalExport: true, assign: true, addSubtasks: true, manageSubtasks: true, tickSubtasks: true, reorder: true, delete: true });
     expect(readOnlyReason(role, a)).toBeNull();
   });
 
-  it('an editor assigned to the task: status (not late stages), review + project links, ticking: nothing else', () => {
-    const a = taskAccess('EDITOR', { isAssignedEditor: true, currentStatus: 'IN_PROGRESS' });
-    expect(a).toMatchObject({ editBrief: false, editWorkLinks: true, assign: false, addSubtasks: false, manageSubtasks: false, tickSubtasks: true, reorder: false, delete: false });
-    expect(a.statusOptions).toEqual(['TODO', 'IN_PROGRESS', 'IN_QC']);
-    for (const locked of EDITOR_LOCKED_STATUSES) expect(a.statusOptions).not.toContain(locked);
-    expect(readOnlyReason('EDITOR', a)).toMatch(/assigned to you/);
-  });
-
-  it('an editor cannot change status once the task is in a late stage (cannot pull it back)', () => {
-    for (const status of EDITOR_LOCKED_STATUSES) {
-      expect(taskAccess('EDITOR', { isAssignedEditor: true, currentStatus: status }).statusOptions).toEqual([]);
-    }
+  it('an editor assigned to the task: review + project links and ticking (stage moves are the workflow engine), nothing else', () => {
+    const a = taskAccess('EDITOR', { isAssignedEditor: true });
+    expect(a).toMatchObject({ editBrief: false, editWorkLinks: true, editFinalExport: false, assign: false, addSubtasks: false, manageSubtasks: false, tickSubtasks: true, reorder: false, delete: false });
+    expect(readOnlyReason('EDITOR', a)).toMatch(/submit cuts for QC/);
   });
 
   it('an editor NOT assigned to the task can only look', () => {
-    const a = taskAccess('EDITOR', { isAssignedEditor: false, currentStatus: 'TODO' });
+    const a = taskAccess('EDITOR', { isAssignedEditor: false });
     expect(a).toMatchObject({ editBrief: false, editWorkLinks: false, assign: false, tickSubtasks: false, delete: false });
-    expect(a.statusOptions).toEqual([]);
     expect(readOnlyReason('EDITOR', a)).toMatch(/not assigned to you/);
   });
 
-  it('QC specialists change status (never to or from COMPLETED / CLOSED) and tick, nothing else', () => {
-    const a = taskAccess('QC_SPECIALIST', { isAssignedEditor: false, currentStatus: 'IN_QC' });
-    expect(a).toMatchObject({ editBrief: false, editWorkLinks: false, assign: false, tickSubtasks: true, manageSubtasks: false, delete: false });
-    for (const locked of QC_LOCKED_STATUSES) expect(a.statusOptions).not.toContain(locked);
-    expect(a.statusOptions).toContain('READY_TO_DELIVER');
-    expect(taskAccess('QC_SPECIALIST', { isAssignedEditor: false, currentStatus: 'COMPLETED' }).statusOptions).toEqual([]);
-    expect(readOnlyReason('QC_SPECIALIST', a)).toMatch(/QC specialists/);
+  it('QC specialists tick and set the final export (they deliver to the client), nothing else', () => {
+    const a = taskAccess('QC_SPECIALIST', { isAssignedEditor: false });
+    expect(a).toMatchObject({ editBrief: false, editWorkLinks: false, editFinalExport: true, assign: false, tickSubtasks: true, manageSubtasks: false, delete: false });
+    expect(readOnlyReason('QC_SPECIALIST', a)).toMatch(/QC approves/);
   });
 
   it('client viewers and signed-out visitors get nothing', () => {
     for (const role of ['CLIENT_VIEWER', null, undefined] as const) {
       const a = taskAccess(role, { isAssignedEditor: false });
-      expect(Object.values(a).every((v) => v === false || (Array.isArray(v) && v.length === 0))).toBe(true);
+      expect(Object.values(a).every((v) => v === false)).toBe(true);
     }
     expect(readOnlyReason('CLIENT_VIEWER', taskAccess('CLIENT_VIEWER', { isAssignedEditor: false }))).toMatch(/Only managers/);
   });

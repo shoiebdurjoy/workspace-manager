@@ -10,6 +10,7 @@ import {
   listTasks,
   moveTask,
   setTaskAssignee,
+  transitionTask,
   updateSubtask,
   updateTask,
   type TaskInput,
@@ -94,7 +95,7 @@ type Snapshot = {
   details: Array<[QueryKey, TaskDetail | undefined]>;
 };
 
-function useTaskCache() {
+export function useTaskCache() {
   const { workspaceId } = useTasksEnabled();
   const queryClient = useQueryClient();
 
@@ -323,6 +324,8 @@ export function useDeleteSubtask() {
 export type BulkAction =
   | { kind: 'patch'; patch: TaskPatch }
   | { kind: 'assign'; role: AssigneeRole; userId: string | null }
+  /** A workflow move; each task goes through transition_task exactly as a single move would. */
+  | { kind: 'transition'; to: string; note?: string | null; countsRevision: boolean; label: string }
   | { kind: 'delete' };
 
 export interface BulkResult {
@@ -359,7 +362,15 @@ export function useBulkTasks() {
   return useMutation({
     mutationFn: async ({ taskIds, action }: { taskIds: string[]; action: BulkAction }): Promise<BulkResult> => {
       const snap = await cache.snapshot(taskIds);
-      if (action.kind === 'patch') {
+      const before = new Map<string, TaskSummary>();
+      for (const [, data] of snap.lists) for (const p of data?.pages ?? []) for (const r of p.items) before.set(r.id, r);
+      if (action.kind === 'transition') {
+        cache.patchRows(taskIds, (row) => ({
+          ...row,
+          status: action.to,
+          revisionCount: row.revisionCount + (action.countsRevision ? 1 : 0),
+        }));
+      } else if (action.kind === 'patch') {
         const change = rowChange(optimisticPatch(action.patch));
         cache.patchRows(taskIds, (row) => ({ ...row, ...change }));
       } else if (action.kind === 'assign') {
@@ -369,6 +380,9 @@ export function useBulkTasks() {
       const settled = await runPool(taskIds, 6, async (id) => {
         if (action.kind === 'patch') await updateTask(id, action.patch);
         else if (action.kind === 'assign') await setTaskAssignee(id, action.role, action.userId);
+        else if (action.kind === 'transition')
+          // expectedFrom: a task someone else moved meanwhile is refused, not moved from a stage nobody saw
+          await transitionTask(id, { to: action.to, note: action.note, expectedFrom: before.get(id)?.status ?? null });
         else await deleteTask(id);
       });
       const result: BulkResult = { ok: [], failed: [] };
@@ -381,8 +395,8 @@ export function useBulkTasks() {
     },
     onSuccess: (result, { taskIds, action }) => {
       for (const id of taskIds) void cache.refreshDetail(id);
-      if (action.kind === 'delete') void cache.refreshLists();
-      const verb = action.kind === 'delete' ? 'Deleted' : 'Updated';
+      if (action.kind === 'delete' || (action.kind === 'transition' && result.failed.length)) void cache.refreshLists();
+      const verb = action.kind === 'delete' ? 'Deleted' : action.kind === 'transition' ? `${action.label}:` : 'Updated';
       const noun = (n: number) => `${n} ${n === 1 ? 'task' : 'tasks'}`;
       if (result.failed.length === 0) toast.success(`${verb} ${noun(result.ok.length)}`);
       else

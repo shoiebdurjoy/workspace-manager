@@ -44,8 +44,9 @@ export const MEMBERS: WorkspaceMember[] = [
 export function makeSummary(overrides: Partial<TaskSummary> & Pick<TaskSummary, 'id' | 'title'>): TaskSummary {
   return {
     listId: IDS.listEdaptx,
-    status: 'TODO',
+    status: 'TO_BE_EDITED',
     priority: 'MEDIUM',
+    revisionCount: 0,
     position: 0,
     aspectRatio: null,
     dueDate: null,
@@ -75,8 +76,9 @@ export function makeDetail(overrides: Partial<TaskDetail> = {}): TaskDetail {
     listId: IDS.listEdaptx,
     title: 'Episode 12 - Founder story',
     description: 'Cut to 58 seconds.',
-    status: 'IN_PROGRESS',
+    status: 'STARTED_EDITING',
     priority: 'HIGH',
+    revisionCount: 0,
     position: 0,
     aspectRatio: '9:16',
     rawFootageLink: 'https://drive.google.com/drive/folders/abc',

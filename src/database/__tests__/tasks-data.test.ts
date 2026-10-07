@@ -265,7 +265,7 @@ describe('updateTask', () => {
   it('validates before touching the database', async () => {
     await expect(updateTask('t1', { title: ' ' })).rejects.toThrow(/task title/);
     await expect(updateTask('t1', { reviewLink: 'javascript:1' })).rejects.toThrow(/Review link/);
-    await expect(updateTask('t1', { status: 'DONE' as never })).rejects.toThrow(/valid status/);
+    await expect(updateTask('t1', { status: 'done; drop' as never })).rejects.toThrow(/valid status/);
     await expect(updateTask('t1', {})).rejects.toThrow(/nothing to save/);
     await expect(updateTask('', { title: 'x' })).rejects.toBeInstanceOf(ValidationError);
     expect(calls).toHaveLength(0);

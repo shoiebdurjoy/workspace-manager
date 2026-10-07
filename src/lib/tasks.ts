@@ -3,7 +3,6 @@ import type {
   AssigneeRole,
   Subtask,
   TaskPriority,
-  TaskStatus,
   TbbRole,
   WorkspaceMember,
 } from '@/types/database';
@@ -16,9 +15,8 @@ import { can } from '@/lib/permissions';
  * The access rules below only decide what the interface OFFERS. The database (RLS + the guard
  * triggers of migration 7) is the real enforcement, and the offline/live RLS suites assert it.
  *
- * Status here is the generic status list from migration 1. The configurable TBB workflow
- * (TO BE EDITED ... CLOSED, revision counter, QC gating) is Phase 7, which replaces TASK_STATUSES
- * and the status guard; nothing else in this file depends on the individual status values.
+ * Statuses are not here: they belong to the workflow the database owns (Phase 7). Which stage a
+ * person may move a task to is answered by src/lib/workflow.ts.
  */
 
 export const TITLE_MAX_LENGTH = 500;
@@ -32,32 +30,6 @@ export const TASK_LOAD_CAP = 5000;
 // ---------------------------------------------------------------------------------------
 // Labels
 // ---------------------------------------------------------------------------------------
-
-export interface StatusOption {
-  value: TaskStatus;
-  label: string;
-  /** Tailwind class for the status dot (functional colour tokens from index.css). */
-  dot: string;
-}
-
-export const TASK_STATUSES: readonly StatusOption[] = [
-  { value: 'TODO', label: 'To do', dot: 'bg-status-backlog' },
-  { value: 'IN_PROGRESS', label: 'In progress', dot: 'bg-status-progress' },
-  { value: 'IN_QC', label: 'In QC', dot: 'bg-status-review' },
-  { value: 'READY_TO_DELIVER', label: 'Ready to deliver', dot: 'bg-status-rtd' },
-  { value: 'CLIENT_REVIEW', label: 'Client review', dot: 'bg-status-delivered' },
-  { value: 'COMPLETED', label: 'Completed', dot: 'bg-status-rtd' },
-  { value: 'CLOSED', label: 'Closed', dot: 'bg-status-backlog' },
-];
-
-export function statusOption(status: TaskStatus): StatusOption {
-  return TASK_STATUSES.find((s) => s.value === status) ?? TASK_STATUSES[0];
-}
-
-/** Statuses an EDITOR may never move a task into or out of (mirrors guard_task_update). */
-export const EDITOR_LOCKED_STATUSES: readonly TaskStatus[] = ['READY_TO_DELIVER', 'CLIENT_REVIEW', 'COMPLETED', 'CLOSED'];
-/** Statuses a QC specialist may never move a task into or out of (mirrors guard_task_update). */
-export const QC_LOCKED_STATUSES: readonly TaskStatus[] = ['COMPLETED', 'CLOSED'];
 
 export interface PriorityOption {
   value: TaskPriority;
@@ -206,11 +178,6 @@ export function dueState(iso: string | null | undefined, now: Date = new Date())
   return 'later';
 }
 
-/** A finished task is never "overdue". */
-export function isFinished(status: TaskStatus): boolean {
-  return status === 'COMPLETED' || status === 'CLOSED';
-}
-
 export function formatDay(iso: string | null | undefined, now: Date = new Date()): string {
   if (!iso) return '';
   const date = new Date(iso);
@@ -284,9 +251,9 @@ export interface TaskAccess {
   editBrief: boolean;
   /** Review link and project file link. */
   editWorkLinks: boolean;
+  /** The final export link (managers, and QC who deliver to the client). */
+  editFinalExport: boolean;
   assign: boolean;
-  /** Which statuses can be chosen (empty = status is read-only). */
-  statusOptions: readonly TaskStatus[];
   addSubtasks: boolean;
   /** Rename / delete subtasks. */
   manageSubtasks: boolean;
@@ -295,21 +262,18 @@ export interface TaskAccess {
   delete: boolean;
 }
 
-const ALL_STATUSES = TASK_STATUSES.map((s) => s.value);
-
 export function taskAccess(
   role: TbbRole | null | undefined,
-  options: { isAssignedEditor: boolean; currentStatus?: TaskStatus }
+  options: { isAssignedEditor: boolean }
 ): TaskAccess {
   const manager = can(role, 'task:edit-brief');
-  const status = options.currentStatus;
 
   if (manager) {
     return {
       editBrief: true,
       editWorkLinks: true,
+      editFinalExport: true,
       assign: can(role, 'task:assign'),
-      statusOptions: ALL_STATUSES,
       addSubtasks: true,
       manageSubtasks: true,
       tickSubtasks: true,
@@ -321,8 +285,8 @@ export function taskAccess(
   const none: TaskAccess = {
     editBrief: false,
     editWorkLinks: false,
+    editFinalExport: false,
     assign: false,
-    statusOptions: [],
     addSubtasks: false,
     manageSubtasks: false,
     tickSubtasks: false,
@@ -331,22 +295,11 @@ export function taskAccess(
   };
 
   if (role === 'QC_SPECIALIST') {
-    const locked = status !== undefined && QC_LOCKED_STATUSES.includes(status);
-    return {
-      ...none,
-      statusOptions: locked ? [] : ALL_STATUSES.filter((s) => !QC_LOCKED_STATUSES.includes(s)),
-      tickSubtasks: true,
-    };
+    return { ...none, editFinalExport: true, tickSubtasks: true };
   }
 
   if (role === 'EDITOR' && options.isAssignedEditor) {
-    const locked = status !== undefined && EDITOR_LOCKED_STATUSES.includes(status);
-    return {
-      ...none,
-      editWorkLinks: true,
-      statusOptions: locked ? [] : ALL_STATUSES.filter((s) => !EDITOR_LOCKED_STATUSES.includes(s)),
-      tickSubtasks: true,
-    };
+    return { ...none, editWorkLinks: true, tickSubtasks: true };
   }
 
   return none;
@@ -357,10 +310,10 @@ export function readOnlyReason(role: TbbRole | null | undefined, access: TaskAcc
   if (access.editBrief) return null;
   if (role === 'EDITOR') {
     return access.editWorkLinks
-      ? 'You can update the status, review link and project file on tasks assigned to you.'
+      ? 'You move your tasks through editing and submit cuts for QC; the brief is managed by a Production Manager.'
       : 'This task is not assigned to you, so you can view it but not change it.';
   }
-  if (role === 'QC_SPECIALIST') return 'QC specialists can update the status and tick the checklist. The brief is managed by a Production Manager.';
+  if (role === 'QC_SPECIALIST') return 'QC approves, requests revisions and delivers to the client; the brief is managed by a Production Manager.';
   return 'You can view this task. Only managers can change it.';
 }
 

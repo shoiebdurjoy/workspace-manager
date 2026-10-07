@@ -10,6 +10,7 @@ import * as dbModule from '@/database';
 import { NotFoundError } from '@/database/errors';
 import { IDS, makeTree } from '@/test/hierarchy-fixtures';
 import { MEMBERS, PEOPLE, TASK_IDS, makeDetail, makeSubtask, makeSummary } from '@/test/task-fixtures';
+import { TBB_WORKFLOW } from '@/test/workflow-fixture';
 import type { TbbRole, TaskDetail } from '@/types/database';
 
 vi.mock('@/database', async () => {
@@ -56,7 +57,13 @@ beforeEach(() => {
   db.updateSubtask.mockResolvedValue({});
   db.deleteSubtask.mockResolvedValue(undefined);
   db.deleteTask.mockResolvedValue(undefined);
+  db.getWorkflow.mockResolvedValue(TBB_WORKFLOW);
+  db.transitionTask.mockImplementation(async (id: string, input: { to: string }) => ({ ...makeDetail({ id }), status: input.to }));
+  db.getLatestRevisionRequest.mockResolvedValue(null);
 });
+
+/** The workflow section at the top of the sheet (also while a move dialog covers it). */
+const workflowOf = (dialog: HTMLElement) => within(dialog).getByRole('region', { name: 'Workflow', hidden: true });
 
 describe('task detail sheet: what people see', () => {
   it('shows the whole deliverable: brief, status, assignees, deadlines, links and checklist', async () => {
@@ -64,7 +71,7 @@ describe('task detail sheet: what people see', () => {
     expect(db.getTask).toHaveBeenCalledWith(TASK_IDS.one);
     expect(dialog).toHaveAccessibleName('Episode 12 - Founder story');
     expect(within(dialog).getByLabelText('Task title')).toHaveValue('Episode 12 - Founder story');
-    expect(within(dialog).getByRole('combobox', { name: 'Status' })).toHaveTextContent('In progress');
+    expect(within(dialog).getByRole('combobox', { name: 'Status' })).toHaveTextContent('STARTED EDITING');
     expect(within(dialog).getByRole('combobox', { name: 'Priority' })).toHaveTextContent('High');
     expect(within(dialog).getByRole('combobox', { name: 'Editor' })).toHaveTextContent('Pat Person');
     expect(within(dialog).getByRole('combobox', { name: 'QC reviewer' })).toHaveTextContent('Quinn QC');
@@ -283,15 +290,16 @@ describe('task detail sheet: editing as a manager', () => {
     expect(db.updateTask).not.toHaveBeenCalled();
   });
 
-  it('changes priority, status and aspect ratio from their selectors', async () => {
+  it('changes priority, stage and aspect ratio from their selectors', async () => {
     const { dialog } = await openTask('PRODUCTION_MANAGER');
     await userEvent.click(within(dialog).getByRole('combobox', { name: 'Priority' }));
     await userEvent.click(await screen.findByRole('option', { name: /Low/ }));
     await waitFor(() => expect(db.updateTask).toHaveBeenCalledWith(TASK_IDS.one, { priority: 'LOW' }));
 
     await userEvent.click(within(dialog).getByRole('combobox', { name: 'Status' }));
-    await userEvent.click(await screen.findByRole('option', { name: /In QC/ }));
-    await waitFor(() => expect(db.updateTask).toHaveBeenCalledWith(TASK_IDS.one, { status: 'IN_QC' }));
+    await userEvent.click(await screen.findByRole('option', { name: /Submit for QC/ }));
+    await waitFor(() => expect(db.transitionTask).toHaveBeenCalledWith(TASK_IDS.one, expect.objectContaining({ to: 'QC_FIRST_APPROVAL', expectedFrom: 'STARTED_EDITING' })));
+    expect(db.updateTask).not.toHaveBeenCalledWith(TASK_IDS.one, expect.objectContaining({ status: expect.anything() }));
 
     await userEvent.click(within(dialog).getByRole('combobox', { name: 'Aspect ratio' }));
     await userEvent.click(await screen.findByRole('option', { name: 'Not set' }));
@@ -327,7 +335,7 @@ describe('task detail sheet: editing as a manager', () => {
   });
 
   it('a finished task is never shown as overdue', async () => {
-    const { dialog } = await openTask('PRODUCTION_MANAGER', { status: 'COMPLETED', dueDate: '2020-01-02T12:00:00.000Z' });
+    const { dialog } = await openTask('PRODUCTION_MANAGER', { status: 'CLOSED', dueDate: '2020-01-02T12:00:00.000Z' });
     expect(within(dialog).getByRole('button', { name: /Internal QC due: / })).not.toHaveTextContent('overdue');
   });
 
@@ -524,9 +532,9 @@ describe('task detail sheet: subtasks', () => {
 });
 
 describe('task detail sheet: what each role can touch (the database enforces the same)', () => {
-  it('an editor ASSIGNED to the task: status, review link, project file and ticking only; the rest is plain text', async () => {
+  it('an editor ASSIGNED to the task: their workflow steps, review link, project file and ticking only; the rest is plain text', async () => {
     const { dialog } = await openTask('EDITOR', { editorId: PEOPLE.me });
-    expect(within(dialog).getByText(/tasks assigned to you/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/submit cuts for QC/)).toBeInTheDocument();
     expect(within(dialog).getByLabelText('Task title')).toBeDisabled();
     // read-only values are NOT controls: nothing that looks editable and then fails
     for (const name of ['Priority', 'Editor', 'QC reviewer', 'Aspect ratio']) {
@@ -553,12 +561,16 @@ describe('task detail sheet: what each role can touch (the database enforces the
     expect(within(dialog).queryByRole('button', { name: 'More task actions' })).not.toBeInTheDocument();
   });
 
-  it('an assigned editor cannot choose QC-approved or later statuses', async () => {
+  it('an assigned editor is offered only editing steps; approval and delivery are shown disabled, with the reason', async () => {
     const { dialog } = await openTask('EDITOR', { editorId: PEOPLE.me });
     await userEvent.click(within(dialog).getByRole('combobox', { name: 'Status' }));
-    const enabled = (await screen.findAllByRole('option')).filter((o) => o.getAttribute('aria-disabled') !== 'true').map((o) => o.textContent);
-    expect(enabled).toEqual(expect.arrayContaining(['To do', 'In progress', 'In QC']));
-    expect(enabled.join(' ')).not.toMatch(/Ready to deliver|Client review|Completed|Closed/);
+    const options = await screen.findAllByRole('option');
+    const enabled = options.filter((o) => o.getAttribute('aria-disabled') !== 'true').map((o) => o.textContent ?? '');
+    expect(enabled).toHaveLength(2);
+    expect(enabled.join(' ')).toMatch(/Submit for QC.*Pause editing/);
+    const approved = options.find((o) => /^QC - APPROVED/.test(o.textContent ?? ''))!;
+    expect(approved).toHaveAttribute('aria-disabled', 'true');
+    expect(approved).toHaveTextContent('Not a step from STARTED EDITING.');
   });
 
   it('an assigned editor can add the project file link', async () => {
@@ -569,10 +581,13 @@ describe('task detail sheet: what each role can touch (the database enforces the
     await waitFor(() => expect(db.updateTask).toHaveBeenCalledWith(TASK_IDS.one, { projectFileLink: 'https://drive.google.com/proj' }));
   });
 
-  it('an editor cannot move a task that is already in a late stage', async () => {
-    const { dialog } = await openTask('EDITOR', { editorId: PEOPLE.me, status: 'READY_TO_DELIVER' });
+  it('an editor cannot move a task that is past editing; the panel says who it waits on', async () => {
+    const { dialog } = await openTask('EDITOR', { editorId: PEOPLE.me, status: 'QC_APPROVED_RTD' });
     expect(within(dialog).queryByRole('combobox', { name: 'Status' })).not.toBeInTheDocument();
-    expect(within(dialog).getByText('Ready to deliver')).toBeInTheDocument();
+    const panel = workflowOf(dialog);
+    expect(panel).toHaveTextContent('QC - APPROVED (RTD)');
+    expect(within(panel).queryByRole('button')).not.toBeInTheDocument();
+    expect(panel).toHaveTextContent('Waiting on Production Manager or QC Specialist');
   });
 
   it('an editor NOT assigned to the task can only read it', async () => {
@@ -586,22 +601,22 @@ describe('task detail sheet: what each role can touch (the database enforces the
     expect(within(dialog).getByRole('link', { name: /Open Raw footage/ })).toBeInTheDocument();
   });
 
-  it('a QC specialist changes status and ticks, but cannot edit the brief or links', async () => {
-    const { dialog } = await openTask('QC_SPECIALIST', { qcId: PEOPLE.me });
+  it('a QC specialist approves / sends back, ticks and sets the final export, but cannot edit the brief or other links', async () => {
+    const { dialog } = await openTask('QC_SPECIALIST', { qcId: PEOPLE.me, status: 'QC_FIRST_APPROVAL' });
     expect(within(dialog).getByRole('combobox', { name: 'Status' })).toBeEnabled();
     expect(within(dialog).getByRole('checkbox', { name: 'Mark done: Captions' })).toBeEnabled();
     expect(within(dialog).getByLabelText('Task title')).toBeDisabled();
     expect(within(dialog).queryByRole('button', { name: /^Edit / })).not.toBeInTheDocument();
+    expect(within(dialog).getByRole('button', { name: 'Add Final export' })).toBeInTheDocument();
+    expect(within(dialog).queryByRole('button', { name: 'Add Project file' })).not.toBeInTheDocument();
     expect(within(dialog).queryByRole('combobox', { name: 'QC reviewer' })).not.toBeInTheDocument();
     expect(within(dialog).queryByRole('textbox', { name: 'Task brief' })).not.toBeInTheDocument();
     expect(within(dialog).queryByRole('button', { name: 'More task actions' })).not.toBeInTheDocument();
-    await userEvent.click(within(dialog).getByRole('combobox', { name: 'Status' }));
-    const enabled = (await screen.findAllByRole('option')).filter((o) => o.getAttribute('aria-disabled') !== 'true').map((o) => o.textContent);
-    expect(enabled).toEqual(expect.arrayContaining(['In QC', 'Ready to deliver', 'Client review']));
-    expect(enabled.join(' ')).not.toMatch(/Completed|Closed/);
+    const panel = workflowOf(dialog);
+    expect(within(panel).getAllByRole('button').map((b) => b.textContent)).toEqual(['Pass to final approval', 'Approve (ready to deliver)', 'Request revision']);
   });
 
-  it.each<TbbRole>(['OWNER', 'ADMIN', 'PRODUCTION_MANAGER'])('%s can edit everything, assign, manage subtasks and delete', async (role) => {
+  it.each<TbbRole>(['OWNER', 'ADMIN', 'PRODUCTION_MANAGER'])('%s can edit everything, assign, manage subtasks, move it and delete', async (role) => {
     const { dialog } = await openTask(role);
     expect(within(dialog).getByLabelText('Task title')).toBeEnabled();
     for (const name of ['Status', 'Priority', 'Editor', 'QC reviewer', 'Aspect ratio']) {
@@ -624,6 +639,105 @@ describe('task detail sheet: what each role can touch (the database enforces the
   });
 });
 
+
+describe('task detail sheet: the workflow panel', () => {
+  it('shows the stage, how far along it is, and the next step as a button', async () => {
+    const { dialog } = await openTask('EDITOR', { editorId: PEOPLE.me });
+    const panel = workflowOf(dialog);
+    expect(panel).toHaveTextContent('STARTED EDITING');
+    expect(panel).toHaveTextContent('Stage 4 of 10');
+    const buttons = within(panel).getAllByRole('button');
+    expect(buttons.map((b) => b.textContent)).toEqual(['Submit for QC', 'Pause editing']);
+    await userEvent.click(buttons[0]);
+    // the review link is already there, so nothing is asked: one atomic move
+    await waitFor(() =>
+      expect(db.transitionTask).toHaveBeenCalledWith(TASK_IDS.one, expect.objectContaining({ to: 'QC_FIRST_APPROVAL', expectedFrom: 'STARTED_EDITING' }))
+    );
+    await waitFor(() => expect(toasts.success).toHaveBeenCalledWith('Moved to QC - FIRST APPROVAL'));
+  });
+
+  it('submitting for QC without a review link asks for it and sends it with the move', async () => {
+    const { dialog } = await openTask('EDITOR', { editorId: PEOPLE.me, reviewLink: null });
+    await userEvent.click(within(workflowOf(dialog)).getByRole('button', { name: 'Submit for QC' }));
+    const ask = await screen.findByRole('dialog', { name: 'Submit for QC' });
+    await userEvent.type(within(ask).getByLabelText('Review link of the cut'), 'javascript:alert(1)');
+    await userEvent.click(within(ask).getByRole('button', { name: 'Submit for QC' }));
+    expect(await within(ask).findByRole('alert')).toBeInTheDocument();
+    expect(db.transitionTask).not.toHaveBeenCalled();
+    await userEvent.clear(within(ask).getByLabelText('Review link of the cut'));
+    await userEvent.type(within(ask).getByLabelText('Review link of the cut'), 'https://app.frame.io/reviews/new');
+    await userEvent.click(within(ask).getByRole('button', { name: 'Submit for QC' }));
+    await waitFor(() =>
+      expect(db.transitionTask).toHaveBeenCalledWith(TASK_IDS.one, expect.objectContaining({ to: 'QC_FIRST_APPROVAL', reviewLink: 'https://app.frame.io/reviews/new' }))
+    );
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Submit for QC' })).not.toBeInTheDocument());
+  });
+
+  it('a refused move keeps the dialog (nothing typed is lost) and puts the stage back', async () => {
+    db.transitionTask.mockRejectedValue(new Error('QC - FIRST APPROVAL needs the review link of the cut.'));
+    const { dialog } = await openTask('EDITOR', { editorId: PEOPLE.me, reviewLink: null });
+    await userEvent.click(within(workflowOf(dialog)).getByRole('button', { name: 'Submit for QC' }));
+    const ask = await screen.findByRole('dialog', { name: 'Submit for QC' });
+    await userEvent.type(within(ask).getByLabelText('Review link of the cut'), 'https://app.frame.io/r');
+    await userEvent.click(within(ask).getByRole('button', { name: 'Submit for QC' }));
+    await waitFor(() => expect(toasts.error).toHaveBeenCalledWith('QC - FIRST APPROVAL needs the review link of the cut.'));
+    expect(within(ask).getByLabelText('Review link of the cut')).toHaveValue('https://app.frame.io/r');
+    expect(workflowOf(dialog)).toHaveTextContent('STARTED EDITING');
+  });
+
+  it('while a cut is sent back, the editor sees what to change, who asked and when, and the revision number', async () => {
+    db.getLatestRevisionRequest.mockResolvedValue({
+      id: 'e1', taskId: TASK_IDS.one, from: 'QC_FIRST_APPROVAL', to: 'QC_REVISION_NEEDED', actorId: PEOPLE.qc,
+      note: 'Tighten the intro.\nFix the caption at 0:42.', isOverride: false, revisionNumber: 2, createdAt: '2026-10-05T10:00:00Z',
+    });
+    const { dialog } = await openTask('EDITOR', { editorId: PEOPLE.me, status: 'QC_REVISION_NEEDED', revisionCount: 2 });
+    const panel = workflowOf(dialog);
+    const note = await within(panel).findByRole('note', { name: 'Requested changes' });
+    expect(note).toHaveTextContent('Revision 2 requested by Quinn QC on');
+    expect(note).toHaveTextContent('Fix the caption at 0:42.');
+    expect(within(panel).getByText('Revision 2')).toBeInTheDocument();
+    expect(db.getLatestRevisionRequest).toHaveBeenCalledWith(TASK_IDS.one);
+    expect(within(panel).getAllByRole('button').map((b) => b.textContent)).toEqual(['Submit revision']);
+  });
+
+  it('the revision note is not fetched for a task that is not in revision', async () => {
+    await openTask('EDITOR', { editorId: PEOPLE.me, revisionCount: 1 });
+    expect(db.getLatestRevisionRequest).not.toHaveBeenCalled();
+  });
+
+  it('QC requests a revision from the panel: a note is required and the move counts a revision at once', async () => {
+    let finish: (v: unknown) => void = () => undefined;
+    const { dialog } = await openTask('QC_SPECIALIST', { status: 'QC_FINAL_APPROVAL', revisionCount: 1 });
+    await userEvent.click(within(workflowOf(dialog)).getByRole('button', { name: 'Request another revision' }));
+    const ask = await screen.findByRole('dialog', { name: 'Request another revision' });
+    await userEvent.click(within(ask).getByRole('button', { name: 'Request another revision' }));
+    expect(await within(ask).findByText('Say what needs to change.')).toBeInTheDocument();
+    db.transitionTask.mockReturnValue(new Promise((r) => (finish = r)));
+    await userEvent.type(within(ask).getByLabelText('What needs to change?'), 'Music too loud');
+    await userEvent.click(within(ask).getByRole('button', { name: 'Request another revision' }));
+    expect(db.transitionTask).toHaveBeenCalledWith(TASK_IDS.one, expect.objectContaining({ to: 'QC_REVISION_NEEDED', note: 'Music too loud', expectedFrom: 'QC_FINAL_APPROVAL' }));
+    await waitFor(() => expect(within(workflowOf(dialog)).getByText('Revision 2')).toBeInTheDocument());
+    finish({ ...makeDetail(), status: 'QC_REVISION_NEEDED', revisionCount: 2 });
+  });
+
+  it('delivering asks QC for the final export when it is missing', async () => {
+    const { dialog } = await openTask('QC_SPECIALIST', { status: 'QC_APPROVED_RTD', finalExportLink: null });
+    await userEvent.click(within(workflowOf(dialog)).getByRole('button', { name: 'Send to client' }));
+    const ask = await screen.findByRole('dialog', { name: 'Send to client' });
+    await userEvent.type(within(ask).getByLabelText('Final export link'), 'https://drive.google.com/final');
+    await userEvent.click(within(ask).getByRole('button', { name: 'Send to client' }));
+    await waitFor(() =>
+      expect(db.transitionTask).toHaveBeenCalledWith(TASK_IDS.one, expect.objectContaining({ to: 'SENT_TO_CLIENT', finalExportLink: 'https://drive.google.com/final' }))
+    );
+  });
+
+  it('a manager closes a delivered task; a closed task reads as finished and can be reopened', async () => {
+    const { dialog } = await openTask('PRODUCTION_MANAGER', { status: 'SENT_TO_CLIENT', finalExportLink: 'https://drive.google.com/f' });
+    expect(within(workflowOf(dialog)).getAllByRole('button').map((b) => b.textContent)).toEqual(['Close', 'Client requested changes']);
+    await userEvent.click(within(workflowOf(dialog)).getByRole('button', { name: 'Close' }));
+    await waitFor(() => expect(db.transitionTask).toHaveBeenCalledWith(TASK_IDS.one, expect.objectContaining({ to: 'CLOSED' })));
+  });
+});
 
 describe('task detail sheet: moving between tasks', () => {
   const rows = [

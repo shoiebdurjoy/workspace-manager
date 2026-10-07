@@ -215,24 +215,31 @@ r = await as(stranger, `SELECT id FROM public.tasks`);
 record('stranger sees no tasks', r.rows.length === 0 && !r.error);
 r = await as(client, `SELECT id FROM public.tasks`);
 record('client viewer sees no tasks (fail closed)', r.rows.length === 0 && !r.error);
-r = await as(client, `UPDATE public.tasks SET status = 'COMPLETED' WHERE id = $1 RETURNING id`, [task]);
+r = await as(client, `UPDATE public.tasks SET status = 'CLOSED' WHERE id = $1 RETURNING id`, [task]);
 blocked('client viewer cannot update tasks', r);
 r = await as(stranger, `UPDATE public.tasks SET title = 'pwn' WHERE id = $1 RETURNING id`, [task]);
 blocked('stranger cannot update tasks', r);
 
 // Phase 6 tightening (migration 7): an editor acts only on tasks assigned to them.
-r = await as(editor, `UPDATE public.tasks SET status = 'IN_PROGRESS' WHERE id = $1 RETURNING id`, [task]);
-record('editor cannot change a task that is NOT assigned to them', !!r.error);
+// Phase 7 (migration 8): every status change is an edge of the TBB workflow allowed for the role.
+r = await as(editor, `UPDATE public.tasks SET status = 'ASSIGNED' WHERE id = $1 RETURNING id`, [task]);
+record('editor cannot change a task that is NOT assigned to them', /assigned to them/.test(r.error?.message ?? ''), r.error?.message);
 r = await as(pm, `SELECT public.set_task_assignee($1, 'EDITOR', $2)`, [task, editor]);
 ok('manager assigns the editor to the task', r);
-r = await as(editor, `UPDATE public.tasks SET status = 'IN_PROGRESS' WHERE id = $1 RETURNING id`, [task]);
-ok('editor can start work (TODO -> IN_PROGRESS)', r);
-r = await as(editor, `UPDATE public.tasks SET status = 'IN_QC', position = 3 WHERE id = $1 RETURNING id`, [task]);
-ok('editor can submit to QC and reorder', r);
-r = await as(editor, `UPDATE public.tasks SET status = 'READY_TO_DELIVER' WHERE id = $1 RETURNING id`, [task]);
-record('EDITOR CANNOT SELF-APPROVE (-> READY_TO_DELIVER)', !!r.error);
-r = await as(editor, `UPDATE public.tasks SET status = 'COMPLETED' WHERE id = $1 RETURNING id`, [task]);
-record('editor cannot complete tasks', !!r.error);
+r = await as(editor, `UPDATE public.tasks SET status = 'ASSIGNED' WHERE id = $1 RETURNING id`, [task]);
+record('an editor cannot assign work (TO BE EDITED -> ASSIGNED is a manager step)', /your role cannot move/.test(r.error?.message ?? ''), r.error?.message);
+r = await as(pm, `UPDATE public.tasks SET status = 'ASSIGNED' WHERE id = $1 RETURNING id`, [task]);
+ok('manager puts the task in the editor\'s queue', r);
+r = await as(editor, `UPDATE public.tasks SET status = 'STARTED_EDITING', position = 3 WHERE id = $1 RETURNING id`, [task]);
+ok('editor starts editing (and may reorder)', r);
+r = await as(editor, `UPDATE public.tasks SET status = 'QC_FIRST_APPROVAL' WHERE id = $1 RETURNING id`, [task]);
+record('submitting to QC needs the review link of the cut', /review link/.test(r.error?.message ?? ''), r.error?.message);
+r = await as(editor, `UPDATE public.tasks SET status = 'QC_FIRST_APPROVAL', review_link = 'https://app.frame.io/r/1' WHERE id = $1 RETURNING id`, [task]);
+ok('editor submits to QC with the review link', r);
+r = await as(editor, `UPDATE public.tasks SET status = 'QC_APPROVED_RTD' WHERE id = $1 RETURNING id`, [task]);
+record('EDITOR CANNOT SELF-APPROVE (-> QC - APPROVED (RTD))', /your role cannot move/.test(r.error?.message ?? ''), r.error?.message);
+r = await as(editor, `UPDATE public.tasks SET status = 'CLOSED' WHERE id = $1 RETURNING id`, [task]);
+record('editor cannot close tasks', !!r.error);
 r = await as(editor, `UPDATE public.tasks SET title = 'Renamed' WHERE id = $1 RETURNING id`, [task]);
 record('editor cannot edit task title', !!r.error);
 r = await as(editor, `UPDATE public.tasks SET due_date = now() WHERE id = $1 RETURNING id`, [task]);
@@ -242,19 +249,21 @@ record('editor cannot move task to another list', !!r.error);
 r = await as(editor, `DELETE FROM public.tasks WHERE id = $1 RETURNING id`, [task]);
 blocked('editor cannot delete tasks', r);
 
-r = await as(qc, `UPDATE public.tasks SET status = 'READY_TO_DELIVER' WHERE id = $1 RETURNING id`, [task]);
-ok('QC approves (IN_QC -> READY_TO_DELIVER)', r);
-r = await as(qc, `UPDATE public.tasks SET status = 'CLIENT_REVIEW' WHERE id = $1 RETURNING id`, [task]);
-ok('QC delivers to client', r);
-r = await as(qc, `UPDATE public.tasks SET status = 'COMPLETED' WHERE id = $1 RETURNING id`, [task]);
-record('QC cannot complete tasks', !!r.error);
+r = await as(qc, `UPDATE public.tasks SET status = 'QC_APPROVED_RTD' WHERE id = $1 RETURNING id`, [task]);
+ok('QC approves (QC - FIRST APPROVAL -> QC - APPROVED (RTD))', r);
+r = await as(qc, `UPDATE public.tasks SET status = 'SENT_TO_CLIENT' WHERE id = $1 RETURNING id`, [task]);
+record('sending to the client needs the final export link', /final export/.test(r.error?.message ?? ''), r.error?.message);
+r = await as(qc, `UPDATE public.tasks SET status = 'SENT_TO_CLIENT', final_export_link = 'https://drive.google.com/final' WHERE id = $1 RETURNING id`, [task]);
+ok('QC attaches the final export and delivers to the client', r);
+r = await as(qc, `UPDATE public.tasks SET status = 'CLOSED' WHERE id = $1 RETURNING id`, [task]);
+record('QC cannot close tasks', /your role cannot move/.test(r.error?.message ?? ''), r.error?.message);
 r = await as(qc, `UPDATE public.tasks SET title = 'QC rename' WHERE id = $1 RETURNING id`, [task]);
 record('QC cannot edit task fields', !!r.error);
-r = await as(editor, `UPDATE public.tasks SET status = 'IN_PROGRESS' WHERE id = $1 RETURNING id`, [task]);
+r = await as(editor, `UPDATE public.tasks SET status = 'STARTED_EDITING' WHERE id = $1 RETURNING id`, [task]);
 record('editor cannot pull a delivered task back', !!r.error);
 
-r = await as(pm, `UPDATE public.tasks SET status = 'COMPLETED', title = 'Final' WHERE id = $1 RETURNING id`, [task]);
-ok('manager can complete and edit', r);
+r = await as(pm, `UPDATE public.tasks SET status = 'CLOSED', title = 'Final' WHERE id = $1 RETURNING id`, [task]);
+ok('manager can close and edit', r);
 r = await as(pm, `UPDATE public.tasks SET created_by = $2 WHERE id = $1 RETURNING created_by`, [task, owner]);
 record('created_by cannot be rewritten', r.rows[0]?.created_by === pm);
 
@@ -571,7 +580,10 @@ console.log('\n== Phase 6: task engine ==');
   r = await as(owner, `INSERT INTO public.workspace_members (workspace_id, user_id, role) VALUES ($1,$2,'EDITOR') RETURNING user_id`, [ws, editor2]);
   ok('owner adds a second editor', r);
   await svc(`UPDATE public.profiles SET is_active = true, role = 'EDITOR' WHERE id = $1`, [editor]);
-  await svc(`DELETE FROM public.tasks WHERE list_id = $1`, [list]); // clean slate for ordering tests
+  // clean slate for ordering tests: earlier tasks move to a parking list (a task that reached first QC
+  // carries a permanent production credit and cannot be deleted, migration 9)
+  const parking = (await svc(`INSERT INTO public.lists (space_id, name) SELECT space_id, 'Parking' FROM public.lists WHERE id = $1 RETURNING id`, [list]))[0].id;
+  await svc(`UPDATE public.tasks SET list_id = $2 WHERE list_id = $1`, [list, parking]);
   const count = async () => Number((await svc(`SELECT count(*) AS n FROM public.tasks WHERE list_id = $1`, [list]))[0].n);
   const UNKNOWN_USER = '00000000-0000-4000-8000-00000000dead';
   const NULLS = 'NULL, NULL, NULL, NULL, NULL, NULL, NULL';
@@ -587,7 +599,7 @@ console.log('\n== Phase 6: task engine ==');
   r = await as(admin, `SELECT * FROM public.create_task($1, 'Video B')`, [list]);
   ok('admin creates a bare task (defaults only)', r);
   const tB = r.rows[0]?.id;
-  record('new tasks append: position 1, status TODO, priority MEDIUM', r.rows[0]?.position === 1 && r.rows[0]?.status === 'TODO' && r.rows[0]?.priority === 'MEDIUM' && r.rows[0]?.aspect_ratio === null);
+  record('new tasks append: position 1, status TO BE EDITED, priority MEDIUM', r.rows[0]?.position === 1 && r.rows[0]?.status === 'TO_BE_EDITED' && r.rows[0]?.priority === 'MEDIUM' && r.rows[0]?.aspect_ratio === null);
   r = await as(owner, `SELECT * FROM public.create_task($1, 'Video C')`, [list]);
   const tC = r.rows[0]?.id;
   record('third task appended at position 2', r.rows[0]?.position === 2);
@@ -683,7 +695,8 @@ console.log('\n== Phase 6: task engine ==');
   record('anon cannot call create_task', !!r.error);
 
   // ---- editor column + ownership rules ---------------------------------------------------
-  r = await as(editor, `UPDATE public.tasks SET status = 'IN_PROGRESS' WHERE id = $1 RETURNING id`, [tA]);
+  await svc(`UPDATE public.tasks SET status = 'ASSIGNED' WHERE id = $1`, [tA]); // fixture: in the editor's queue
+  r = await as(editor, `UPDATE public.tasks SET status = 'STARTED_EDITING' WHERE id = $1 RETURNING id`, [tA]);
   ok('assigned editor starts work on their task', r);
   r = await as(editor, `UPDATE public.tasks SET review_link = 'https://app.frame.io/reviews/9', project_file_link = 'https://drive.google.com/p' WHERE id = $1 RETURNING id`, [tA]);
   ok('assigned editor submits review + project file links', r);
@@ -691,11 +704,11 @@ console.log('\n== Phase 6: task engine ==');
     r = await as(editor, `UPDATE public.tasks SET ${col} WHERE id = $1 RETURNING id`, [tA]);
     record(`assigned editor cannot change ${col.split(' ')[0]}`, !!r.error);
   }
-  r = await as(editor, `UPDATE public.tasks SET status = 'READY_TO_DELIVER' WHERE id = $1 RETURNING id`, [tA]);
-  record('assigned editor still cannot self-approve', !!r.error);
-  r = await as(editor, `UPDATE public.tasks SET status = 'IN_PROGRESS' WHERE id = $1 RETURNING id`, [tC]);
-  record('editor cannot touch a task assigned to nobody', !!r.error);
-  r = await as(editor2, `UPDATE public.tasks SET status = 'IN_PROGRESS' WHERE id = $1 RETURNING id`, [tA]);
+  r = await as(editor, `UPDATE public.tasks SET status = 'QC_APPROVED_RTD' WHERE id = $1 RETURNING id`, [tA]);
+  record('assigned editor still cannot self-approve', /your role cannot move|cannot move/.test(r.error?.message ?? ''), r.error?.message);
+  r = await as(editor, `UPDATE public.tasks SET status = 'IN_EDIT' WHERE id = $1 RETURNING id`, [tC]);
+  record('editor cannot touch a task assigned to nobody', /assigned to them/.test(r.error?.message ?? ''), r.error?.message);
+  r = await as(editor2, `UPDATE public.tasks SET status = 'QC_FIRST_APPROVAL' WHERE id = $1 RETURNING id`, [tA]);
   record("editor cannot touch a colleague's task", !!r.error);
   r = await as(editor2, `UPDATE public.tasks SET review_link = 'https://x.co/steal' WHERE id = $1 RETURNING id`, [tA]);
   record("editor cannot change a colleague's review link", !!r.error);
@@ -705,9 +718,9 @@ console.log('\n== Phase 6: task engine ==');
   blocked('assigned editor cannot delete the task', r);
 
   // ---- QC rules remain ---------------------------------------------------------------------
-  r = await as(editor, `UPDATE public.tasks SET status = 'IN_QC' WHERE id = $1 RETURNING id`, [tA]);
+  r = await as(editor, `UPDATE public.tasks SET status = 'QC_FIRST_APPROVAL' WHERE id = $1 RETURNING id`, [tA]);
   ok('editor submits to QC', r);
-  r = await as(qc, `UPDATE public.tasks SET status = 'READY_TO_DELIVER' WHERE id = $1 RETURNING id`, [tA]);
+  r = await as(qc, `UPDATE public.tasks SET status = 'QC_APPROVED_RTD' WHERE id = $1 RETURNING id`, [tA]);
   ok('QC approves', r);
   r = await as(qc, `UPDATE public.tasks SET review_link = 'https://x.co/qc' WHERE id = $1 RETURNING id`, [tA]);
   record('QC cannot edit the brief or links', !!r.error);
@@ -765,10 +778,15 @@ console.log('\n== Phase 6: task engine ==');
   record('...and comes out densely sequenced', (await positions()).every((p, i) => p === i));
 
   // ---- deletes + cascades --------------------------------------------------------------------
+  // tA reached first QC above, so it carries a permanent production credit (migration 9)
   r = await as(pm, `DELETE FROM public.tasks WHERE id = $1 RETURNING id`, [tA]);
-  ok('manager deletes a task', r);
-  const left = await svc(`SELECT (SELECT count(*) FROM public.task_assignees WHERE task_id = $1) a, (SELECT count(*) FROM public.subtasks WHERE task_id = $1) s`, [tA]);
-  record('deleting a task removes its assignments and subtasks', Number(left[0].a) === 0 && Number(left[0].s) === 0);
+  record('a task that earned a production credit cannot be deleted', r.error?.code === '23503', r.error?.message);
+  await as(pm, `SELECT public.set_task_assignee($1, 'QC_REVIEWER', $2)`, [tB, qc]);
+  await as(pm, `INSERT INTO public.subtasks (task_id, title) VALUES ($1, 'Rough cut')`, [tB]);
+  r = await as(pm, `DELETE FROM public.tasks WHERE id = $1 RETURNING id`, [tB]);
+  ok('manager deletes a task that never reached first QC', r);
+  const left = await svc(`SELECT (SELECT count(*) FROM public.task_assignees WHERE task_id = $1) a, (SELECT count(*) FROM public.subtasks WHERE task_id = $1) s, (SELECT count(*) FROM public.task_status_events WHERE task_id = $1) e`, [tB]);
+  record('deleting a task removes its assignments, subtasks and status history', Number(left[0].a) === 0 && Number(left[0].s) === 0 && Number(left[0].e) === 0);
 
   // ---- cross-workspace isolation ------------------------------------------------------------
   r = await as(editor, `SELECT task_id FROM public.task_assignees WHERE workspace_id = $1`, [wsB]);
@@ -787,6 +805,375 @@ console.log('\n== Phase 6: task engine ==');
   const definers = await svc(`SELECT p.proname FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname='public' AND p.proname IN ('create_task','set_task_assignee','move_task') AND p.prosecdef`);
   record('task RPCs are SECURITY INVOKER (they add no privilege)', definers.length === 0);
   void NULLS; void tL;
+}
+
+console.log('\n== Phase 7: workflow engine ==');
+{
+  const NAMES = ['TO BE EDITED', 'IN EDIT', 'ASSIGNED', 'STARTED EDITING', 'QC - FIRST APPROVAL', 'QC - REVISION NEEDED', 'QC - FINAL APPROVAL', 'QC - APPROVED (RTD)', 'SENT TO CLIENT', 'CLOSED'];
+  // ---- configuration ----------------------------------------------------------------------
+  const wfRows = await svc(`SELECT id FROM public.workflows WHERE workspace_id = $1 AND is_default`, [ws]);
+  record('the workspace has exactly one default workflow', wfRows.length === 1);
+  const wf = wfRows[0]?.id;
+  const st = await svc(`SELECT key, name, category FROM public.workflow_statuses WHERE workflow_id = $1 ORDER BY position`, [wf]);
+  record('the TBB workflow has the 10 canonical stages, in order, with their exact names', JSON.stringify(st.map((x) => x.name)) === JSON.stringify(NAMES), st.map((x) => x.name).join(' | '));
+  record('stages map to the reporting categories', st.map((x) => x.category).join(',') === 'NOT_STARTED,IN_PROGRESS,IN_PROGRESS,IN_PROGRESS,IN_REVIEW,IN_REVIEW,IN_REVIEW,READY,CLIENT,COMPLETED');
+  const tr = await svc(`SELECT count(*)::int n FROM public.workflow_transitions WHERE workflow_id = $1`, [wf]);
+  record('20 transitions are defined', tr[0].n === 20, String(tr[0].n));
+  const wfB = await svc(`SELECT count(*)::int n FROM public.workflows WHERE workspace_id = $1 AND is_default`, [wsB]);
+  record('a workspace created later gets the TBB workflow automatically', wfB[0].n === 1);
+  const cons = await svc(`SELECT count(*)::int n FROM pg_constraint WHERE conrelid = 'public.tasks'::regclass AND conname = 'tasks_status_check'`);
+  record('status is no longer a CHECK constraint (statuses live in the workflow)', cons[0].n === 0);
+
+  for (const [name, who, want] of [['editor', editor, 10], ['QC', qc, 10], ['client viewer', client, 0], ['stranger', stranger, 0]]) {
+    r = await as(who, `SELECT key FROM public.workflow_statuses WHERE workflow_id = $1`, [wf]);
+    record(`${name} ${want ? 'can' : 'cannot'} read the workflow`, !r.error && r.rows.length === want, `${r.rows.length}`);
+  }
+  r = await as('anon', `SELECT * FROM public.workflow_statuses`);
+  record('anon cannot read the workflow', !!r.error);
+  r = await as(owner, `INSERT INTO public.workflow_statuses (workflow_id, key, name, category, color, position) VALUES ($1, 'HACK', 'HACK', 'READY', '#000000', 99)`, [wf]);
+  record('even the owner cannot add stages through the API', !!r.error);
+  r = await as(owner, `UPDATE public.workflow_transitions SET roles = ARRAY['EDITOR'] WHERE workflow_id = $1 RETURNING to_key`, [wf]);
+  record('nobody can rewrite who may take a transition', !!r.error || r.rows.length === 0);
+  r = await as(admin, `DELETE FROM public.workflows WHERE id = $1 RETURNING id`, [wf]);
+  record('nobody can delete the workflow through the API', !!r.error || r.rows.length === 0);
+
+  // ---- a fresh deliverable, created with editor + QC ---------------------------------------
+  r = await as(pm, `SELECT * FROM public.create_task($1, 'P7 deliverable', NULL, 'HIGH', '9:16', NULL, NULL, NULL, NULL, NULL, NULL, $2, $3)`, [list, editor, qc]);
+  ok('manager creates a deliverable', r);
+  const t = r.rows[0]?.id;
+  record('it starts at TO BE EDITED with revision 0', r.rows[0]?.status === 'TO_BE_EDITED' && r.rows[0]?.revision_count === 0);
+  const go = (who, to, extra = '', params = []) => as(who, `SELECT (public.transition_task($1, $2${extra})).status AS status`, [t, to, ...params]);
+  const statusNow = async () => (await svc(`SELECT status, revision_count FROM public.tasks WHERE id = $1`, [t]))[0];
+
+  // ---- creation rules ---
+  r = await as(pm, `INSERT INTO public.tasks (list_id, title, status) VALUES ($1, 'skip ahead', 'QC_APPROVED_RTD') RETURNING id`, [list]);
+  record('a production manager cannot create a task in a later stage', /start at/.test(r.error?.message ?? ''), r.error?.message);
+  r = await as(admin, `INSERT INTO public.tasks (list_id, title, status) VALUES ($1, 'admin import', 'QC_APPROVED_RTD') RETURNING id, status`, [list]);
+  record('an admin may (e.g. importing work already done)', !r.error && r.rows[0]?.status === 'QC_APPROVED_RTD', r.error?.message);
+  r = await as(pm, `INSERT INTO public.tasks (list_id, title, status) VALUES ($1, 'bad', 'DONE_DONE')`, [list]);
+  record('an unknown status is refused', /unknown status/.test(r.error?.message ?? ''));
+
+  // ---- the early stages ---
+  r = await go(editor, 'IN_EDIT');
+  record('an editor cannot queue work (TO BE EDITED -> IN EDIT is a manager step)', !!r.error);
+  r = await go(qc, 'IN_EDIT');
+  record('QC cannot queue work', !!r.error);
+  r = await go(pm, 'QC_APPROVED_RTD');
+  record('a manager cannot jump TO BE EDITED -> QC - APPROVED (RTD) (not an edge)', /a task cannot move from TO BE EDITED to QC - APPROVED \(RTD\)/.test(r.error?.message ?? ''), r.error?.message);
+  r = await go(pm, 'IN_EDIT');
+  record('manager: TO BE EDITED -> IN EDIT', !r.error && r.rows[0]?.status === 'IN_EDIT', r.error?.message);
+  r = await go(pm, 'TO_BE_EDITED');
+  record('manager: IN EDIT -> TO BE EDITED (back)', !r.error, r.error?.message);
+  r = await go(pm, 'ASSIGNED');
+  record('manager: TO BE EDITED -> ASSIGNED (skipping the queue)', !r.error, r.error?.message);
+  r = await go(pm, 'IN_EDIT');
+  record('manager: ASSIGNED -> IN EDIT (back to the queue)', !r.error, r.error?.message);
+  r = await go(pm, 'ASSIGNED');
+  record('manager: IN EDIT -> ASSIGNED', !r.error, r.error?.message);
+  r = await go(editor, 'STARTED_EDITING');
+  record('assigned editor: ASSIGNED -> STARTED EDITING', !r.error, r.error?.message);
+  r = await go(editor, 'ASSIGNED');
+  record('assigned editor: STARTED EDITING -> ASSIGNED (pause)', !r.error, r.error?.message);
+  r = await go(editor, 'STARTED_EDITING');
+  ok('assigned editor resumes', r);
+
+  // ---- submission to QC needs the review link; one call can set it ---
+  r = await go(editor, 'QC_FIRST_APPROVAL');
+  record('submitting without a review link is refused', /review link/.test(r.error?.message ?? ''), r.error?.message);
+  r = await go(editor, 'QC_FIRST_APPROVAL', ', NULL, $3', ['javascript:alert(1)']);
+  record('...and a javascript: review link is refused too', !!r.error);
+  r = await go(editor, 'QC_FIRST_APPROVAL', ', NULL, $3', ['https://app.frame.io/reviews/p7']);
+  record('assigned editor submits for QC, attaching the review link in the same call', !r.error && r.rows[0]?.status === 'QC_FIRST_APPROVAL', r.error?.message);
+  r = await go(editor, 'STARTED_EDITING');
+  record('assigned editor: QC - FIRST APPROVAL -> STARTED EDITING (withdraw)', !r.error, r.error?.message);
+  r = await go(editor, 'QC_FIRST_APPROVAL');
+  ok('assigned editor resubmits (link already there)', r);
+
+  // ---- approvals are QC / manager decisions ---
+  for (const to of ['QC_APPROVED_RTD', 'QC_FINAL_APPROVAL', 'QC_REVISION_NEEDED']) {
+    r = await go(editor, to, ', $3', ['self review']);
+    record(`EDITOR CANNOT DECIDE QC (-> ${to})`, /your role cannot move/.test(r.error?.message ?? ''), r.error?.message);
+  }
+  const otherEditor = (await svc(`SELECT id FROM auth.users WHERE email = 'editor2@tbb.test'`))[0].id;
+  r = await go(otherEditor, 'QC_APPROVED_RTD');
+  record("another editor cannot approve a colleague's video", !!r.error);
+
+  // ---- revision cycle: a note is required, the counter is system-managed ---
+  r = await go(qc, 'QC_REVISION_NEEDED');
+  record('requesting a revision without a note is refused', /needs a note/.test(r.error?.message ?? ''), r.error?.message);
+  r = await go(qc, 'QC_REVISION_NEEDED', ', $3', ['   ']);
+  record('...and a blank note does not count', /needs a note/.test(r.error?.message ?? ''));
+  r = await go(qc, 'QC_REVISION_NEEDED', ', $3', ['x'.repeat(2001)]);
+  record('...and an over-long note is refused', !!r.error);
+  r = await go(qc, 'QC_REVISION_NEEDED', ', $3', ['00:45 audio pop; tighten the hook']);
+  record('QC requests a revision with a note', !r.error && r.rows[0]?.status === 'QC_REVISION_NEEDED', r.error?.message);
+  record('revision count went to 1', (await statusNow()).revision_count === 1);
+  let ev = await svc(`SELECT from_status, to_status, actor_id, note, revision_number, is_override FROM public.task_status_events WHERE task_id = $1 ORDER BY created_at DESC, id DESC LIMIT 1`, [t]);
+  record('the history records who, from, to, the note and the revision number', ev[0]?.from_status === 'QC_FIRST_APPROVAL' && ev[0]?.to_status === 'QC_REVISION_NEEDED' && ev[0]?.actor_id === qc && ev[0]?.note === '00:45 audio pop; tighten the hook' && ev[0]?.revision_number === 1 && ev[0]?.is_override === false, JSON.stringify(ev[0]));
+
+  r = await as(pm, `UPDATE public.tasks SET revision_count = 99 WHERE id = $1 RETURNING revision_count`, [t]);
+  record('not even a manager can set the revision count', !r.error && r.rows[0]?.revision_count === 1, JSON.stringify(r.rows[0] ?? r.error?.message));
+  r = await as(editor, `UPDATE public.tasks SET revision_count = 0 WHERE id = $1 RETURNING revision_count`, [t]);
+  record('nor the editor (it cannot be reset to hide revisions)', (await statusNow()).revision_count === 1);
+
+  r = await go(qc, 'QC_FINAL_APPROVAL');
+  record('QC cannot submit the editor\'s revision for them', /your role cannot move/.test(r.error?.message ?? ''), r.error?.message);
+  r = await go(editor, 'QC_FINAL_APPROVAL', ', NULL, $3', ['https://app.frame.io/reviews/p7-v2']);
+  record('assigned editor: QC - REVISION NEEDED -> QC - FINAL APPROVAL with the new cut', !r.error, r.error?.message);
+  ev = await svc(`SELECT note FROM public.task_status_events WHERE task_id = $1 ORDER BY created_at DESC, id DESC LIMIT 1`, [t]);
+  record('a note never carries over to the next change', ev[0]?.note === null);
+  r = await go(qc, 'QC_REVISION_NEEDED', ', $3', ['colour still off']);
+  record('QC: QC - FINAL APPROVAL -> QC - REVISION NEEDED (another round)', !r.error, r.error?.message);
+  record('revision count went to 2', (await statusNow()).revision_count === 2);
+  r = await go(editor, 'QC_FINAL_APPROVAL');
+  ok('editor resubmits', r);
+  r = await go(qc, 'QC_APPROVED_RTD');
+  record('QC: QC - FINAL APPROVAL -> QC - APPROVED (RTD)', !r.error, r.error?.message);
+  r = await go(qc, 'QC_FINAL_APPROVAL');
+  record('QC: QC - APPROVED (RTD) -> QC - FINAL APPROVAL (reopen)', !r.error, r.error?.message);
+  r = await go(qc, 'QC_APPROVED_RTD');
+  ok('QC approves again', r);
+
+  // ---- stale decisions are refused ---
+  r = await as(qc, `SELECT public.transition_task($1, 'SENT_TO_CLIENT', NULL, NULL, 'https://x.co/final', 'QC_FIRST_APPROVAL')`, [t]);
+  record('a move decided on a stale status is refused (someone else moved it)', r.error?.code === 'TB409', r.error?.message);
+  record('...and nothing changed', (await statusNow()).status === 'QC_APPROVED_RTD');
+
+  // ---- delivery needs the final export; closing is for managers ---
+  r = await go(qc, 'SENT_TO_CLIENT');
+  record('sending to the client without the final export is refused', /final export/.test(r.error?.message ?? ''), r.error?.message);
+  r = await go(qc, 'SENT_TO_CLIENT', ', NULL, NULL, $3', ['https://drive.google.com/final-p7']);
+  record('QC: QC - APPROVED (RTD) -> SENT TO CLIENT, attaching the final export', !r.error, r.error?.message);
+  r = await go(qc, 'CLOSED');
+  record('QC cannot close', /your role cannot move/.test(r.error?.message ?? ''), r.error?.message);
+  r = await go(editor, 'CLOSED');
+  record('the editor cannot close', !!r.error);
+  r = await go(qc, 'QC_REVISION_NEEDED', ', $3', ['client: swap the music']);
+  record('client feedback: SENT TO CLIENT -> QC - REVISION NEEDED (with note)', !r.error, r.error?.message);
+  record('revision count went to 3', (await statusNow()).revision_count === 3);
+  await go(editor, 'QC_FINAL_APPROVAL');
+  await go(qc, 'QC_APPROVED_RTD');
+  await go(qc, 'SENT_TO_CLIENT');
+  r = await go(pm, 'CLOSED');
+  record('manager: SENT TO CLIENT -> CLOSED', !r.error && r.rows[0]?.status === 'CLOSED', r.error?.message);
+  r = await go(pm, 'SENT_TO_CLIENT');
+  record('manager: CLOSED -> SENT TO CLIENT (reopen)', !r.error, r.error?.message);
+  await go(pm, 'CLOSED');
+
+  // ---- overrides: owner / admin only, and visible in the history ---
+  r = await go(pm, 'TO_BE_EDITED');
+  record('a production manager cannot override the workflow (CLOSED -> TO BE EDITED)', !!r.error);
+  r = await go(admin, 'TO_BE_EDITED');
+  record('an admin can override (CLOSED -> TO BE EDITED)', !r.error, r.error?.message);
+  ev = await svc(`SELECT is_override, actor_id FROM public.task_status_events WHERE task_id = $1 ORDER BY created_at DESC, id DESC LIMIT 1`, [t]);
+  record('...and the history marks it as an override by that admin', ev[0]?.is_override === true && ev[0]?.actor_id === admin);
+  r = await go(owner, 'QC_REVISION_NEEDED');
+  record('an override still needs what the target stage needs (a revision note)', /needs a note/.test(r.error?.message ?? ''));
+
+  // ---- direct REST bypass attempts behave exactly like the RPC ---
+  r = await as(editor, `UPDATE public.tasks SET status = 'QC_APPROVED_RTD' WHERE id = $1 RETURNING id`, [t]);
+  record('a direct PATCH cannot bypass the workflow', !!r.error);
+  r = await as(client, `SELECT public.transition_task($1, 'CLOSED')`, [t]);
+  record('client viewer cannot change status (task not visible)', !!r.error);
+  r = await as(stranger, `SELECT public.transition_task($1, 'CLOSED')`, [t]);
+  record('outsider cannot change status', !!r.error);
+  r = await as('anon', `SELECT public.transition_task($1, 'CLOSED')`, [t]);
+  record('anon cannot call transition_task', !!r.error);
+  r = await as(pm, `SELECT public.transition_task(gen_random_uuid(), 'CLOSED')`);
+  record('a task that does not exist is "not found"', r.error?.code === 'P0002');
+
+  // ---- an assigned slot is required for ASSIGNED ---
+  r = await as(pm, `SELECT * FROM public.create_task($1, 'no editor yet')`, [list]);
+  const lonely = r.rows[0]?.id;
+  r = await as(pm, `SELECT public.transition_task($1, 'ASSIGNED')`, [lonely]);
+  record('ASSIGNED needs an editor', /needs an editor/.test(r.error?.message ?? ''), r.error?.message);
+
+  // ---- history: complete, readable by staff only, append-only ---
+  const all = await svc(`SELECT count(*)::int n, count(*) FILTER (WHERE from_status IS NULL)::int created FROM public.task_status_events WHERE task_id = $1`, [t]);
+  record('every change is in the history, starting with the creation', all[0].n >= 25 && all[0].created === 1, JSON.stringify(all[0]));
+  for (const [name, who, want] of [['editor', editor, true], ['QC', qc, true], ['client viewer', client, false], ['stranger', stranger, false]]) {
+    r = await as(who, `SELECT id FROM public.task_status_events WHERE task_id = $1`, [t]);
+    record(`${name} ${want ? 'can' : 'cannot'} read the history`, want ? r.rows.length > 0 : r.rows.length === 0 && !r.error);
+  }
+  r = await as(owner, `INSERT INTO public.task_status_events (task_id, workspace_id, to_status) VALUES ($1, $2, 'CLOSED')`, [t, ws]);
+  record('nobody can write fake history', !!r.error);
+  r = await as(owner, `UPDATE public.task_status_events SET note = 'rewritten' WHERE task_id = $1 RETURNING id`, [t]);
+  record('nobody can rewrite history', !!r.error || r.rows.length === 0);
+  r = await as(owner, `DELETE FROM public.task_status_events WHERE task_id = $1 RETURNING id`, [t]);
+  record('nobody can erase history', !!r.error || r.rows.length === 0);
+
+  // ---- security posture ---
+  const definers = await svc(`SELECT p.proname FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname='public' AND p.proname = 'transition_task' AND p.prosecdef`);
+  record('transition_task is SECURITY INVOKER', definers.length === 0);
+  const exposed = await svc(`SELECT p.proname FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'public' AND p.prosecdef AND has_function_privilege('authenticated', p.oid, 'EXECUTE')`);
+  record('still no SECURITY DEFINER function callable from the API', exposed.length === 0, exposed.map((x) => x.proname).join(','));
+  const g = await svc(`SELECT has_table_privilege('authenticated','public.workflow_statuses','INSERT') a, has_table_privilege('authenticated','public.task_status_events','INSERT') b, has_table_privilege('anon','public.task_status_events','SELECT') c`);
+  record('no write grants on workflow or history; nothing for anon', !g[0].a && !g[0].b && !g[0].c);
+}
+
+console.log('\n== Phase 7b: first-QC production credits ==');
+{
+  const editor2 = (await svc(`SELECT id FROM auth.users WHERE email = 'editor2@tbb.test'`))[0].id;
+  const spaceId = (await svc(`SELECT space_id FROM public.lists WHERE id = $1`, [list]))[0].space_id;
+  const l9 = (await svc(`INSERT INTO public.lists (space_id, name) VALUES ($1, 'P9 PRODUCTION') RETURNING id`, [spaceId]))[0].id;
+  const mkTask = async (title, ed) => (await as(pm, `SELECT * FROM public.create_task(p_list_id => $1, p_title => $2, p_editor_id => $3, p_qc_id => $4)`, [l9, title, ed, qc])).rows[0]?.id;
+  const mv = (who, id, to, o = {}) => as(who, `SELECT public.transition_task(p_task_id => $1, p_to => $2, p_note => $3, p_review_link => $4, p_final_export_link => $5)`, [id, to, o.note ?? null, o.review ?? null, o.export ?? null]);
+  const credit = async (id) => (await svc(`SELECT editor_id, first_qc_submitted_at AS at, submitted_by FROM public.task_production_credits WHERE task_id = $1`, [id]))[0];
+  const nCredits = async (id) => Number((await svc(`SELECT count(*) AS n FROM public.task_production_credits WHERE task_id = $1`, [id]))[0].n);
+  const toFirstQc = async (id, who, review = 'https://app.frame.io/r/x') => {
+    await mv(pm, id, 'ASSIGNED');
+    await mv(who, id, 'STARTED_EDITING');
+    return mv(who, id, 'QC_FIRST_APPROVAL', { review });
+  };
+  const backdate = async (id, ts) => {
+    await svc(`ALTER TABLE public.task_production_credits DISABLE TRIGGER trg_production_credits_guard`);
+    await svc(`UPDATE public.task_production_credits SET first_qc_submitted_at = $2 WHERE task_id = $1`, [id, ts]);
+    await svc(`ALTER TABLE public.task_production_credits ENABLE TRIGGER trg_production_credits_guard`);
+  };
+
+  const prod = await svc(`SELECT count(*)::int n FROM public.workflow_statuses WHERE key = 'QC_FIRST_APPROVAL' AND credits_production`);
+  const prodAll = await svc(`SELECT count(*)::int n FROM public.workflow_statuses WHERE credits_production`);
+  record('QC - FIRST APPROVAL is the one production stage of every workflow', prod[0].n === prodAll[0].n && prodAll[0].n >= 2, JSON.stringify([prod[0], prodAll[0]]));
+
+  // 1. first submission credits the editor who made it
+  const t1 = await mkTask('Video X', editor);
+  record('no credit before the first QC submission', (await nCredits(t1)) === 0);
+  await mv(pm, t1, 'ASSIGNED');
+  await mv(editor, t1, 'STARTED_EDITING');
+  record('no credit while the task is still being edited', (await nCredits(t1)) === 0);
+  r = await mv(editor, t1, 'QC_FIRST_APPROVAL', { review: 'https://app.frame.io/r/x1' });
+  ok('editor submits Video X for first QC', r);
+  const c1 = await credit(t1);
+  record('1. the editor gets exactly one credit, with the submission time and who submitted', (await nCredits(t1)) === 1 && c1.editor_id === editor && c1.submitted_by === editor && Math.abs(Date.now() - new Date(c1.at).getTime()) < 120000);
+
+  // 2 + 4. later stages and reassignment never change it
+  await mv(qc, t1, 'QC_FINAL_APPROVAL');
+  await mv(qc, t1, 'QC_APPROVED_RTD');
+  await mv(qc, t1, 'SENT_TO_CLIENT', { export: 'https://drive.google.com/final' });
+  await mv(pm, t1, 'CLOSED');
+  let c1b = await credit(t1);
+  record('2. final approval, delivery and closing change neither the editor nor the date', c1b.editor_id === editor && +new Date(c1b.at) === +new Date(c1.at) && (await nCredits(t1)) === 1);
+  r = await as(pm, `SELECT public.set_task_assignee($1, 'EDITOR', $2)`, [t1, editor2]);
+  ok('the closed task is reassigned to another editor', r);
+  c1b = await credit(t1);
+  record('4. reassignment AFTER first QC: the original editor keeps the credit', c1b.editor_id === editor && (await nCredits(t1)) === 1);
+
+  // 3. reassignment before first QC: the new editor earns it
+  const t2 = await mkTask('Video Y', editor);
+  await mv(pm, t2, 'ASSIGNED');
+  await as(pm, `SELECT public.set_task_assignee($1, 'EDITOR', $2)`, [t2, editor2]);
+  await mv(editor2, t2, 'STARTED_EDITING');
+  r = await mv(editor, t2, 'QC_FIRST_APPROVAL', { review: 'https://app.frame.io/r/y' });
+  record('the previous editor can no longer submit it', !!r.error);
+  await mv(editor2, t2, 'QC_FIRST_APPROVAL', { review: 'https://app.frame.io/r/y' });
+  const c2 = await credit(t2);
+  record('3. reassignment BEFORE first QC: the new editor gets +1, the first one +0', c2?.editor_id === editor2 && Number((await svc(`SELECT count(*) AS n FROM public.task_production_credits WHERE task_id = $1 AND editor_id = $2`, [t2, editor]))[0].n) === 0);
+
+  // 5 + 6. revisions and repeated first-QC entries never add a credit
+  const t3 = await mkTask('Video Z', editor);
+  await toFirstQc(t3, editor);
+  const c3 = await credit(t3);
+  await mv(qc, t3, 'QC_REVISION_NEEDED', { note: 'fix intro' });
+  await mv(editor, t3, 'QC_FINAL_APPROVAL');
+  await mv(qc, t3, 'QC_REVISION_NEEDED', { note: 'again' });
+  record('5. a revision cycle creates no second credit', (await nCredits(t3)) === 1);
+  r = await mv(owner, t3, 'STARTED_EDITING');
+  ok('an admin override sends it back to STARTED EDITING', r);
+  await as(pm, `SELECT public.set_task_assignee($1, 'EDITOR', $2)`, [t3, editor2]);
+  r = await mv(editor2, t3, 'QC_FIRST_APPROVAL', { review: 'https://app.frame.io/r/z2' });
+  ok('another editor submits it for first QC AGAIN', r);
+  const c3b = await credit(t3);
+  record('6. repeating QC - FIRST APPROVAL: still one credit, same editor, same time', (await nCredits(t3)) === 1 && c3b.editor_id === editor && +new Date(c3b.at) === +new Date(c3.at));
+  await mv(editor2, t3, 'STARTED_EDITING');
+  await mv(editor2, t3, 'QC_FIRST_APPROVAL');
+  record('...also after "withdraw from QC" and a third submission', (await nCredits(t3)) === 1);
+  const evts = await svc(`SELECT count(*)::int n FROM public.task_status_events WHERE to_status = 'QC_FIRST_APPROVAL' AND task_id = ANY($1::uuid[])`, [[t1, t2, t3]]);
+  record('the history shows every submission but the credits only the first', evts[0].n === 5 && (await nCredits(t1)) + (await nCredits(t2)) + (await nCredits(t3)) === 3, String(evts[0].n));
+
+  // 7 + 8. several videos per month, several years, time zones
+  const dates = ['2019-03-05T10:00:00Z', '2019-03-20T10:00:00Z', '2019-03-31T23:30:00Z', '2019-04-02T08:00:00Z', '2020-03-15T09:00:00Z'];
+  const ids = [];
+  for (const [i, d] of dates.entries()) {
+    const t = await mkTask(`Archive ${i + 1}`, editor);
+    await toFirstQc(t, editor, `https://app.frame.io/r/a${i + 1}`);
+    await backdate(t, d);
+    ids.push(t);
+  }
+  await backdate(t1, '2019-05-10T10:00:00Z'); // keeps its original editor
+  await backdate(t2, '2019-03-12T10:00:00Z'); // editor2's
+  await backdate(t3, '2020-12-31T20:00:00Z');
+  const monthly = (who, tz = 'UTC') => as(who, `SELECT editor_id, year, month, credits FROM public.production_monthly($1, $2) WHERE year <= 2021 ORDER BY editor_id, year, month`, [ws, tz]);
+  const key = (rows, e) => rows.filter((x) => x.editor_id === e).map((x) => `${x.year}-${x.month}:${x.credits}`).join(',');
+  r = await monthly(owner);
+  record('7+8. monthly counts: several videos per month, several years, per editor', !r.error && key(r.rows, editor) === '2019-3:3,2019-4:1,2019-5:1,2020-3:1,2020-12:1' && key(r.rows, editor2) === '2019-3:1', r.error?.message ?? `${key(r.rows, editor)} | ${key(r.rows, editor2)}`);
+  r = await monthly(admin, 'Asia/Dhaka');
+  record('months follow the chosen time zone (23:30 UTC on 31 Mar is 1 Apr in Dhaka)', !r.error && key(r.rows, editor).startsWith('2019-3:2,2019-4:2'), r.error?.message ?? key(r.rows, editor));
+  r = await monthly(owner, 'Not/AZone');
+  record('an unknown time zone is refused', !!r.error);
+
+  // 9 + 10. the videos behind a month are the real tasks, with their own links
+  r = await as(admin, `SELECT * FROM public.production_videos($1, $2, 2019, 3)`, [ws, editor]);
+  record('9. the month lists exactly its videos, newest first, as real task ids', !r.error && r.rows.map((x) => x.task_id).join() === [ids[2], ids[1], ids[0]].join(), r.error?.message ?? r.rows.map((x) => x.title).join());
+  const v = r.rows[2];
+  record("10. each video carries the task's own review link, title, list, status and date", v?.review_link === 'https://app.frame.io/r/a1' && v.title === 'Archive 1' && v.list_name === 'P9 PRODUCTION' && v.list_id === l9 && v.status === 'QC_FIRST_APPROVAL' && new Date(v.first_qc_submitted_at).toISOString().startsWith('2019-03-05'));
+  r = await as(admin, `SELECT * FROM public.production_videos($1, $2, 2019, 3)`, [ws, editor2]);
+  record("another editor's month shows only their own video", r.rows.length === 1 && r.rows[0].task_id === t2);
+  r = await as(admin, `SELECT * FROM public.production_videos($1, $2, 2019, 13)`, [ws, editor]);
+  record('an invalid month is refused', !!r.error);
+  const t1Final = (await as(admin, `SELECT * FROM public.production_videos($1, $2, 2019, 5)`, [ws, editor])).rows[0];
+  record('a task reassigned and closed since still appears under its original editor, with its current status and links', t1Final?.task_id === t1 && t1Final.status === 'CLOSED' && t1Final.final_export_link === 'https://drive.google.com/final');
+
+  // 11 + 12. only Owner / Admin
+  for (const [name, who] of [['production manager', pm], ['QC specialist', qc], ['editor', editor], ['client viewer', client], ['stranger', stranger]]) {
+    const sum = await as(who, `SELECT * FROM public.production_monthly($1, 'UTC')`, [ws]);
+    const rows = await as(who, `SELECT * FROM public.production_videos($1, $2, 2019, 3)`, [ws, editor]);
+    const tbl = await as(who, `SELECT * FROM public.task_production_credits`);
+    record(`11/12. ${name}: production summary, month list and credits table are all denied`, sum.error?.code === '42501' && rows.error?.code === '42501' && !tbl.error && tbl.rows.length === 0, `${sum.error?.code} ${rows.error?.code} ${tbl.rows.length}`);
+  }
+  r = await as('anon', `SELECT * FROM public.production_monthly($1, 'UTC')`, [ws]);
+  record('11/12. anon cannot call the production functions', !!r.error);
+  r = await as('anon', `SELECT * FROM public.task_production_credits`);
+  record('11/12. anon cannot read the credits table', !!r.error);
+  for (const [name, who] of [['owner', owner], ['admin', admin]]) {
+    r = await as(who, `SELECT count(*)::int n FROM public.task_production_credits WHERE workspace_id = $1`, [ws]);
+    record(`${name} can read the credits`, !r.error && r.rows[0].n >= 8, r.error?.message);
+  }
+  r = await as(owner, `SELECT * FROM public.production_monthly($1, 'UTC')`, [wsB]);
+  record("an admin of one workspace cannot read another workspace's production", r.error?.code === '42501');
+
+  // permanence: nobody writes, changes or deletes credits
+  r = await as(owner, `INSERT INTO public.task_production_credits (task_id, workspace_id, editor_id, first_qc_submitted_at) VALUES ($1, $2, $3, now())`, [t1, ws, editor2]);
+  record('nobody can insert a credit through the API (owner)', !!r.error);
+  r = await as(owner, `UPDATE public.task_production_credits SET editor_id = $2 WHERE task_id = $1 RETURNING task_id`, [t1, editor2]);
+  record('nobody can re-attribute a credit through the API (owner)', !!r.error || r.rows.length === 0);
+  r = await as(owner, `DELETE FROM public.task_production_credits WHERE task_id = $1 RETURNING task_id`, [t1]);
+  record('nobody can delete a credit through the API (owner)', !!r.error || r.rows.length === 0);
+  try { await svc(`UPDATE public.task_production_credits SET editor_id = $2 WHERE task_id = $1`, [t1, editor2]); record('even the service role cannot change a credit', false, 'was allowed'); }
+  catch (e) { record('even the service role cannot change a credit', /permanent/.test(e.message), e.message); }
+  try { await svc(`DELETE FROM public.task_production_credits WHERE task_id = $1`, [t1]); record('even the service role cannot delete a credit directly', false, 'was allowed'); }
+  catch (e) { record('even the service role cannot delete a credit directly', /permanent/.test(e.message), e.message); }
+  r = await as(pm, `DELETE FROM public.tasks WHERE id = $1 RETURNING id`, [t1]);
+  record('a credited task cannot be deleted (its production history would vanish)', r.error?.code === '23503' || r.rows.length === 0, r.error?.message);
+  const stillThere = await credit(t1);
+  record('...and the credit is untouched after all of those attempts', stillThere.editor_id === editor && new Date(stillThere.at).toISOString().startsWith('2019-05-10'));
+  r = await as(editor, `UPDATE public.tasks SET status = 'QC_FIRST_APPROVAL' WHERE id = $1 RETURNING id`, [t1]);
+  record('a plain PATCH cannot mint a second credit either (the workflow refuses the move)', !!r.error);
+
+  // a credit is a fact about a moment, not about the editor's account
+  const [{ n: before }] = await svc(`SELECT count(*)::int n FROM public.task_production_credits WHERE editor_id = $1`, [editor]);
+  await svc(`UPDATE public.profiles SET is_active = false WHERE id = $1`, [editor]);
+  await svc(`UPDATE public.profiles SET is_active = true WHERE id = $1`, [editor]);
+  const [{ n: after }] = await svc(`SELECT count(*)::int n FROM public.task_production_credits WHERE editor_id = $1`, [editor]);
+  record('deactivating and re-activating an editor keeps their credits', before === after && before >= 6);
+
+  // deleting a whole workspace is the only way credits disappear
+  const wsC = (await svc(`INSERT INTO public.workspaces (name, slug, owner_id) VALUES ('C','c-prod',$1) RETURNING id`, [pm]))[0].id;
+  const spC = (await svc(`INSERT INTO public.spaces (workspace_id, name, slug) VALUES ($1,'S','s') RETURNING id`, [wsC]))[0].id;
+  const lC = (await svc(`INSERT INTO public.lists (space_id, name) VALUES ($1,'L') RETURNING id`, [spC]))[0].id;
+  const tC = (await svc(`INSERT INTO public.tasks (list_id, title) VALUES ($1,'t') RETURNING id`, [lC]))[0].id;
+  await svc(`INSERT INTO public.task_production_credits (task_id, workspace_id, editor_id, first_qc_submitted_at) VALUES ($1,$2,$3,now())`, [tC, wsC, editor]);
+  try { await svc(`DELETE FROM public.workspaces WHERE id = $1`, [wsC]); record('deleting a whole workspace removes its credits (cascade)', (await nCredits(tC)) === 0); }
+  catch (e) { record('deleting a whole workspace removes its credits (cascade)', false, e.message); }
 }
 
 console.log('\n== Deactivation & service role ==');

@@ -31,10 +31,12 @@ import {
   type BulkAction,
 } from '@/hooks/use-tasks';
 import { useWorkspaceMembers } from '@/hooks/use-team';
+import { useTransitionTask, useWorkflow } from '@/hooks/use-workflow';
 import { can } from '@/lib/permissions';
 import { hierarchyPaths } from '@/lib/hierarchy';
 import { TASK_LOAD_CAP, taskAccess, validateTaskTitle } from '@/lib/tasks';
 import { buildView, canReorderInView, countActiveFilters, type TaskGroup } from '@/lib/task-view';
+import { initialStatus, movesFor } from '@/lib/workflow';
 import type { AssigneeRole, HierarchyList, HierarchySpace, TaskPriority, TaskStatus, TaskSummary, WorkspaceMember } from '@/types/database';
 import BulkBar from './BulkBar';
 import DeleteTaskDialog from './DeleteTaskDialog';
@@ -65,7 +67,7 @@ const QuickAdd: React.FC<{
   onDone?: () => void;
 }> = ({ listId, group, inputRef, autoFocus, onDone }) => {
   const create = useCreateTask();
-  const update = useUpdateTask();
+  const transition = useTransitionTask();
   const [title, setTitle] = useState('');
   const [error, setError] = useState<string | null>(null);
   const localRef = useRef<HTMLInputElement>(null);
@@ -86,9 +88,9 @@ const QuickAdd: React.FC<{
         ...(group?.kind === 'priority' && group.value ? { priority: group.value as TaskPriority } : {}),
         ...(group?.kind === 'editor' && group.value ? { editorId: group.value } : {}),
       });
-      // tasks are created "To do"; a task added under another status group is moved there
-      if (group?.kind === 'status' && group.value && group.value !== 'TODO') {
-        await update.mutateAsync({ taskId: task.id, patch: { status: group.value as TaskStatus } });
+      // tasks start at the workflow's first stage; quick add is only offered in groups a new task can reach (addableIn)
+      if (group?.kind === 'status' && group.value && group.value !== task.status) {
+        await transition.mutateAsync({ taskId: task.id, input: { to: group.value, expectedFrom: task.status } });
       }
       setTitle('');
       localRef.current?.focus();
@@ -184,13 +186,30 @@ const TaskList: React.FC<TaskListProps> = ({ space, list, selectedTaskId, onVisi
   const tasks = useMemo(() => query.data?.pages.flatMap((p) => p.items) ?? [], [query.data]);
   const total = query.data?.pages[0]?.total ?? 0;
   const loadingMore = query.hasNextPage || query.isFetchingNextPage;
-  const { groups, visible, matched } = useMemo(() => buildView(tasks, view, me, members), [tasks, view, me, members]);
+  const workflow = useWorkflow().data;
+  const { groups, visible, matched } = useMemo(
+    () => buildView(tasks, view, { me, role, workflow, members }),
+    [tasks, view, me, role, workflow, members]
+  );
   const visibleIds = useMemo(() => visible.map((t) => t.id), [visible]);
   const reorderable = canReorderInView(view) && can(role, 'task:edit-brief') && !loadingMore;
   const byId = useMemo(() => new Map(tasks.map((t) => [t.id, t])), [tasks]);
   const accessOf = useCallback(
-    (t: TaskSummary) => taskAccess(role, { isAssignedEditor: !!me && t.editorId === me, currentStatus: t.status }),
+    (t: TaskSummary) => taskAccess(role, { isAssignedEditor: !!me && t.editorId === me }),
     [role, me]
+  );
+
+  /** A new task starts at the first stage; it can be added straight into a group one plain step away. */
+  const canAddIn = useCallback(
+    (group: TaskGroup) => {
+      if (group.kind !== 'status') return true;
+      const first = initialStatus(workflow)?.key;
+      if (!first || group.value === first) return true;
+      return movesFor(workflow, { status: first, editorId: null }, { role, isAssignedEditor: false }).some(
+        (m) => m.to.key === group.value && m.allowed && !m.override && m.needs.length === 0
+      );
+    },
+    [workflow, role]
   );
 
   useEffect(() => onVisibleOrder?.(visibleIds), [visibleIds, onVisibleOrder]);
@@ -240,7 +259,7 @@ const TaskList: React.FC<TaskListProps> = ({ space, list, selectedTaskId, onVisi
       }
       return next;
     });
-  const runBulk = (taskIds: string[], action: BulkAction, skipped: number) => {
+  const runBulk = (taskIds: string[], action: BulkAction, skipped: number, why?: string) => {
     if (taskIds.length === 0) return;
     bulk.mutate(
       { taskIds, action },
@@ -248,7 +267,9 @@ const TaskList: React.FC<TaskListProps> = ({ space, list, selectedTaskId, onVisi
         onSuccess: () => {
           if (skipped > 0) {
             // not an error: the person's role does not allow that change on some of the selection
-            toast.message(`${skipped} selected ${skipped === 1 ? 'task was' : 'tasks were'} skipped: your role cannot make that change there.`);
+            toast.message(
+              `${skipped} selected ${skipped === 1 ? 'task was' : 'tasks were'} skipped: ${why ?? 'your role cannot make that change there'}.`
+            );
           }
         },
       }
@@ -425,7 +446,7 @@ const TaskList: React.FC<TaskListProps> = ({ space, list, selectedTaskId, onVisi
                         <GroupLabel group={group} />
                         <span className="text-xs tabular-nums text-muted-foreground">{group.tasks.length}</span>
                       </button>
-                      {canCreate && !collapsed && (
+                      {canCreate && !collapsed && canAddIn(group) && (
                         <Button
                           variant="ghost"
                           size="sm"

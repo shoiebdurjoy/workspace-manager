@@ -20,6 +20,8 @@
 | `…000005_teams_and_invitations.sql` | Phase 4: pods (`teams`, `team_members`), `workspace_invitations` (claimed on confirmed e-mail), first-workspace-only rule |
 | `…000006_hierarchy_ordering_and_constraints.sql` | Phase 5: atomic `reorder_hierarchy()` (SECURITY INVOKER) and color / icon `CHECK` constraints |
 | `…000007_task_engine.sql` | Phase 6: deliverable columns + URL / aspect-ratio `CHECK`s on `tasks`, `task_assignees` (one editor + one QC reviewer per task, eligibility trigger), editors limited to tasks assigned to them, atomic `create_task()` / `set_task_assignee()` / `move_task()` (SECURITY INVOKER) |
+| `…000008_workflow_engine.sql` | Phase 7: data-driven TBB workflow (`workflows`, `workflow_statuses`, `workflow_transitions`, seeded per workspace), existing statuses mapped to the ten TBB stages, `revision_count`, append-only `task_status_events`, trigger-enforced moves / roles / requirements on every write path, atomic `transition_task()` (SECURITY INVOKER) |
+| `…000009_production_credits.sql` | Phase 7b: immutable first-QC production credits (`task_production_credits`, one per task, written by trigger, readable by Owner/Admin only, undeletable), `credits_production` stage flag, SECURITY INVOKER `production_monthly()` / `production_videos()` |
 
 ## Rules that must not be broken
 

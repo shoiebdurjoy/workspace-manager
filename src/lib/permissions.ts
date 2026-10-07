@@ -62,7 +62,8 @@ export type Capability =
   | 'comments:post'
   | 'team:view'
   | 'team:manage-pods'
-  | 'team:manage-pod-members';
+  | 'team:manage-pod-members'
+  | 'production:view';
 
 const OWNER_ONLY: readonly TbbRole[] = ['OWNER'];
 const ADMINS: readonly TbbRole[] = ['OWNER', 'ADMIN'];
@@ -96,6 +97,7 @@ const MATRIX: Record<Capability, readonly TbbRole[]> = {
   'team:view': STAFF, // Members and pods (client viewers fail closed)
   'team:manage-pods': ADMINS, // Create / edit / delete pods
   'team:manage-pod-members': MANAGERS, // Add / remove people in a pod
+  'production:view': ADMINS, // Employee production analytics (first-QC submissions): Owner / Admin only
 };
 
 export function can(role: TbbRole | null | undefined, capability: Capability): boolean {

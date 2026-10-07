@@ -17,6 +17,7 @@ const AuthCallback = lazy(() => import('@/pages/AuthCallback'));
 const Onboarding = lazy(() => import('@/pages/Onboarding'));
 const Home = lazy(() => import('@/pages/Home'));
 const Team = lazy(() => import('@/pages/Team'));
+const Production = lazy(() => import('@/pages/Production'));
 const SpacePage = lazy(() => import('@/pages/SpacePage'));
 const FolderPage = lazy(() => import('@/pages/FolderPage'));
 const ListPage = lazy(() => import('@/pages/ListPage'));
@@ -139,6 +140,16 @@ const App = () => (
                   <ProtectedRoute>
                     <Layout>
                       <TaskRedirect />
+                    </Layout>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/production"
+                element={
+                  <ProtectedRoute capability="production:view">
+                    <Layout>
+                      <Production />
                     </Layout>
                   </ProtectedRoute>
                 }

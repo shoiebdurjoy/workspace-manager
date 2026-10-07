@@ -1,5 +1,5 @@
-export type { TbbRole, TaskStatus, TaskPriority, AspectRatio, AssigneeRole, Json } from './database.types';
-import type { TbbRole, TaskStatus, TaskPriority, AspectRatio, AssigneeRole } from './database.types';
+export type { TbbRole, TaskStatus, TaskPriority, AspectRatio, AssigneeRole, WorkflowCategory, Json } from './database.types';
+import type { TbbRole, TaskStatus, TaskPriority, AspectRatio, AssigneeRole, WorkflowCategory } from './database.types';
 
 export interface Profile {
   id: string;
@@ -90,6 +90,8 @@ export interface Task {
   /** Internal QC due date. */
   dueDate: string | null;
   clientDeadline: string | null;
+  /** How many times QC (or the client) sent it back. System-managed. */
+  revisionCount: number;
   createdBy: string | null;
   createdAt: string;
   updatedAt: string;
@@ -115,6 +117,7 @@ export interface TaskSummary
     | 'aspectRatio'
     | 'dueDate'
     | 'clientDeadline'
+    | 'revisionCount'
     | 'rawFootageLink'
     | 'projectFileLink'
     | 'reviewLink'
@@ -205,4 +208,86 @@ export interface WorkspaceInvitation {
   acceptedAt?: string | null;
   acceptedBy?: string | null;
   createdAt: string;
+}
+
+// ==============================================================================
+// PHASE 7: WORKFLOW
+// ==============================================================================
+
+export interface WorkflowStatus {
+  key: TaskStatus;
+  name: string;
+  category: WorkflowCategory;
+  color: string;
+  position: number;
+  description: string | null;
+  isInitial: boolean;
+  requiresEditor: boolean;
+  requiresReviewLink: boolean;
+  requiresFinalExport: boolean;
+  requiresNote: boolean;
+  countsRevision: boolean;
+}
+
+export interface WorkflowTransition {
+  from: TaskStatus;
+  to: TaskStatus;
+  /** The action as people say it ("Submit for QC", "Request revision"). */
+  label: string;
+  kind: 'forward' | 'back' | 'reject';
+  roles: TbbRole[];
+}
+
+export interface Workflow {
+  id: string;
+  name: string;
+  /** In workflow order. */
+  statuses: WorkflowStatus[];
+  transitions: WorkflowTransition[];
+}
+
+/** One recorded status change (task_status_events). The foundation of Phase 10's activity feed. */
+export interface StatusEvent {
+  id: string;
+  taskId: string;
+  from: TaskStatus | null;
+  to: TaskStatus;
+  actorId: string | null;
+  note: string | null;
+  isOverride: boolean;
+  revisionNumber: number | null;
+  createdAt: string;
+}
+
+
+// ==============================================================================
+// PHASE 7b: PRODUCTION ANALYTICS (first-QC submissions)
+// ==============================================================================
+
+/** How many videos an editor FIRST submitted for QC in a calendar month. Never "delivered". */
+export interface ProductionMonth {
+  editorId: string;
+  year: number;
+  /** 1-12 */
+  month: number;
+  credits: number;
+}
+
+/** One video behind a month: the real task, with where it lives and its own links. */
+export interface ProductionVideo {
+  taskId: string;
+  title: string;
+  /** The task's status NOW (it may have moved on long after its first QC submission). */
+  status: TaskStatus;
+  firstQcSubmittedAt: string;
+  /** Who made the move (the editor, or a manager on their behalf). */
+  submittedBy: string | null;
+  listId: string;
+  listName: string;
+  folderName: string | null;
+  spaceId: string;
+  spaceName: string;
+  reviewLink: string | null;
+  finalExportLink: string | null;
+  projectFileLink: string | null;
 }

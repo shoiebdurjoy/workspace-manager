@@ -66,6 +66,11 @@ describe('permission matrix (docs/TBB_PERMISSION_MODEL.md)', () => {
     expect(capabilitiesOf(CLIENT)).toEqual(['comments:post']);
   });
 
+  it('employee production analytics: Owner and Admin only', () => {
+    expect(ROLES.filter((r) => can(r, 'production:view'))).toEqual([OWNER, ADMIN]);
+    expect(can(null, 'production:view')).toBe(false);
+  });
+
   it('team capabilities: staff view, admins manage pods, managers manage pod members', () => {
     expect(ROLES.filter((r) => can(r, 'team:view'))).toEqual([OWNER, ADMIN, PM, QC, EDITOR]);
     expect(ROLES.filter((r) => can(r, 'team:manage-pods'))).toEqual([OWNER, ADMIN]);

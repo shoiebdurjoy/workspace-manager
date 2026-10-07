@@ -25,13 +25,16 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import type { TaskPatch } from '@/database';
-import { isFinished, isValidTaskUrl, linkHost, progressOf, validateTaskTitle, type LinkField, type TaskAccess } from '@/lib/tasks';
-import type { AssigneeRole, TaskPriority, TaskStatus, TaskSummary, WorkspaceMember } from '@/types/database';
+import { isValidTaskUrl, linkHost, progressOf, validateTaskTitle, type LinkField, type TaskAccess } from '@/lib/tasks';
+import { isFinishedStatus, statusOf } from '@/lib/workflow';
+import { useWorkflow } from '@/hooks/use-workflow';
+import type { AssigneeRole, TaskPriority, TaskSummary, WorkspaceMember } from '@/types/database';
 import DatePicker from './DatePicker';
 import PersonPicker from './PersonPicker';
 import RowSubtasks from './RowSubtasks';
-import { DueLabel } from './TaskBadges';
-import { PriorityControl, StatusControl } from './TaskControls';
+import { DueLabel, RevisionTag } from './TaskBadges';
+import { PriorityControl } from './TaskControls';
+import WorkflowPicker from './WorkflowPicker';
 import { InlineText } from './fields';
 
 /**
@@ -39,9 +42,9 @@ import { InlineText } from './fields';
  * two-line card (title, then its properties) instead of a squeezed table.
  */
 export const ROW_GRID =
-  'md:grid md:grid-cols-[1.5rem_minmax(0,1fr)_7.5rem_4.25rem_4.5rem_4.5rem_2rem_2rem] md:items-center md:gap-x-2 ' +
-  'xl:grid-cols-[1.5rem_minmax(0,1fr)_8rem_4.5rem_5.5rem_4.75rem_4.75rem_2rem_2rem]';
-/** The Links column only exists from xl; below that the link icons sit after the title. */
+  'md:grid md:grid-cols-[1.5rem_minmax(0,1fr)_9rem_4.25rem_4.5rem_4.5rem_2rem_2rem] md:items-center md:gap-x-2 ' +
+  'xl:grid-cols-[1.5rem_minmax(0,1fr)_11rem_4.5rem_5.5rem_4.75rem_4.75rem_2rem_2rem]';
+/** The Links column only exists from xl; on tablets (md) the link icons sit after the title; between lg and xl (sidebar open, tight) they live in the task panel only. */
 export const LINKS_COLUMN = 'hidden xl:block';
 
 const LINK_ICONS: Record<LinkField, React.ComponentType<{ className?: string }>> = {
@@ -129,13 +132,13 @@ const TaskRow: React.FC<TaskRowProps> = ({
 }) => {
   const [renaming, setRenaming] = useState(false);
   const [expanded, setExpanded] = useState(false);
-  const finished = isFinished(task.status);
+  const workflow = useWorkflow().data;
+  const finished = isFinishedStatus(workflow, task.status);
+  const inRevision = !!statusOf(workflow, task.status)?.countsRevision;
   const progress = progressOf(task.subtaskDone, task.subtaskTotal);
   const hasMenu = access.editBrief || access.delete || canReorder;
 
-  const statusControl = (
-    <StatusControl status={task.status} allowed={access.statusOptions} onChange={(status: TaskStatus) => onPatch(task.id, { status })} />
-  );
+  const statusControl = <WorkflowPicker task={task} members={members} />;
   const people = (
     <span className="inline-flex items-center -space-x-1">
       {(['EDITOR', 'QC_REVIEWER'] as const).map((slot) => {
@@ -183,6 +186,8 @@ const TaskRow: React.FC<TaskRowProps> = ({
       className={cn(
         'group relative border-b border-border/60 px-2 py-1.5 transition-colors last:border-b-0 hover:bg-muted/40 md:py-1',
         checked && 'bg-brand-subtle/60 hover:bg-brand-subtle/80',
+        // a cut sent back for changes stands out in any list
+        inRevision && !open && 'shadow-[inset_3px_0_0_hsl(var(--destructive))]',
         open && 'bg-muted shadow-[inset_2px_0_0_hsl(var(--brand-accent))]',
         active && 'ring-2 ring-inset ring-ring'
       )}
@@ -238,7 +243,7 @@ const TaskRow: React.FC<TaskRowProps> = ({
                 to={href}
                 aria-current={open ? 'true' : undefined}
                 className={cn(
-                  'min-w-0 truncate text-sm font-medium text-foreground outline-none',
+                  'min-w-0 break-words text-sm font-medium text-foreground outline-none line-clamp-2 xl:truncate',
                   // the whole row opens the task: stretch the title link over it
                   'after:absolute after:inset-0 after:content-[""] focus-visible:after:ring-2 focus-visible:after:ring-inset focus-visible:after:ring-ring',
                   finished && 'text-muted-foreground line-through decoration-muted-foreground/50'
@@ -246,6 +251,7 @@ const TaskRow: React.FC<TaskRowProps> = ({
               >
                 {task.title}
               </Link>
+              <RevisionTag count={task.revisionCount} className="relative z-10" />
               {progress.total > 0 && (
                 <span
                   className="relative z-10 inline-flex shrink-0 items-center gap-0.5 rounded px-1 text-[11px] tabular-nums text-muted-foreground"
@@ -257,7 +263,7 @@ const TaskRow: React.FC<TaskRowProps> = ({
                   </span>
                 </span>
               )}
-              <span className="relative z-10 hidden md:inline-flex xl:hidden">
+              <span className="relative z-10 hidden md:inline-flex lg:hidden">
                 <RowLinks task={task} compact />
               </span>
               {task.aspectRatio && (

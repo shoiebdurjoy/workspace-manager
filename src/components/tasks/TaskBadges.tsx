@@ -2,24 +2,57 @@ import React from 'react';
 import { Flag } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { UserAvatar } from '@/components/ui/user-avatar';
-import { dueState, formatDay, memberName, priorityOption, statusOption, type MemberLookup } from '@/lib/tasks';
+import { dueState, formatDay, memberName, priorityOption, type MemberLookup } from '@/lib/tasks';
+import { statusColor, statusName, statusOf } from '@/lib/workflow';
+import { useWorkflow } from '@/hooks/use-workflow';
 import type { TaskPriority, TaskStatus } from '@/types/database';
 
-/** Status as a neutral pill with a coloured dot: the label carries the meaning, colour is a cue. */
-export const TaskStatusPill: React.FC<{ status: TaskStatus; className?: string }> = ({ status, className }) => {
-  const option = statusOption(status);
+/**
+ * A workflow stage as a pill: the stage's exact name, tinted with its colour from the workflow. The
+ * name carries the meaning, the colour is a cue. A revision stage is unmistakable (solid red).
+ */
+export const TaskStatusPill: React.FC<{ status: TaskStatus; className?: string; plain?: boolean }> = ({ status, className, plain }) => {
+  const workflow = useWorkflow().data;
+  const color = statusColor(workflow, status);
+  const revision = !!statusOf(workflow, status)?.countsRevision;
   return (
     <span
+      data-status={status}
+      title={statusName(workflow, status)}
       className={cn(
-        'inline-flex h-6 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-border bg-muted/50 px-2.5 text-[11px] font-medium text-foreground',
+        'inline-flex h-6 max-w-full shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 text-[11px] font-semibold uppercase tracking-wide',
+        revision && !plain ? 'border-transparent text-white' : 'text-foreground',
+        plain && 'border-0 bg-transparent px-0',
         className
       )}
+      style={
+        plain
+          ? undefined
+          : revision
+            ? { backgroundColor: color }
+            : { backgroundColor: `${color}1f`, borderColor: `${color}66` }
+      }
     >
-      <span aria-hidden className={cn('h-2 w-2 rounded-full', option.dot)} />
-      {option.label}
+      <span aria-hidden className={cn('h-2 w-2 shrink-0 rounded-full', revision && !plain && 'bg-white')} style={revision && !plain ? undefined : { backgroundColor: color }} />
+      <span className="truncate">{statusName(workflow, status)}</span>
     </span>
   );
 };
+
+/** "Rev 2": how many times this cut has been sent back. Nothing when it never was. */
+export const RevisionTag: React.FC<{ count: number; className?: string }> = ({ count, className }) =>
+  count > 0 ? (
+    <span
+      title={`Sent back for changes ${count} ${count === 1 ? 'time' : 'times'}`}
+      className={cn(
+        'inline-flex h-5 shrink-0 items-center rounded border border-destructive/40 bg-destructive/10 px-1.5 text-[10px] font-semibold tabular-nums text-destructive',
+        className
+      )}
+    >
+      <span aria-hidden>Rev {count}</span>
+      <span className="sr-only">Revision {count}</span>
+    </span>
+  ) : null;
 
 export const PriorityFlag: React.FC<{ priority: TaskPriority; withLabel?: boolean; className?: string }> = ({
   priority,

@@ -32,14 +32,15 @@ import {
   ASPECT_RATIOS,
   LINK_FIELDS,
   deadlineWarning,
-  isFinished,
   readOnlyReason,
   taskAccess,
   validateTaskDescription,
   validateTaskTitle,
   type LinkField,
 } from '@/lib/tasks';
-import type { AspectRatio, AssigneeRole, HierarchyFolder, HierarchyList, HierarchySpace, TaskPriority, TaskStatus } from '@/types/database';
+import { isFinishedStatus } from '@/lib/workflow';
+import { useWorkflow } from '@/hooks/use-workflow';
+import type { AspectRatio, AssigneeRole, HierarchyFolder, HierarchyList, HierarchySpace, TaskPriority } from '@/types/database';
 import BriefEditor from './BriefEditor';
 import DatePicker, { DateValue } from './DatePicker';
 import DeleteTaskDialog from './DeleteTaskDialog';
@@ -49,7 +50,9 @@ import PropertyRow from './PropertyRow';
 import SaveIndicator from './SaveIndicator';
 import SubtaskChecklist from './SubtaskChecklist';
 import { InlineText } from './fields';
-import { PriorityControl, StatusControl } from './TaskControls';
+import { PriorityControl } from './TaskControls';
+import TaskWorkflowPanel from './TaskWorkflowPanel';
+import WorkflowPicker from './WorkflowPicker';
 import { GHOST_SELECT_TRIGGER, STATIC_VALUE } from './task-styles';
 
 const NO_RATIO = '__none__';
@@ -108,6 +111,7 @@ const TaskDetailSheet: React.FC<TaskDetailSheetProps> = ({ taskId, space, folder
   const update = useUpdateTask();
   const setAssignee = useSetAssignee();
   const { state: saveState, track } = useSaveIndicator();
+  const workflow = useWorkflow().data;
   const [deleting, setDeleting] = useState(false);
 
   // A task id from the URL that belongs to a different list is treated as "not found".
@@ -115,7 +119,7 @@ const TaskDetailSheet: React.FC<TaskDetailSheetProps> = ({ taskId, space, folder
   const missing = malformed || (isError && (error as { code?: string } | null)?.code === 'NOT_FOUND') || mismatched;
   const access =
     task && !mismatched
-      ? taskAccess(role, { isAssignedEditor: !!user && task.editorId === user.id, currentStatus: task.status })
+      ? taskAccess(role, { isAssignedEditor: !!user && task.editorId === user.id })
       : null;
 
   // Previous / next task in the list's own order, from the page the list already loaded.
@@ -173,7 +177,7 @@ const TaskDetailSheet: React.FC<TaskDetailSheetProps> = ({ taskId, space, folder
       </div>
     );
   } else {
-    const finished = isFinished(task.status);
+    const finished = isFinishedStatus(workflow, task.status);
     const warning = deadlineWarning(task.dueDate, task.clientDeadline);
     const reason = readOnlyReason(role, access);
     const creator = task.createdBy ? members.find((m) => m.userId === task.createdBy)?.profile?.fullName ?? 'a former member' : null;
@@ -278,15 +282,12 @@ const TaskDetailSheet: React.FC<TaskDetailSheetProps> = ({ taskId, space, folder
             </p>
           )}
 
+          <TaskWorkflowPanel task={task} members={members} />
+
           <Section title="Overview">
             <div className="grid gap-x-6 gap-y-0.5 sm:grid-cols-2">
               <PropertyRow label="Status">
-                <StatusControl
-                  variant="field"
-                  status={task.status}
-                  allowed={access.statusOptions}
-                  onChange={(status: TaskStatus) => saveQuietly({ status })}
-                />
+                <WorkflowPicker variant="field" task={task} members={members} />
               </PropertyRow>
 
               <PropertyRow label="Priority">
@@ -397,7 +398,13 @@ const TaskDetailSheet: React.FC<TaskDetailSheetProps> = ({ taskId, space, folder
                   label={label}
                   hint={LINK_HINTS[key]}
                   value={task[key] ?? ''}
-                  editable={key === 'reviewLink' || key === 'projectFileLink' ? access.editWorkLinks : access.editBrief}
+                  editable={
+                    key === 'reviewLink' || key === 'projectFileLink'
+                      ? access.editWorkLinks
+                      : key === 'finalExportLink'
+                        ? access.editFinalExport
+                        : access.editBrief
+                  }
                   onCommit={(v) => save({ [key]: v })}
                 />
               ))}

@@ -8,6 +8,7 @@ import {
   Search,
   ChevronRight,
   ChevronLeft,
+  BarChart3,
   Settings,
   Users,
 } from "lucide-react";
@@ -61,6 +62,7 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
 
   const managementNavItems: NavItem[] = [
     ...(can(role, "team:view") ? [{ label: "Team", icon: Users, href: "/team" }] : []),
+    ...(can(role, "production:view") ? [{ label: "Production", icon: BarChart3, href: "/production" }] : []),
     { label: "Settings", icon: Settings, href: "/settings" },
   ];
 
