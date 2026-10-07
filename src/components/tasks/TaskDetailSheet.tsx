@@ -1,83 +1,145 @@
 import React, { useMemo, useState } from 'react';
-import { ExternalLink, Loader2, SearchX, Trash2 } from 'lucide-react';
+import { Link, useNavigate } from 'react-router-dom';
+import {
+  ChevronDown,
+  ChevronRight,
+  ChevronUp,
+  Copy,
+  FileVideo,
+  HardDrive,
+  Lock,
+  MonitorPlay,
+  MoreHorizontal,
+  PackageCheck,
+  SearchX,
+  Trash2,
+} from 'lucide-react';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import { IconButton } from '@/components/ui/icon-button';
 import { ErrorState } from '@/components/ui/error-state';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import type { TaskPatch } from '@/database';
 import { useAuth } from '@/hooks/use-auth';
-import { useSetAssignee, useTask, useUpdateTask } from '@/hooks/use-tasks';
+import { useSaveIndicator } from '@/hooks/use-save-indicator';
+import { useListTasks, useSetAssignee, useTask, useUpdateTask } from '@/hooks/use-tasks';
 import { useWorkspaceMembers } from '@/hooks/use-team';
-import { isUuid } from '@/lib/hierarchy';
+import { hierarchyPaths, isUuid } from '@/lib/hierarchy';
 import {
   ASPECT_RATIOS,
   LINK_FIELDS,
   TASK_PRIORITIES,
   TASK_STATUSES,
-  dateInputToIso,
   deadlineWarning,
-  isValidTaskUrl,
-  isoToDateInput,
-  linkHost,
-  memberLookup,
-  memberName,
+  isFinished,
   readOnlyReason,
   statusOption,
   taskAccess,
   validateTaskDescription,
   validateTaskTitle,
-  validateTaskUrl,
+  type LinkField,
 } from '@/lib/tasks';
-import type { AspectRatio, AssigneeRole, HierarchyList, TaskPriority, TaskStatus } from '@/types/database';
-import AssigneeSelect from './AssigneeSelect';
+import type { AspectRatio, AssigneeRole, HierarchyFolder, HierarchyList, HierarchySpace, TaskPriority, TaskStatus } from '@/types/database';
+import BriefEditor from './BriefEditor';
+import DatePicker, { DateValue } from './DatePicker';
 import DeleteTaskDialog from './DeleteTaskDialog';
+import LinkRow from './LinkRow';
+import PersonPicker, { PersonValue } from './PersonPicker';
+import PropertyRow from './PropertyRow';
+import SaveIndicator from './SaveIndicator';
 import SubtaskChecklist from './SubtaskChecklist';
-import { Field, InlineText, InlineTextarea } from './fields';
+import { InlineText } from './fields';
 import { PriorityFlag, TaskStatusPill } from './TaskBadges';
+import { GHOST_SELECT_TRIGGER, STATIC_VALUE } from './task-styles';
 
 const NO_RATIO = '__none__';
 
 interface TaskDetailSheetProps {
   taskId: string;
+  space: HierarchySpace;
+  folder: HierarchyFolder | null;
   list: HierarchyList;
   onClose: () => void;
 }
 
-const Section: React.FC<{ title: string; children: React.ReactNode }> = ({ title, children }) => (
-  <section aria-label={title} className="space-y-3">
-    <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{title}</h3>
+const LINK_ICONS: Record<LinkField, React.ReactNode> = {
+  rawFootageLink: <HardDrive className="h-4 w-4" />,
+  projectFileLink: <FileVideo className="h-4 w-4" />,
+  reviewLink: <MonitorPlay className="h-4 w-4" />,
+  finalExportLink: <PackageCheck className="h-4 w-4" />,
+};
+
+const LINK_HINTS: Record<LinkField, string> = {
+  rawFootageLink: 'Add the Google Drive footage folder',
+  projectFileLink: 'Add the Premiere / project file',
+  reviewLink: 'Add the Frame.io or Vimeo review link',
+  finalExportLink: 'Add the final deliverable',
+};
+
+const Section: React.FC<{ title: string; aside?: React.ReactNode; children: React.ReactNode }> = ({ title, aside, children }) => (
+  <section aria-label={title} className="space-y-2.5">
+    <div className="flex items-center justify-between gap-3 border-b border-border/70 pb-1.5">
+      <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{title}</h3>
+      {aside}
+    </div>
     {children}
   </section>
 );
 
 /**
  * The task as a side sheet over its list (the URL is /spaces/:s/lists/:l/tasks/:t, so it is
- * linkable and the Back button closes it). Sections are independent blocks on purpose: comments,
- * attachments, activity and QC history (later phases) are added as further sections or tabs
- * without touching the fields below.
+ * linkable and Back closes it). Everything a person may change is edited in place and saved as they
+ * go; everything they may not change is plain text, never a control that looks editable and then
+ * fails. The database (RLS + guard triggers) is still the only real enforcement.
+ *
+ * Extension point: comments, attachments, activity and QC history (later phases) are added as
+ * further <Section>s below the checklist, or as tabs around the body, without touching the fields
+ * above them. Nothing is simulated for them here.
  */
-const TaskDetailSheet: React.FC<TaskDetailSheetProps> = ({ taskId, list, onClose }) => {
+const TaskDetailSheet: React.FC<TaskDetailSheetProps> = ({ taskId, space, folder, list, onClose }) => {
+  const navigate = useNavigate();
   const { user, role } = useAuth();
   const malformed = !isUuid(taskId);
   const { data: task, isLoading, isError, error, refetch } = useTask(malformed ? undefined : taskId);
   const { data: members = [] } = useWorkspaceMembers();
+  const siblings = useListTasks(list.id);
   const update = useUpdateTask();
   const setAssignee = useSetAssignee();
+  const { state: saveState, track } = useSaveIndicator();
   const [deleting, setDeleting] = useState(false);
-  const lookup = useMemo(() => memberLookup(members), [members]);
 
   // A task id from the URL that belongs to a different list is treated as "not found".
   const mismatched = !!task && task.listId !== list.id;
   const missing = malformed || (isError && (error as { code?: string } | null)?.code === 'NOT_FOUND') || mismatched;
-  const access = task && !mismatched
-    ? taskAccess(role, { isAssignedEditor: !!user && task.editorId === user.id, currentStatus: task.status })
-    : null;
-  const busy = update.isPending || setAssignee.isPending;
+  const access =
+    task && !mismatched
+      ? taskAccess(role, { isAssignedEditor: !!user && task.editorId === user.id, currentStatus: task.status })
+      : null;
 
-  const save = (patch: TaskPatch) => update.mutateAsync({ taskId, patch });
-  const assign = (slot: AssigneeRole, userId: string | null) => setAssignee.mutate({ taskId, role: slot, userId });
+  // Previous / next task in the list's own order, from the page the list already loaded.
+  const orderedIds = useMemo(() => siblings.data?.pages.flatMap((p) => p.items.map((t) => t.id)) ?? [], [siblings.data]);
+  const index = orderedIds.indexOf(taskId);
+  const total = siblings.data?.pages[0]?.total ?? orderedIds.length;
+  const goTo = (id: string | undefined) => {
+    if (id) navigate(hierarchyPaths.task(space.id, list.id, id), { replace: true });
+  };
+
+  const save = (patch: TaskPatch) => track(update.mutateAsync({ taskId, patch }));
+  const saveQuietly = (patch: TaskPatch) => void save(patch).catch(() => undefined);
+  const assign = (slot: AssigneeRole, userId: string | null) =>
+    void track(setAssignee.mutateAsync({ taskId, role: slot, userId })).catch(() => undefined);
+
+  const copyLink = async () => {
+    try {
+      await navigator.clipboard.writeText(`${window.location.origin}${hierarchyPaths.taskById(taskId)}`);
+      toast.success('Task link copied');
+    } catch {
+      toast.error('The link could not be copied.');
+    }
+  };
 
   let body: React.ReactNode;
   if (isLoading && !malformed) {
@@ -110,15 +172,89 @@ const TaskDetailSheet: React.FC<TaskDetailSheetProps> = ({ taskId, list, onClose
       </div>
     );
   } else {
+    const finished = isFinished(task.status);
     const warning = deadlineWarning(task.dueDate, task.clientDeadline);
     const reason = readOnlyReason(role, access);
     const statusChoices = TASK_STATUSES.filter((s) => access.statusOptions.includes(s.value) || s.value === task.status);
-    const creator = task.createdBy ? memberName(lookup, task.createdBy) : null;
+    const creator = task.createdBy ? members.find((m) => m.userId === task.createdBy)?.profile?.fullName ?? 'a former member' : null;
+    const ratio = ASPECT_RATIOS.find((a) => a.value === task.aspectRatio);
 
     body = (
       <>
-        <SheetHeader className="space-y-1.5 border-b border-border/70 px-5 pb-3 pt-5 text-left">
-          <p className="truncate pr-8 text-[11px] text-muted-foreground">{list.name}</p>
+        <SheetHeader className="space-y-1.5 border-b border-border/70 px-5 pb-2.5 pt-4 text-left">
+          <div className="flex items-center gap-1 pr-8">
+            <IconButton
+              aria-label="Previous task"
+              icon={<ChevronUp className="h-4 w-4" />}
+              variant="ghost"
+              size="sm"
+              className="h-8 w-8"
+              disabled={index <= 0}
+              onClick={() => goTo(orderedIds[index - 1])}
+            />
+            <IconButton
+              aria-label="Next task"
+              icon={<ChevronDown className="h-4 w-4" />}
+              variant="ghost"
+              size="sm"
+              className="h-8 w-8"
+              disabled={index < 0 || index >= orderedIds.length - 1}
+              onClick={() => goTo(orderedIds[index + 1])}
+            />
+            {index >= 0 && (
+              <span className="mr-2 text-[11px] tabular-nums text-muted-foreground" aria-label={`Task ${index + 1} of ${total}`}>
+                {index + 1} / {total}
+              </span>
+            )}
+            <nav aria-label="Task location" className="flex min-w-0 flex-1 items-center gap-1 text-[11px] text-muted-foreground">
+              <Link to={hierarchyPaths.space(space.id)} className="hidden max-w-[28%] shrink truncate hover:text-foreground hover:underline sm:inline">
+                {space.name}
+              </Link>
+              <ChevronRight aria-hidden className="hidden h-3 w-3 shrink-0 sm:block" />
+              {folder && (
+                <>
+                  <Link to={hierarchyPaths.folder(space.id, folder.id)} className="hidden max-w-[28%] shrink truncate hover:text-foreground hover:underline sm:inline">
+                    {folder.name}
+                  </Link>
+                  <ChevronRight aria-hidden className="hidden h-3 w-3 shrink-0 sm:block" />
+                </>
+              )}
+              <Link to={hierarchyPaths.list(space.id, list.id)} className="min-w-0 truncate font-medium text-foreground hover:underline">
+                {list.name}
+              </Link>
+            </nav>
+            <IconButton
+              aria-label="Copy task link"
+              icon={<Copy className="h-4 w-4" />}
+              variant="ghost"
+              size="sm"
+              className="h-8 w-8 shrink-0"
+              onClick={() => void copyLink()}
+            />
+            {access.delete && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <IconButton
+                    aria-label="More task actions"
+                    icon={<MoreHorizontal className="h-4 w-4" />}
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 w-8 shrink-0"
+                  />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-44">
+                  <DropdownMenuItem
+                    className="cursor-pointer text-xs text-destructive focus:bg-destructive/10 focus:text-destructive"
+                    onSelect={() => setDeleting(true)}
+                  >
+                    <Trash2 className="mr-2 h-3.5 w-3.5" />
+                    Delete task
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
+          </div>
+
           <SheetTitle className="sr-only">{task.title}</SheetTitle>
           <SheetDescription className="sr-only">Task details for {task.title}</SheetDescription>
           <InlineText
@@ -129,33 +265,28 @@ const TaskDetailSheet: React.FC<TaskDetailSheetProps> = ({ taskId, list, onClose
             validate={(v) => validateTaskTitle(v)}
             onCommit={(v) => save({ title: v })}
             wrap
-            inputClassName="border-transparent bg-transparent px-2 text-lg font-semibold leading-snug tracking-tight shadow-none hover:border-border focus-visible:border-input disabled:opacity-100"
+            inputClassName="-mx-2 w-[calc(100%+1rem)] rounded-md border-transparent bg-transparent px-2 py-1 text-xl font-semibold leading-snug tracking-tight shadow-none hover:bg-muted/60 focus-visible:border-input focus-visible:bg-background disabled:cursor-default disabled:opacity-100 disabled:hover:bg-transparent"
           />
-          <div className="flex items-center gap-2 text-[11px] text-muted-foreground" aria-live="polite">
-            {busy ? (
-              <>
-                <Loader2 className="h-3 w-3 animate-spin" /> Saving...
-              </>
-            ) : (
-              <span>Changes save as you go</span>
-            )}
-          </div>
+          <SaveIndicator state={saveState} className="-mt-0.5" />
         </SheetHeader>
 
-        <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-5 py-5">
+        <div className="min-h-0 flex-1 space-y-7 overflow-y-auto px-5 py-5">
           {reason && (
-            <p className="rounded-lg border border-border/70 bg-muted/40 px-3 py-2 text-xs text-muted-foreground" role="note">
+            <p className="flex items-start gap-2 text-xs text-muted-foreground" role="note">
+              <Lock aria-hidden className="mt-0.5 h-3.5 w-3.5 shrink-0" />
               {reason}
             </p>
           )}
 
           <Section title="Overview">
-            <div className="grid gap-4 sm:grid-cols-2">
-              <Field label="Status" htmlFor="task-status">
+            <div className="grid gap-x-6 gap-y-0.5 sm:grid-cols-2">
+              <PropertyRow label="Status" htmlFor="task-status">
                 {access.statusOptions.length > 0 ? (
-                  <Select value={task.status} onValueChange={(v) => void save({ status: v as TaskStatus }).catch(() => undefined)}>
-                    <SelectTrigger id="task-status" aria-label="Status" className="h-9 text-sm">
-                      <SelectValue>{statusOption(task.status).label}</SelectValue>
+                  <Select value={task.status} onValueChange={(v) => saveQuietly({ status: v as TaskStatus })}>
+                    <SelectTrigger id="task-status" aria-label="Status" className={GHOST_SELECT_TRIGGER}>
+                      <SelectValue>
+                        <TaskStatusPill status={task.status} className="border-0 bg-transparent px-0" />
+                      </SelectValue>
                     </SelectTrigger>
                     <SelectContent>
                       {statusChoices.map((s) => (
@@ -166,100 +297,117 @@ const TaskDetailSheet: React.FC<TaskDetailSheetProps> = ({ taskId, list, onClose
                     </SelectContent>
                   </Select>
                 ) : (
-                  <div className="flex h-9 items-center">
-                    <TaskStatusPill status={task.status} />
+                  <div className={STATIC_VALUE}>
+                    <TaskStatusPill status={task.status} className="border-0 bg-transparent px-0" />
                   </div>
                 )}
-              </Field>
+              </PropertyRow>
 
-              <Field label="Priority" htmlFor="task-priority">
+              <PropertyRow label="Priority" htmlFor="task-priority">
                 {access.editBrief ? (
-                  <Select value={task.priority} onValueChange={(v) => void save({ priority: v as TaskPriority }).catch(() => undefined)}>
-                    <SelectTrigger id="task-priority" aria-label="Priority" className="h-9 text-sm">
-                      <SelectValue />
+                  <Select value={task.priority} onValueChange={(v) => saveQuietly({ priority: v as TaskPriority })}>
+                    <SelectTrigger id="task-priority" aria-label="Priority" className={GHOST_SELECT_TRIGGER}>
+                      <SelectValue>
+                        <PriorityFlag priority={task.priority} withLabel />
+                      </SelectValue>
                     </SelectTrigger>
                     <SelectContent>
                       {TASK_PRIORITIES.map((p) => (
                         <SelectItem key={p.value} value={p.value}>
-                          {p.label}
+                          <PriorityFlag priority={p.value} withLabel />
                         </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
                 ) : (
-                  <div className="flex h-9 items-center">
+                  <div className={STATIC_VALUE}>
                     <PriorityFlag priority={task.priority} withLabel />
                   </div>
                 )}
-              </Field>
+              </PropertyRow>
 
-              <Field label="Editor" htmlFor="task-editor">
-                <AssigneeSelect
-                  id="task-editor"
-                  slot="EDITOR"
-                  label="Editor"
-                  value={task.editorId}
-                  members={members}
-                  otherSlotUserId={task.qcId}
-                  disabled={!access.assign || setAssignee.isPending}
-                  onChange={(id) => assign('EDITOR', id)}
-                />
-              </Field>
+              <PropertyRow label="Editor" htmlFor="task-editor">
+                {access.assign ? (
+                  <PersonPicker
+                    id="task-editor"
+                    slot="EDITOR"
+                    label="Editor"
+                    variant="ghost"
+                    value={task.editorId}
+                    members={members}
+                    otherSlotUserId={task.qcId}
+                    disabled={setAssignee.isPending}
+                    onChange={(id) => assign('EDITOR', id)}
+                  />
+                ) : (
+                  <PersonValue userId={task.editorId} members={members} />
+                )}
+              </PropertyRow>
 
-              <Field label="QC reviewer" htmlFor="task-qc">
-                <AssigneeSelect
-                  id="task-qc"
-                  slot="QC_REVIEWER"
-                  label="QC reviewer"
-                  value={task.qcId}
-                  members={members}
-                  otherSlotUserId={task.editorId}
-                  disabled={!access.assign || setAssignee.isPending}
-                  onChange={(id) => assign('QC_REVIEWER', id)}
-                />
-              </Field>
+              <PropertyRow label="QC reviewer" htmlFor="task-qc">
+                {access.assign ? (
+                  <PersonPicker
+                    id="task-qc"
+                    slot="QC_REVIEWER"
+                    label="QC reviewer"
+                    variant="ghost"
+                    value={task.qcId}
+                    members={members}
+                    otherSlotUserId={task.editorId}
+                    disabled={setAssignee.isPending}
+                    onChange={(id) => assign('QC_REVIEWER', id)}
+                  />
+                ) : (
+                  <PersonValue userId={task.qcId} members={members} />
+                )}
+              </PropertyRow>
 
-              <Field label="Internal QC due" htmlFor="task-due">
-                <Input
-                  id="task-due"
-                  type="date"
-                  value={isoToDateInput(task.dueDate)}
-                  disabled={!access.editBrief}
-                  onChange={(e) => void save({ dueDate: dateInputToIso(e.target.value) }).catch(() => undefined)}
-                  className="h-9 text-sm"
-                />
-              </Field>
+              <PropertyRow label="Internal QC due" htmlFor="task-due">
+                {access.editBrief ? (
+                  <DatePicker id="task-due" label="Internal QC due" value={task.dueDate} finished={finished} onChange={(iso) => saveQuietly({ dueDate: iso })} />
+                ) : (
+                  <DateValue label="Internal QC due" value={task.dueDate} finished={finished} />
+                )}
+              </PropertyRow>
 
-              <Field label="Client deadline" htmlFor="task-client">
-                <Input
-                  id="task-client"
-                  type="date"
-                  value={isoToDateInput(task.clientDeadline)}
-                  disabled={!access.editBrief}
-                  onChange={(e) => void save({ clientDeadline: dateInputToIso(e.target.value) }).catch(() => undefined)}
-                  className="h-9 text-sm"
-                />
-              </Field>
+              <PropertyRow label="Client deadline" htmlFor="task-client">
+                {access.editBrief ? (
+                  <DatePicker
+                    id="task-client"
+                    label="Client deadline"
+                    value={task.clientDeadline}
+                    finished={finished}
+                    onChange={(iso) => saveQuietly({ clientDeadline: iso })}
+                  />
+                ) : (
+                  <DateValue label="Client deadline" value={task.clientDeadline} finished={finished} />
+                )}
+              </PropertyRow>
 
-              <Field label="Aspect ratio" htmlFor="task-ratio">
-                <Select
-                  value={task.aspectRatio ?? NO_RATIO}
-                  disabled={!access.editBrief}
-                  onValueChange={(v) => void save({ aspectRatio: v === NO_RATIO ? null : (v as AspectRatio) }).catch(() => undefined)}
-                >
-                  <SelectTrigger id="task-ratio" aria-label="Aspect ratio" className="h-9 text-sm">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={NO_RATIO}>Not set</SelectItem>
-                    {ASPECT_RATIOS.map((a) => (
-                      <SelectItem key={a.value} value={a.value}>
-                        {a.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </Field>
+              <PropertyRow label="Aspect ratio" htmlFor="task-ratio">
+                {access.editBrief ? (
+                  <Select
+                    value={task.aspectRatio ?? NO_RATIO}
+                    onValueChange={(v) => saveQuietly({ aspectRatio: v === NO_RATIO ? null : (v as AspectRatio) })}
+                  >
+                    <SelectTrigger id="task-ratio" aria-label="Aspect ratio" className={GHOST_SELECT_TRIGGER}>
+                      <SelectValue>
+                        {ratio ? ratio.label : <span className="text-muted-foreground">Not set</span>}
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={NO_RATIO}>Not set</SelectItem>
+                      {ASPECT_RATIOS.map((a) => (
+                        <SelectItem key={a.value} value={a.value}>
+                          {a.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <div className={STATIC_VALUE}>{ratio ? ratio.label : <span className="text-muted-foreground">Not set</span>}</div>
+                )}
+              </PropertyRow>
             </div>
             {warning && (
               <p className="text-xs text-muted-foreground" role="status">
@@ -268,44 +416,27 @@ const TaskDetailSheet: React.FC<TaskDetailSheetProps> = ({ taskId, list, onClose
             )}
           </Section>
 
-          <Section title="Links">
-            <div className="space-y-3">
-              {LINK_FIELDS.map(({ key, label, placeholder }) => {
-                const value = task[key] ?? '';
-                const editable = key === 'reviewLink' || key === 'projectFileLink' ? access.editWorkLinks : access.editBrief;
-                const host = linkHost(value);
-                return (
-                  <div key={key} className="flex items-end gap-2">
-                    <InlineText
-                      label={label}
-                      type="url"
-                      value={value}
-                      disabled={!editable}
-                      placeholder={placeholder}
-                      validate={validateTaskUrl}
-                      onCommit={(v) => save({ [key]: v })}
-                      className="min-w-0 flex-1"
-                    />
-                    {value && isValidTaskUrl(value) ? (
-                      <Button asChild variant="outline" size="sm" className="mb-px h-9 shrink-0">
-                        <a href={value} target="_blank" rel="noopener noreferrer" aria-label={`Open ${label}${host ? ` (${host})` : ''}`}>
-                          <ExternalLink className="mr-1.5 h-3.5 w-3.5" />
-                          Open
-                        </a>
-                      </Button>
-                    ) : null}
-                  </div>
-                );
-              })}
+          <Section title="Production links">
+            <div className="divide-y divide-border/50">
+              {LINK_FIELDS.map(({ key, label }) => (
+                <LinkRow
+                  key={key}
+                  icon={LINK_ICONS[key]}
+                  label={label}
+                  hint={LINK_HINTS[key]}
+                  value={task[key] ?? ''}
+                  editable={key === 'reviewLink' || key === 'projectFileLink' ? access.editWorkLinks : access.editBrief}
+                  onCommit={(v) => save({ [key]: v })}
+                />
+              ))}
             </div>
           </Section>
 
           <Section title="Brief">
-            <InlineTextarea
+            <BriefEditor
               label="Task brief"
               value={task.description ?? ''}
-              disabled={!access.editBrief}
-              placeholder="What needs to be edited, references, notes for the editor"
+              readOnly={!access.editBrief}
               validate={validateTaskDescription}
               onCommit={(v) => save({ description: v })}
             />
@@ -315,23 +446,10 @@ const TaskDetailSheet: React.FC<TaskDetailSheetProps> = ({ taskId, list, onClose
             <SubtaskChecklist taskId={task.id} subtasks={task.subtasks} access={access} />
           </Section>
 
-          <footer className="space-y-3 border-t border-border/70 pt-4">
-            <p className="text-[11px] text-muted-foreground">
-              Created {new Date(task.createdAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}
-              {creator ? ` by ${creator}` : ''}. Last updated{' '}
-              {new Date(task.updatedAt).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}.
-            </p>
-            {access.delete && (
-              <Button
-                variant="outline"
-                size="sm"
-                className="text-destructive hover:bg-destructive/10 hover:text-destructive"
-                onClick={() => setDeleting(true)}
-              >
-                <Trash2 className="mr-1.5 h-3.5 w-3.5" />
-                Delete task
-              </Button>
-            )}
+          <footer className="border-t border-border/70 pt-4 text-[11px] text-muted-foreground">
+            Created {new Date(task.createdAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}
+            {creator ? ` by ${creator}` : ''}. Last updated{' '}
+            {new Date(task.updatedAt).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}.
           </footer>
         </div>
 
@@ -354,7 +472,7 @@ const TaskDetailSheet: React.FC<TaskDetailSheetProps> = ({ taskId, list, onClose
     <Sheet open onOpenChange={(open) => !open && onClose()}>
       <SheetContent
         side="right"
-        className="flex w-full flex-col gap-0 p-0 sm:max-w-xl"
+        className="flex w-full flex-col gap-0 p-0 sm:max-w-[640px] lg:max-w-[720px]"
         // Focus the panel itself (not the close button), so no stray ring appears and a screen reader starts at the title.
         onOpenAutoFocus={(e) => {
           e.preventDefault();

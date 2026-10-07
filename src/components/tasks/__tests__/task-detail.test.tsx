@@ -69,16 +69,22 @@ describe('task detail sheet: what people see', () => {
     expect(within(dialog).getByRole('combobox', { name: 'Editor' })).toHaveTextContent('Pat Person');
     expect(within(dialog).getByRole('combobox', { name: 'QC reviewer' })).toHaveTextContent('Quinn QC');
     expect(within(dialog).getByRole('combobox', { name: 'Aspect ratio' })).toHaveTextContent('9:16');
-    expect(within(dialog).getByLabelText('Internal QC due')).toHaveValue('2026-10-12');
-    expect(within(dialog).getByLabelText('Client deadline')).toHaveValue('2026-10-20');
-    expect(within(dialog).getByLabelText('Raw footage')).toHaveValue('https://drive.google.com/drive/folders/abc');
-    expect(within(dialog).getByLabelText('Review link')).toHaveValue('https://app.frame.io/reviews/xyz');
-    expect(within(dialog).getByLabelText('Project file')).toHaveValue('');
+    expect(within(dialog).getByRole('button', { name: /Internal QC due: .*12/ })).toBeInTheDocument();
+    expect(within(dialog).getByRole('button', { name: /Client deadline: .*20/ })).toBeInTheDocument();
+    // links are shown as resources: host + open + copy + edit; an empty one invites adding
+    expect(within(dialog).getByRole('link', { name: /Open Raw footage \(drive\.google\.com\)/ })).toHaveAttribute('href', 'https://drive.google.com/drive/folders/abc');
+    expect(within(dialog).getByRole('link', { name: /Open Review link \(app\.frame\.io\)/ })).toBeInTheDocument();
+    expect(within(dialog).getByRole('button', { name: 'Add Project file' })).toBeInTheDocument();
+    expect(within(dialog).getByRole('button', { name: 'Add Final export' })).toBeInTheDocument();
     expect(within(dialog).getByLabelText('Task brief')).toHaveValue('Cut to 58 seconds.');
     expect(within(dialog).getByRole('progressbar', { name: 'Subtask progress' })).toHaveAttribute('aria-valuenow', '50');
     expect(within(dialog).getByText('1/2 done')).toBeInTheDocument();
+    expect(within(dialog).getByText(/1 left/)).toBeInTheDocument();
     expect(within(dialog).getByText(/Created .* by Mia Manager/)).toBeInTheDocument();
-    expect(within(dialog).getByText('25. EDAPTX')).toBeInTheDocument(); // the parent list is named
+    // the parent context is a trail of links back up the hierarchy
+    const trail = within(dialog).getByRole('navigation', { name: 'Task location' });
+    expect(within(trail).getByRole('link', { name: '25. EDAPTX' })).toHaveAttribute('href', LIST_URL);
+    expect(within(trail).getByRole('link', { name: 'CONTENT PIPELINE - ZIM' })).toBeInTheDocument();
   });
 
   it('opens links safely in a new tab, and only for valid links', async () => {
@@ -87,12 +93,15 @@ describe('task detail sheet: what people see', () => {
     expect(open).toHaveAttribute('href', 'https://drive.google.com/drive/folders/abc');
     expect(open).toHaveAttribute('target', '_blank');
     expect(open).toHaveAttribute('rel', 'noopener noreferrer');
-    expect(within(dialog).queryByRole('link', { name: /Open Project file/ })).not.toBeInTheDocument(); // empty: no button
+    expect(within(dialog).queryByRole('link', { name: /Open Project file/ })).not.toBeInTheDocument(); // empty: no link
   });
 
-  it('never turns a bad stored link into a clickable href', async () => {
+  it('never turns a bad stored link into a clickable href, or a copy button', async () => {
     const { dialog } = await openTask('PRODUCTION_MANAGER', { finalExportLink: 'javascript:alert(1)' });
     expect(within(dialog).queryByRole('link', { name: /Open Final export/ })).not.toBeInTheDocument();
+    expect(within(dialog).queryByRole('button', { name: 'Copy Final export' })).not.toBeInTheDocument();
+    expect(within(dialog).getByText('javascript:alert(1)')).toBeInTheDocument(); // shown as inert text so it can be fixed
+    expect(within(dialog).getByRole('button', { name: 'Edit Final export' })).toBeInTheDocument();
   });
 
   it('shows a loading state while the task loads', async () => {
@@ -188,47 +197,96 @@ describe('task detail sheet: editing as a manager', () => {
 
   it('validates links on the spot: bad ones are explained and never sent, valid ones save, empty clears', async () => {
     const { dialog } = await openTask('PRODUCTION_MANAGER');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Edit Review link' }));
     const review = within(dialog).getByLabelText('Review link');
+    expect(review).toHaveFocus();
 
     await userEvent.clear(review);
     await userEvent.type(review, 'frame.io/reviews/1');
     await userEvent.tab();
     expect(await within(dialog).findByText(/Enter a full link that starts with http/)).toBeInTheDocument();
     expect(db.updateTask).not.toHaveBeenCalled();
+    expect(within(dialog).getByLabelText('Review link')).toBeInTheDocument(); // still editing: the mistake is not lost
 
-    await userEvent.clear(review);
-    await userEvent.type(review, 'javascript:alert(1)');
-    await userEvent.tab();
-    expect(db.updateTask).not.toHaveBeenCalled();
+    for (const unsafe of ['javascript:alert(1)', 'data:text/html,hi']) {
+      await userEvent.clear(within(dialog).getByLabelText('Review link'));
+      await userEvent.type(within(dialog).getByLabelText('Review link'), unsafe);
+      await userEvent.tab();
+      expect(db.updateTask).not.toHaveBeenCalled();
+    }
 
-    await userEvent.clear(review);
-    await userEvent.type(review, 'https://app.frame.io/reviews/new');
+    await userEvent.clear(within(dialog).getByLabelText('Review link'));
+    await userEvent.type(within(dialog).getByLabelText('Review link'), 'https://app.frame.io/reviews/new');
     await userEvent.tab();
     await waitFor(() => expect(db.updateTask).toHaveBeenCalledWith(TASK_IDS.one, { reviewLink: 'https://app.frame.io/reviews/new' }));
 
-    await userEvent.clear(review);
+    await userEvent.click(await within(dialog).findByRole('button', { name: 'Edit Review link' }));
+    await userEvent.clear(within(dialog).getByLabelText('Review link'));
     await userEvent.tab();
     await waitFor(() => expect(db.updateTask).toHaveBeenLastCalledWith(TASK_IDS.one, { reviewLink: '' }));
   });
 
-  it('saves the brief only on an explicit Save, and Cancel discards the edit', async () => {
+  it('adds an empty link from the "Add" affordance, and Escape leaves it unchanged', async () => {
+    const { dialog } = await openTask('PRODUCTION_MANAGER');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Add Project file' }));
+    await userEvent.type(within(dialog).getByLabelText('Project file'), 'https://drive.google.com/proj{Enter}');
+    await waitFor(() => expect(db.updateTask).toHaveBeenCalledWith(TASK_IDS.one, { projectFileLink: 'https://drive.google.com/proj' }));
+    db.updateTask.mockClear();
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Add Final export' }));
+    await userEvent.type(within(dialog).getByLabelText('Final export'), 'https://x.co/f{Escape}');
+    expect(db.updateTask).not.toHaveBeenCalled();
+    expect(within(dialog).getByRole('button', { name: 'Add Final export' })).toBeInTheDocument();
+    expect(screen.getByRole('dialog')).toBeInTheDocument(); // Escape cancelled the edit, it did not close the sheet
+  });
+
+  it('copies a saved link to the clipboard', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    const { dialog } = await openTask('PRODUCTION_MANAGER');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Copy Raw footage' }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith('https://drive.google.com/drive/folders/abc'));
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Copy task link' }));
+    await waitFor(() => expect(writeText).toHaveBeenLastCalledWith(expect.stringMatching(new RegExp(`/tasks/${TASK_IDS.one}$`))));
+  });
+
+  it('saves the brief when you click away, keeps line breaks, and Escape discards the edit', async () => {
     const { dialog } = await openTask('PRODUCTION_MANAGER');
     const brief = within(dialog).getByLabelText('Task brief');
-    expect(within(dialog).queryByRole('button', { name: 'Save brief' })).not.toBeInTheDocument();
-    await userEvent.type(brief, ' Add captions.');
-    await userEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+    expect(within(dialog).getByText('Saves when you click away')).toBeInTheDocument();
+    await userEvent.type(brief, ' Add captions.{Escape}');
     expect(brief).toHaveValue('Cut to 58 seconds.');
     expect(db.updateTask).not.toHaveBeenCalled();
 
     await userEvent.type(brief, '\nHook first.');
-    await userEvent.click(within(dialog).getByRole('button', { name: 'Save brief' }));
+    expect(within(dialog).getByText(/Unsaved changes/)).toBeInTheDocument();
+    await userEvent.tab();
     await waitFor(() => expect(db.updateTask).toHaveBeenCalledWith(TASK_IDS.one, { description: 'Cut to 58 seconds.\nHook first.' }));
   });
 
-  it('changes priority, status, aspect ratio and deadlines', async () => {
+  it('saves the brief with Ctrl+Enter, and an unchanged brief sends nothing', async () => {
+    const { dialog } = await openTask('PRODUCTION_MANAGER');
+    const brief = within(dialog).getByLabelText('Task brief');
+    await userEvent.click(brief);
+    await userEvent.tab();
+    expect(db.updateTask).not.toHaveBeenCalled();
+    await userEvent.type(brief, '!{Control>}{Enter}{/Control}');
+    await waitFor(() => expect(db.updateTask).toHaveBeenCalledWith(TASK_IDS.one, { description: 'Cut to 58 seconds.!' }));
+  });
+
+  it('refuses a brief over 20,000 characters without sending it', async () => {
+    const { dialog } = await openTask('PRODUCTION_MANAGER', { description: '' });
+    const brief = within(dialog).getByLabelText('Task brief');
+    await userEvent.click(brief);
+    await userEvent.paste('x'.repeat(20001));
+    await userEvent.tab();
+    expect(await within(dialog).findByText(/20,000 characters/)).toBeInTheDocument();
+    expect(db.updateTask).not.toHaveBeenCalled();
+  });
+
+  it('changes priority, status and aspect ratio from their selectors', async () => {
     const { dialog } = await openTask('PRODUCTION_MANAGER');
     await userEvent.click(within(dialog).getByRole('combobox', { name: 'Priority' }));
-    await userEvent.click(await screen.findByRole('option', { name: 'Low' }));
+    await userEvent.click(await screen.findByRole('option', { name: /Low/ }));
     await waitFor(() => expect(db.updateTask).toHaveBeenCalledWith(TASK_IDS.one, { priority: 'LOW' }));
 
     await userEvent.click(within(dialog).getByRole('combobox', { name: 'Status' }));
@@ -238,16 +296,66 @@ describe('task detail sheet: editing as a manager', () => {
     await userEvent.click(within(dialog).getByRole('combobox', { name: 'Aspect ratio' }));
     await userEvent.click(await screen.findByRole('option', { name: 'Not set' }));
     await waitFor(() => expect(db.updateTask).toHaveBeenCalledWith(TASK_IDS.one, { aspectRatio: null }));
+  });
 
-    fireEvent.change(within(dialog).getByLabelText('Client deadline'), { target: { value: '2026-11-02' } });
-    await waitFor(() => expect(db.updateTask).toHaveBeenCalledWith(TASK_IDS.one, { clientDeadline: expect.stringMatching(/^2026-11-02T/) }));
-    fireEvent.change(within(dialog).getByLabelText('Internal QC due'), { target: { value: '' } });
-    await waitFor(() => expect(db.updateTask).toHaveBeenCalledWith(TASK_IDS.one, { dueDate: null }));
+  it('picks, shortcuts and clears deadlines with the date picker', async () => {
+    const { dialog } = await openTask('PRODUCTION_MANAGER');
+    await userEvent.click(within(dialog).getByRole('button', { name: /Client deadline: / }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Next week' }));
+    await waitFor(() => expect(db.updateTask).toHaveBeenCalledWith(TASK_IDS.one, { clientDeadline: expect.stringMatching(/^\d{4}-\d\d-\d\dT\d\d:00:00\.000Z$/) }));
+
+    await userEvent.click(within(dialog).getByRole('button', { name: /Internal QC due: / }));
+    await userEvent.click(await screen.findByRole('gridcell', { name: '18' }));
+    await waitFor(() => expect(db.updateTask).toHaveBeenCalledWith(TASK_IDS.one, { dueDate: expect.stringMatching(/^2026-10-18T/) }));
+
+    await userEvent.click(within(dialog).getByRole('button', { name: /Internal QC due: / }));
+    await userEvent.click(await screen.findByRole('button', { name: /Clear/ }));
+    await waitFor(() => expect(db.updateTask).toHaveBeenLastCalledWith(TASK_IDS.one, { dueDate: null }));
+  });
+
+  it('picking the date that is already set sends nothing', async () => {
+    const { dialog } = await openTask('PRODUCTION_MANAGER');
+    await userEvent.click(within(dialog).getByRole('button', { name: /Internal QC due: / }));
+    await userEvent.click(await screen.findByRole('gridcell', { name: '12' }));
+    expect(db.updateTask).not.toHaveBeenCalled();
+  });
+
+  it('shows an unset deadline as "Set date" and marks an overdue one', async () => {
+    const { dialog } = await openTask('PRODUCTION_MANAGER', { dueDate: '2020-01-02T12:00:00.000Z', clientDeadline: null });
+    expect(within(dialog).getByRole('button', { name: 'Client deadline: not set' })).toHaveTextContent('Set date');
+    expect(within(dialog).getByRole('button', { name: /Internal QC due: / })).toHaveTextContent('overdue');
+  });
+
+  it('a finished task is never shown as overdue', async () => {
+    const { dialog } = await openTask('PRODUCTION_MANAGER', { status: 'COMPLETED', dueDate: '2020-01-02T12:00:00.000Z' });
+    expect(within(dialog).getByRole('button', { name: /Internal QC due: / })).not.toHaveTextContent('overdue');
+  });
+
+  it('shows a quiet "Saved" confirmation after a change, and "Not saved" if it fails', async () => {
+    const { dialog } = await openTask('PRODUCTION_MANAGER');
+    await userEvent.click(within(dialog).getByRole('combobox', { name: 'Priority' }));
+    await userEvent.click(await screen.findByRole('option', { name: /Low/ }));
+    expect(await within(dialog).findByText('Saved')).toBeInTheDocument();
+    db.updateTask.mockRejectedValue(new Error('You do not have permission to update the task.'));
+    await userEvent.click(within(dialog).getByRole('combobox', { name: 'Priority' }));
+    await userEvent.click(await screen.findByRole('option', { name: /Urgent/ }));
+    expect(await within(dialog).findByText('Not saved')).toBeInTheDocument();
+  });
+
+  it('shows the new value at once, before the server answers, and restores it if the save fails', async () => {
+    let reject: (e: Error) => void = () => undefined;
+    db.updateTask.mockReturnValue(new Promise((_res, rej) => (reject = rej)));
+    const { dialog } = await openTask('PRODUCTION_MANAGER');
+    await userEvent.click(within(dialog).getByRole('combobox', { name: 'Priority' }));
+    await userEvent.click(await screen.findByRole('option', { name: /Low/ }));
+    await waitFor(() => expect(within(dialog).getByRole('combobox', { name: 'Priority' })).toHaveTextContent('Low'));
+    reject(new Error('You do not have permission to update the task.'));
+    await waitFor(() => expect(within(dialog).getByRole('combobox', { name: 'Priority' })).toHaveTextContent('High'));
   });
 
   it('warns softly (never blocks) when the QC date is after the client deadline', async () => {
     const { dialog } = await openTask('PRODUCTION_MANAGER', { dueDate: '2026-10-30T12:00:00.000Z', clientDeadline: '2026-10-20T12:00:00.000Z' });
-    expect(within(dialog).getByRole('status')).toHaveTextContent(/after the client deadline/);
+    expect(within(dialog).getByText(/after the client deadline/)).toBeInTheDocument();
   });
 
   it('when a save is refused, tells the person and puts the field back to what is saved', async () => {
@@ -261,19 +369,23 @@ describe('task detail sheet: editing as a manager', () => {
     await waitFor(() => expect(title).toHaveValue('Episode 12 - Founder story'));
   });
 
-  it('deletes only after confirmation, then returns to the list', async () => {
+  it('deletes only after confirmation (from the actions menu), then returns to the list', async () => {
     const { dialog } = await openTask('PRODUCTION_MANAGER');
-    await userEvent.click(within(dialog).getByRole('button', { name: /Delete task/ }));
-    const confirm = await screen.findByRole('alertdialog');
+    const openConfirm = async () => {
+      await userEvent.click(within(dialog).getByRole('button', { name: 'More task actions' }));
+      await userEvent.click(await screen.findByRole('menuitem', { name: /Delete task/ }));
+      return screen.findByRole('alertdialog');
+    };
+    const confirm = await openConfirm();
     expect(confirm).toHaveTextContent('its 2 subtasks');
     await userEvent.click(within(confirm).getByRole('button', { name: 'Cancel' }));
     expect(db.deleteTask).not.toHaveBeenCalled();
 
-    await userEvent.click(within(dialog).getByRole('button', { name: /Delete task/ }));
-    await userEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Delete' }));
+    await userEvent.click(within(await openConfirm()).getByRole('button', { name: 'Delete' }));
     await waitFor(() => expect(db.deleteTask).toHaveBeenCalledWith(TASK_IDS.one));
     await waitFor(() => expect(screen.getByTestId('where')).toHaveTextContent(new RegExp(`${LIST_URL}$`)));
   });
+
 });
 
 describe('task detail sheet: assignment', () => {
@@ -305,6 +417,36 @@ describe('task detail sheet: assignment', () => {
     expect(names.some((n) => /Eva Editor/.test(n))).toBe(false); // an editor cannot QC
     expect(names.some((n) => /Pat Person/.test(n))).toBe(false);
     expect(names.some((n) => /Quinn QC/.test(n))).toBe(true);
+  });
+
+  it('searches people by name or role with a plain match (no unrelated fuzzy hits), and picks with Enter', async () => {
+    const { dialog } = await openTask('PRODUCTION_MANAGER');
+    await userEvent.click(within(dialog).getByRole('combobox', { name: 'QC reviewer' }));
+    const search = screen.getByPlaceholderText('Search people...');
+
+    // "Mia Manager" and "Ada Admin" contain m, i, a as scattered letters of "Quinn QC"'s role text etc.:
+    // a fuzzy matcher would surface unrelated people; a plain match must not
+    await userEvent.type(search, 'mia');
+    expect(screen.getByRole('option', { name: /Mia Manager/ })).toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: /Quinn QC/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: /Ada Admin/ })).not.toBeInTheDocument();
+
+    await userEvent.clear(search);
+    await userEvent.type(search, 'specialist'); // by role
+    expect(screen.getByRole('option', { name: /Quinn QC/ })).toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: /Mia Manager/ })).not.toBeInTheDocument();
+
+    await userEvent.clear(search);
+    await userEvent.type(search, 'mia{Enter}');
+    await waitFor(() => expect(db.setTaskAssignee).toHaveBeenCalledWith(TASK_IDS.one, 'QC_REVIEWER', PEOPLE.manager));
+  });
+
+  it('shows "No one matches" for a search with no result', async () => {
+    const { dialog } = await openTask('PRODUCTION_MANAGER');
+    await userEvent.click(within(dialog).getByRole('combobox', { name: 'Editor' }));
+    await userEvent.type(screen.getByPlaceholderText('Search people...'), 'zzzz');
+    expect(await screen.findByText('No one matches.')).toBeInTheDocument();
+    expect(screen.queryByRole('option')).not.toBeInTheDocument();
   });
 
   it('explains a refused assignment and shows the real state again', async () => {
@@ -382,26 +524,33 @@ describe('task detail sheet: subtasks', () => {
 });
 
 describe('task detail sheet: what each role can touch (the database enforces the same)', () => {
-  it('an editor ASSIGNED to the task: status, review link, project file and ticking only', async () => {
+  it('an editor ASSIGNED to the task: status, review link, project file and ticking only; the rest is plain text', async () => {
     const { dialog } = await openTask('EDITOR', { editorId: PEOPLE.me });
     expect(within(dialog).getByText(/tasks assigned to you/)).toBeInTheDocument();
     expect(within(dialog).getByLabelText('Task title')).toBeDisabled();
-    expect(within(dialog).queryByRole('combobox', { name: 'Priority' })).not.toBeInTheDocument(); // read-only text
-    expect(within(dialog).getByRole('combobox', { name: 'Editor' })).toBeDisabled();
-    expect(within(dialog).getByRole('combobox', { name: 'QC reviewer' })).toBeDisabled();
-    expect(within(dialog).getByRole('combobox', { name: 'Aspect ratio' })).toBeDisabled();
-    expect(within(dialog).getByLabelText('Internal QC due')).toBeDisabled();
-    expect(within(dialog).getByLabelText('Client deadline')).toBeDisabled();
-    expect(within(dialog).getByLabelText('Raw footage')).toBeDisabled();
-    expect(within(dialog).getByLabelText('Final export')).toBeDisabled();
-    expect(within(dialog).getByLabelText('Task brief')).toBeDisabled();
-    expect(within(dialog).getByLabelText('Review link')).toBeEnabled();
-    expect(within(dialog).getByLabelText('Project file')).toBeEnabled();
+    // read-only values are NOT controls: nothing that looks editable and then fails
+    for (const name of ['Priority', 'Editor', 'QC reviewer', 'Aspect ratio']) {
+      expect(within(dialog).queryByRole('combobox', { name })).not.toBeInTheDocument();
+    }
+    expect(within(dialog).queryByRole('button', { name: /^(Internal QC due|Client deadline): / })).not.toBeInTheDocument();
+    expect(within(dialog).getByText('Pat Person')).toBeInTheDocument();
+    expect(within(dialog).getByText('Quinn QC')).toBeInTheDocument();
+    expect(within(dialog).getByText('9:16 · Vertical')).toBeInTheDocument();
+    expect(within(dialog).getByText('Urgent'.replace('Urgent', 'High'))).toBeInTheDocument();
+    // links: raw footage / final export are view-only; review + project are editable
+    expect(within(dialog).queryByRole('button', { name: 'Edit Raw footage' })).not.toBeInTheDocument();
+    expect(within(dialog).getByText('Not added')).toBeInTheDocument(); // final export is empty and not addable
+    expect(within(dialog).queryByRole('button', { name: 'Add Final export' })).not.toBeInTheDocument();
+    expect(within(dialog).getByRole('button', { name: 'Edit Review link' })).toBeInTheDocument();
+    expect(within(dialog).getByRole('button', { name: 'Add Project file' })).toBeInTheDocument();
+    // brief is text, not an editor
+    expect(within(dialog).queryByRole('textbox', { name: 'Task brief' })).not.toBeInTheDocument();
+    expect(within(dialog).getByRole('region', { name: 'Task brief' })).toHaveTextContent('Cut to 58 seconds.');
     expect(within(dialog).getByRole('combobox', { name: 'Status' })).toBeEnabled();
     expect(within(dialog).getByRole('checkbox', { name: 'Mark done: Captions' })).toBeEnabled();
     expect(within(dialog).queryByLabelText('Add a subtask')).not.toBeInTheDocument();
     expect(within(dialog).queryByRole('button', { name: /Delete subtask/ })).not.toBeInTheDocument();
-    expect(within(dialog).queryByRole('button', { name: /Delete task/ })).not.toBeInTheDocument();
+    expect(within(dialog).queryByRole('button', { name: 'More task actions' })).not.toBeInTheDocument();
   });
 
   it('an assigned editor cannot choose QC-approved or later statuses', async () => {
@@ -412,10 +561,10 @@ describe('task detail sheet: what each role can touch (the database enforces the
     expect(enabled.join(' ')).not.toMatch(/Ready to deliver|Client review|Completed|Closed/);
   });
 
-  it('an assigned editor can update the review link', async () => {
+  it('an assigned editor can add the project file link', async () => {
     const { dialog } = await openTask('EDITOR', { editorId: PEOPLE.me });
-    const project = within(dialog).getByLabelText('Project file');
-    await userEvent.type(project, 'https://drive.google.com/proj');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Add Project file' }));
+    await userEvent.type(within(dialog).getByLabelText('Project file'), 'https://drive.google.com/proj');
     await userEvent.tab();
     await waitFor(() => expect(db.updateTask).toHaveBeenCalledWith(TASK_IDS.one, { projectFileLink: 'https://drive.google.com/proj' }));
   });
@@ -430,9 +579,11 @@ describe('task detail sheet: what each role can touch (the database enforces the
     const { dialog } = await openTask('EDITOR', { editorId: PEOPLE.editor2 });
     expect(within(dialog).getByText(/not assigned to you/)).toBeInTheDocument();
     expect(within(dialog).queryByRole('combobox', { name: 'Status' })).not.toBeInTheDocument();
-    expect(within(dialog).getByLabelText('Review link')).toBeDisabled();
-    expect(within(dialog).getByLabelText('Project file')).toBeDisabled();
+    expect(within(dialog).queryByRole('button', { name: /^Edit / })).not.toBeInTheDocument();
+    expect(within(dialog).queryByRole('button', { name: /^Add / })).not.toBeInTheDocument();
     expect(within(dialog).getByRole('checkbox', { name: 'Mark done: Captions' })).toBeDisabled();
+    // links can still be opened and copied: reading is allowed
+    expect(within(dialog).getByRole('link', { name: /Open Raw footage/ })).toBeInTheDocument();
   });
 
   it('a QC specialist changes status and ticks, but cannot edit the brief or links', async () => {
@@ -440,9 +591,10 @@ describe('task detail sheet: what each role can touch (the database enforces the
     expect(within(dialog).getByRole('combobox', { name: 'Status' })).toBeEnabled();
     expect(within(dialog).getByRole('checkbox', { name: 'Mark done: Captions' })).toBeEnabled();
     expect(within(dialog).getByLabelText('Task title')).toBeDisabled();
-    expect(within(dialog).getByLabelText('Review link')).toBeDisabled();
-    expect(within(dialog).getByRole('combobox', { name: 'QC reviewer' })).toBeDisabled();
-    expect(within(dialog).queryByRole('button', { name: /Delete task/ })).not.toBeInTheDocument();
+    expect(within(dialog).queryByRole('button', { name: /^Edit / })).not.toBeInTheDocument();
+    expect(within(dialog).queryByRole('combobox', { name: 'QC reviewer' })).not.toBeInTheDocument();
+    expect(within(dialog).queryByRole('textbox', { name: 'Task brief' })).not.toBeInTheDocument();
+    expect(within(dialog).queryByRole('button', { name: 'More task actions' })).not.toBeInTheDocument();
     await userEvent.click(within(dialog).getByRole('combobox', { name: 'Status' }));
     const enabled = (await screen.findAllByRole('option')).filter((o) => o.getAttribute('aria-disabled') !== 'true').map((o) => o.textContent);
     expect(enabled).toEqual(expect.arrayContaining(['In QC', 'Ready to deliver', 'Client review']));
@@ -452,12 +604,16 @@ describe('task detail sheet: what each role can touch (the database enforces the
   it.each<TbbRole>(['OWNER', 'ADMIN', 'PRODUCTION_MANAGER'])('%s can edit everything, assign, manage subtasks and delete', async (role) => {
     const { dialog } = await openTask(role);
     expect(within(dialog).getByLabelText('Task title')).toBeEnabled();
-    expect(within(dialog).getByRole('combobox', { name: 'Editor' })).toBeEnabled();
-    expect(within(dialog).getByRole('combobox', { name: 'QC reviewer' })).toBeEnabled();
-    expect(within(dialog).getByLabelText('Raw footage')).toBeEnabled();
-    expect(within(dialog).getByLabelText('Final export')).toBeEnabled();
+    for (const name of ['Status', 'Priority', 'Editor', 'QC reviewer', 'Aspect ratio']) {
+      expect(within(dialog).getByRole('combobox', { name })).toBeEnabled();
+    }
+    expect(within(dialog).getByRole('button', { name: /Internal QC due: / })).toBeEnabled();
+    expect(within(dialog).getByRole('button', { name: /Client deadline: / })).toBeEnabled();
+    expect(within(dialog).getByRole('button', { name: 'Edit Raw footage' })).toBeInTheDocument();
+    expect(within(dialog).getByRole('button', { name: 'Add Final export' })).toBeInTheDocument();
+    expect(within(dialog).getByLabelText('Task brief')).toBeEnabled();
     expect(within(dialog).getByLabelText('Add a subtask')).toBeInTheDocument();
-    expect(within(dialog).getByRole('button', { name: /Delete task/ })).toBeInTheDocument();
+    expect(within(dialog).getByRole('button', { name: 'More task actions' })).toBeInTheDocument();
     expect(within(dialog).queryByText(/You can view this task/)).not.toBeInTheDocument();
   });
 
@@ -465,5 +621,32 @@ describe('task detail sheet: what each role can touch (the database enforces the
     renderWithAuth(routes, { auth: makeAuth('CLIENT_VIEWER'), route: taskUrl() });
     expect(await screen.findByRole('alert')).toHaveTextContent('No access');
     expect(db.getTask).not.toHaveBeenCalled();
+  });
+});
+
+
+describe('task detail sheet: moving between tasks', () => {
+  const rows = [
+    makeSummary({ id: TASK_IDS.one, title: 'First', position: 0 }),
+    makeSummary({ id: TASK_IDS.two, title: 'Second', position: 1 }),
+    makeSummary({ id: TASK_IDS.three, title: 'Third', position: 2 }),
+  ];
+
+  it('shows where this task is in the list and steps to the next and previous task', async () => {
+    db.listTasks.mockResolvedValue({ items: rows, total: 3 });
+    const { dialog } = await openTask('PRODUCTION_MANAGER', { id: TASK_IDS.two }, taskUrl(TASK_IDS.two));
+    expect(await within(dialog).findByLabelText('Task 2 of 3')).toHaveTextContent('2 / 3');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Next task' }));
+    await waitFor(() => expect(screen.getByTestId('where')).toHaveTextContent(taskUrl(TASK_IDS.three)));
+    await userEvent.click(await screen.findByRole('button', { name: 'Previous task' }));
+    await waitFor(() => expect(screen.getByTestId('where')).toHaveTextContent(taskUrl(TASK_IDS.two)));
+  });
+
+  it('the first task has no previous and the last has no next', async () => {
+    db.listTasks.mockResolvedValue({ items: rows, total: 3 });
+    const { dialog } = await openTask('PRODUCTION_MANAGER', { id: TASK_IDS.one }, taskUrl(TASK_IDS.one));
+    await within(dialog).findByLabelText('Task 1 of 3');
+    expect(within(dialog).getByRole('button', { name: 'Previous task' })).toBeDisabled();
+    expect(within(dialog).getByRole('button', { name: 'Next task' })).toBeEnabled();
   });
 });

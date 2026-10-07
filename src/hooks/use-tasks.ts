@@ -92,16 +92,57 @@ export function useCreateTask() {
   });
 }
 
+/** What the detail cache should show for a patch while the save is in flight (mirrors what the server stores). */
+function optimisticPatch(patch: TaskPatch): Partial<TaskDetail> {
+  const next: Partial<TaskDetail> = {};
+  const blank = (v: string | null | undefined) => (v && v.trim() ? v.trim() : null);
+  if (patch.title !== undefined) next.title = patch.title.trim();
+  if (patch.description !== undefined) next.description = blank(patch.description);
+  if (patch.status !== undefined) next.status = patch.status;
+  if (patch.priority !== undefined) next.priority = patch.priority;
+  if (patch.aspectRatio !== undefined) next.aspectRatio = patch.aspectRatio;
+  if (patch.rawFootageLink !== undefined) next.rawFootageLink = blank(patch.rawFootageLink);
+  if (patch.projectFileLink !== undefined) next.projectFileLink = blank(patch.projectFileLink);
+  if (patch.reviewLink !== undefined) next.reviewLink = blank(patch.reviewLink);
+  if (patch.finalExportLink !== undefined) next.finalExportLink = blank(patch.finalExportLink);
+  if (patch.dueDate !== undefined) next.dueDate = patch.dueDate;
+  if (patch.clientDeadline !== undefined) next.clientDeadline = patch.clientDeadline;
+  return next;
+}
+
+/**
+ * The detail is updated at once, so a chosen status / date / person is on screen immediately; if the
+ * save fails the previous detail is restored, and either way the server's version is fetched after.
+ */
+function useOptimisticDetail() {
+  const { workspaceId, queryClient } = useTaskCache();
+  return {
+    apply: async (taskId: string, change: Partial<TaskDetail>) => {
+      const key = taskKeys.detail(workspaceId, taskId);
+      await queryClient.cancelQueries({ queryKey: key });
+      const previous = queryClient.getQueryData<TaskDetail>(key);
+      if (previous) queryClient.setQueryData<TaskDetail>(key, { ...previous, ...change });
+      return { previous, key };
+    },
+    rollback: (context: { previous?: TaskDetail; key: readonly unknown[] } | undefined) => {
+      if (context?.previous) queryClient.setQueryData(context.key, context.previous);
+    },
+  };
+}
+
 export function useUpdateTask() {
   const { refreshLists, refreshDetail } = useTaskCache();
+  const optimistic = useOptimisticDetail();
   return useMutation({
     mutationFn: ({ taskId, patch }: { taskId: string; patch: TaskPatch }) => updateTask(taskId, patch),
+    onMutate: ({ taskId, patch }) => optimistic.apply(taskId, optimisticPatch(patch)),
     onSuccess: (_task, { taskId }) => {
       void refreshDetail(taskId);
       void refreshLists();
     },
-    onError: (err, { taskId }) => {
+    onError: (err, { taskId }, context) => {
       toast.error(errorMessage(err));
+      optimistic.rollback(context);
       // Show the truth again: the field the person edited did not change.
       void refreshDetail(taskId);
     },
@@ -123,15 +164,19 @@ export function useDeleteTask() {
 
 export function useSetAssignee() {
   const { refreshLists, refreshDetail } = useTaskCache();
+  const optimistic = useOptimisticDetail();
   return useMutation({
     mutationFn: ({ taskId, role, userId }: { taskId: string; role: AssigneeRole; userId: string | null }) =>
       setTaskAssignee(taskId, role, userId),
+    onMutate: ({ taskId, role, userId }) =>
+      optimistic.apply(taskId, role === 'EDITOR' ? { editorId: userId } : { qcId: userId }),
     onSuccess: (_void, { taskId }) => {
       void refreshDetail(taskId);
       void refreshLists();
     },
-    onError: (err, { taskId }) => {
+    onError: (err, { taskId }, context) => {
       toast.error(errorMessage(err));
+      optimistic.rollback(context);
       void refreshDetail(taskId);
     },
   });

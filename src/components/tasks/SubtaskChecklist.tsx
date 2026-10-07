@@ -54,10 +54,17 @@ const SubtaskChecklist: React.FC<SubtaskChecklistProps> = ({ taskId, subtasks, a
           aria-valuenow={progress.percent}
           className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted"
         >
-          <div className="h-full rounded-full bg-brand-accent transition-[width]" style={{ width: `${progress.percent}%` }} />
+          <div className={cn('h-full rounded-full transition-[width]', progress.percent === 100 ? 'bg-status-rtd' : 'bg-brand-accent')} style={{ width: `${progress.percent}%` }} />
         </div>
         <span className="text-xs tabular-nums text-muted-foreground">
-          {progress.total === 0 ? 'No subtasks' : `${progress.done}/${progress.total} done`}
+          {progress.total === 0 ? (
+            'No subtasks'
+          ) : (
+            <>
+              <span>{`${progress.done}/${progress.total} done`}</span>
+              {progress.done < progress.total && <span>{` · ${progress.total - progress.done} left`}</span>}
+            </>
+          )}
         </span>
       </div>
 

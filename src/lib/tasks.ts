@@ -170,6 +170,24 @@ export function isoToDateInput(iso: string | null | undefined): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
 
+/** A calendar day picked in a date picker (a local Date) -> the stored instant (local noon of that day). */
+export function dateToIso(date: Date): string {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate(), 12, 0, 0).toISOString();
+}
+
+/** The stored instant -> the local calendar day it represents, for a date picker. Undefined if unset/invalid. */
+export function isoToDate(iso: string | null | undefined): Date | undefined {
+  if (!iso) return undefined;
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return undefined;
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
+/** `days` calendar days from `from` (default now), as a stored instant. Used by the picker shortcuts. */
+export function daysFromNowIso(days: number, from: Date = new Date()): string {
+  return dateToIso(new Date(from.getFullYear(), from.getMonth(), from.getDate() + days));
+}
+
 export type DueState = 'overdue' | 'today' | 'soon' | 'later';
 
 /** Days are compared as local calendar days; "soon" is within the next 2 days. */
@@ -358,3 +376,11 @@ export function memberName(lookup: MemberLookup, userId: string | null | undefin
   return lookup.get(userId)?.profile?.fullName ?? 'Former member';
 }
 
+/** "Mon 12 Oct" (adds the year when it is not the current one): the long form used in the detail sheet. */
+export function formatDayLong(iso: string | null | undefined, now: Date = new Date()): string {
+  if (!iso) return '';
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return '';
+  const sameYear = date.getFullYear() === now.getFullYear();
+  return date.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short', ...(sameYear ? {} : { year: 'numeric' }) });
+}

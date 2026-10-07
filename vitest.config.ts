@@ -40,6 +40,7 @@ export default defineConfig({
         'src/database/tasks.ts',
         'src/database/task-mappers.ts',
         'src/hooks/use-tasks.ts',
+        'src/hooks/use-save-indicator.ts',
         'src/components/tasks/*.tsx',
         'src/pages/TaskRedirect.tsx',
       ],

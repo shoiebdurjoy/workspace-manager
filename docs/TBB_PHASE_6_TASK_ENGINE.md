@@ -107,3 +107,16 @@ Moving a task up/down (`move_task`) is the Phase 6 answer to "task ordering": at
 * `npm run typecheck`, `npm run lint`, `npm test` (unit, component and routing), `npm run test:coverage` (task code is in the 85% gate), `npm run build`.
 * `npm run test:db`: the offline RLS suite applies every migration (including 7) in an in-process Postgres and asserts roles, columns, eligibility, atomicity, ordering and cascades.
 * `npm run test:live`: the same rules on the real project through the real Auth + REST API, including the exact embedded query shapes the app uses, with temporary users that are always cleaned up; it also asserts the task tables hold exactly the rows they held before the run.
+
+## 8. Task detail workspace (UX pass)
+
+An application-layer refinement of the detail sheet; **no schema, RLS or data-layer change**.
+
+* **Quiet by default.** Controls look like text until hovered or focused ("ghost" style), so the panel reads like a document. A value a person may NOT change is rendered as plain text (no chevron, no hover), never as a control that looks editable and then fails. Which is which comes from `taskAccess()`, the UI mirror of the database guards.
+* **Right control per field.** Status / priority / aspect ratio: selectors. Editor / QC reviewer: searchable person picker (plain substring match on name or role, eligible people only). Deadlines: calendar popover with Today / Tomorrow / Next week / Clear, overdue tinted. Title: click-to-edit, wraps. Brief: roomy auto-growing text, saved on blur or Ctrl/Cmd+Enter, Esc discards, line breaks preserved; read-only people see it as text.
+* **Links as production resources.** Raw footage, project file, review and final export each have an icon, show the host as a real link (new tab, `noopener`), and offer Copy and Edit; an empty link offers "Add". Only `http(s)` links are accepted (browser validation + database CHECK); a stored value that is not safe is shown as inert text.
+* **Autosave you can trust.** Every field saves on its own and only that field is sent. Changes show immediately (optimistic) and roll back with a message if the save fails; a quiet Saving / Saved / Not saved indicator replaces per-change toasts (errors still toast).
+* **Daily-use affordances.** Previous / next task (in the list's own order), "n / total", breadcrumb back up the hierarchy, Copy task link (`/tasks/:id`), delete in an actions menu, checklist with `n/m done · k left`.
+* **Responsive.** 640px sheet (720px on large screens), full width on phones with a sticky header and a single-column body; no horizontal overflow at 375 / 768 / desktop.
+* **Extension point.** Comments, attachments, activity and QC history are added as further `Section`s below the checklist; nothing is simulated for them.
+

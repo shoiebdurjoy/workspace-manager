@@ -21,7 +21,7 @@ import {
   type LinkField,
 } from '@/lib/tasks';
 import type { AspectRatio, Task, TaskPriority } from '@/types/database';
-import AssigneeSelect from './AssigneeSelect';
+import PersonPicker from './PersonPicker';
 
 const NO_RATIO = '__none__';
 
@@ -177,13 +177,13 @@ const TaskDialog: React.FC<TaskDialogProps> = ({ listId, listName, onClose, onCr
               <Label htmlFor="task-editor" className="text-xs">
                 Editor
               </Label>
-              <AssigneeSelect id="task-editor" slot="EDITOR" label="Editor" value={editorId} members={members} otherSlotUserId={qcId} onChange={setEditorId} />
+              <PersonPicker id="task-editor" slot="EDITOR" label="Editor" value={editorId} members={members} otherSlotUserId={qcId} onChange={setEditorId} />
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="task-qc" className="text-xs">
                 QC reviewer
               </Label>
-              <AssigneeSelect id="task-qc" slot="QC_REVIEWER" label="QC reviewer" value={qcId} members={members} otherSlotUserId={editorId} onChange={setQcId} />
+              <PersonPicker id="task-qc" slot="QC_REVIEWER" label="QC reviewer" value={qcId} members={members} otherSlotUserId={editorId} onChange={setQcId} />
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="task-due" className="text-xs">

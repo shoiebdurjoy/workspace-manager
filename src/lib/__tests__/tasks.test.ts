@@ -6,6 +6,10 @@ import {
   TASK_PRIORITIES,
   TASK_STATUSES,
   dateInputToIso,
+  dateToIso,
+  daysFromNowIso,
+  formatDayLong,
+  isoToDate,
   deadlineWarning,
   dueState,
   eligibleAssignees,
@@ -287,5 +291,39 @@ describe('taskAccess (UI mirror of the database guards)', () => {
   it('a user whose role is not EDITOR gains nothing from being flagged as the assigned editor', () => {
     expect(taskAccess('CLIENT_VIEWER', { isAssignedEditor: true }).editWorkLinks).toBe(false);
     expect(taskAccess('QC_SPECIALIST', { isAssignedEditor: true }).editWorkLinks).toBe(false);
+  });
+});
+
+describe('date picker helpers', () => {
+  it('a picked calendar day is stored as that day at local noon and reads back as the same day', () => {
+    for (const [y, m, d] of [[2026, 0, 1], [2026, 2, 29], [2026, 9, 25], [2026, 11, 31], [2028, 1, 29]]) {
+      const picked = new Date(y, m, d);
+      const iso = dateToIso(picked);
+      expect(new Date(iso).getHours()).toBe(12);
+      expect(isoToDate(iso)).toEqual(picked);
+      expect(isoToDateInput(iso)).toBe(isoToDateInput(dateInputToIso(`${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`)));
+    }
+  });
+
+  it('ignores an unset or invalid stored date', () => {
+    expect(isoToDate(null)).toBeUndefined();
+    expect(isoToDate('garbage')).toBeUndefined();
+  });
+
+  it('computes the shortcut dates (today, tomorrow, next week) across month and year ends', () => {
+    const from = new Date(2026, 11, 28, 20, 30);
+    expect(isoToDate(daysFromNowIso(0, from))).toEqual(new Date(2026, 11, 28));
+    expect(isoToDate(daysFromNowIso(1, from))).toEqual(new Date(2026, 11, 29));
+    expect(isoToDate(daysFromNowIso(7, from))).toEqual(new Date(2027, 0, 4));
+  });
+
+  it('formats a long day with the weekday', () => {
+    const now = new Date(2026, 9, 7);
+    const iso = new Date(2026, 9, 12, 12).toISOString();
+    expect(formatDayLong(iso, now)).toMatch(/Mon/);
+    expect(formatDayLong(iso, now)).not.toMatch(/2026/);
+    expect(formatDayLong(new Date(2027, 0, 5, 12).toISOString(), now)).toMatch(/2027/);
+    expect(formatDayLong(null, now)).toBe('');
+    expect(formatDayLong('garbage', now)).toBe('');
   });
 });

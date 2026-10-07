@@ -41,6 +41,8 @@ const ListView: React.FC<{
       {taskId && (
         <TaskDetailSheet
           taskId={taskId}
+          space={space}
+          folder={folder}
           list={list}
           onClose={() => navigate(hierarchyPaths.list(space.id, list.id), { replace: true })}
         />
