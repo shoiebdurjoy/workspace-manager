@@ -12,7 +12,7 @@ import { isFinishedStatus, needsMyAction } from '@/lib/workflow';
  */
 
 export type GroupBy = 'status' | 'editor' | 'priority' | 'none';
-export type SortKey = 'manual' | 'dueDate' | 'clientDeadline' | 'priority' | 'title' | 'created';
+export type SortKey = 'manual' | 'dueDate' | 'clientDeadline' | 'priority' | 'status' | 'editor' | 'qc' | 'title' | 'created' | 'updated';
 export type SortDir = 'asc' | 'desc';
 
 /** A person filter matches the editor OR the QC reviewer; UNASSIGNED matches a task with neither. */
@@ -79,8 +79,12 @@ export const SORT_OPTIONS: ReadonlyArray<{ value: SortKey; label: string }> = [
   { value: 'dueDate', label: 'Internal QC due' },
   { value: 'clientDeadline', label: 'Client deadline' },
   { value: 'priority', label: 'Priority' },
+  { value: 'status', label: 'Status' },
+  { value: 'editor', label: 'Editor' },
+  { value: 'qc', label: 'QC reviewer' },
   { value: 'title', label: 'Title' },
   { value: 'created', label: 'Date created' },
+  { value: 'updated', label: 'Last updated' },
 ];
 
 // ---------------------------------------------------------------------------------------
@@ -152,15 +156,33 @@ function compareDates(a: string | null, b: string | null, dir: SortDir): number 
   return dir === 'asc' ? diff : -diff;
 }
 
-export function sortTasks(tasks: readonly TaskSummary[], sort: SortKey, dir: SortDir): TaskSummary[] {
+/** People sort by name; nobody assigned sorts last in both directions (like a missing date). */
+function comparePeople(a: string | null, b: string | null, dir: SortDir, nameOf: (id: string) => string): number {
+  if (!a && !b) return 0;
+  if (!a) return 1;
+  if (!b) return -1;
+  const diff = nameOf(a).localeCompare(nameOf(b), undefined, { sensitivity: 'base' });
+  return dir === 'asc' ? diff : -diff;
+}
+
+export function sortTasks(tasks: readonly TaskSummary[], sort: SortKey, dir: SortDir, ctx: ViewContext = {}): TaskSummary[] {
   const flip = (n: number) => (dir === 'asc' ? n : -n);
+  const nameOf = (id: string) => (ctx.members ?? []).find((m) => m.userId === id)?.profile?.fullName ?? 'Former member';
+  const stageOf = (key: string) => {
+    const i = ctx.workflow?.statuses.findIndex((x) => x.key === key) ?? -1;
+    return i < 0 ? Number.MAX_SAFE_INTEGER : i;
+  };
   const by: Record<SortKey, (a: TaskSummary, b: TaskSummary) => number> = {
     manual: (a, b) => flip(manualOrder(a, b)),
     dueDate: (a, b) => compareDates(a.dueDate, b.dueDate, dir),
     clientDeadline: (a, b) => compareDates(a.clientDeadline, b.clientDeadline, dir),
     priority: (a, b) => flip(priorityOption(a.priority).rank - priorityOption(b.priority).rank),
+    status: (a, b) => flip(stageOf(a.status) - stageOf(b.status)),
+    editor: (a, b) => comparePeople(a.editorId, b.editorId, dir, nameOf),
+    qc: (a, b) => comparePeople(a.qcId, b.qcId, dir, nameOf),
     title: (a, b) => flip(a.title.localeCompare(b.title, undefined, { sensitivity: 'base', numeric: true })),
     created: (a, b) => flip(a.createdAt.localeCompare(b.createdAt)),
+    updated: (a, b) => flip(a.updatedAt.localeCompare(b.updatedAt)),
   };
   return [...tasks].sort((a, b) => by[sort](a, b) || manualOrder(a, b));
 }
@@ -232,13 +254,14 @@ export function buildView(
   view: TaskViewState,
   ctx: ViewContext,
   now: Date = new Date()
-): { groups: TaskGroup[]; visible: TaskSummary[]; matched: number } {
+): { groups: TaskGroup[]; visible: TaskSummary[]; matched: number; items: TaskSummary[] } {
   const filtered = applyFilters(tasks, view.filters, ctx, now);
-  const sorted = sortTasks(filtered, view.sort, view.dir);
+  const sorted = sortTasks(filtered, view.sort, view.dir, ctx);
   const groups = groupTasks(sorted, view.groupBy, ctx);
   // the visible order is the reading order: group by group, skipping collapsed groups
   const visible = groups.filter((g) => !view.collapsed.includes(g.key)).flatMap((g) => g.tasks);
-  return { groups, visible, matched: filtered.length };
+  // `items`: the filtered, sorted tasks before grouping (what the board lays out in its own columns)
+  return { groups, visible, matched: filtered.length, items: sorted };
 }
 
 /** Manual reordering only makes sense when the screen shows the list's own order, ungrouped and unfiltered. */

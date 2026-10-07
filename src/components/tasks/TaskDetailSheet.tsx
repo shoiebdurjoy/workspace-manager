@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   ChevronDown,
   ChevronRight,
@@ -103,6 +103,7 @@ const Section: React.FC<{ title: string; aside?: React.ReactNode; children: Reac
  */
 const TaskDetailSheet: React.FC<TaskDetailSheetProps> = ({ taskId, space, folder, list, orderedIds: visibleOrder, onClose }) => {
   const navigate = useNavigate();
+  const { search } = useLocation();
   const { user, role } = useAuth();
   const malformed = !isUuid(taskId);
   const { data: task, isLoading, isError, error, refetch } = useTask(malformed ? undefined : taskId);
@@ -129,7 +130,7 @@ const TaskDetailSheet: React.FC<TaskDetailSheetProps> = ({ taskId, space, folder
   const index = orderedIds.indexOf(taskId);
   const total = orderedIds === loadedIds ? siblings.data?.pages[0]?.total ?? loadedIds.length : orderedIds.length;
   const goTo = (id: string | undefined) => {
-    if (id) navigate(hierarchyPaths.task(space.id, list.id, id), { replace: true });
+    if (id) navigate(`${hierarchyPaths.task(space.id, list.id, id)}${search}`, { replace: true });
   };
 
   const save = (patch: TaskPatch) => track(update.mutateAsync({ taskId, patch }));

@@ -147,6 +147,12 @@ interface TaskToolbarProps {
   onView: (patch: Partial<TaskViewState>) => void;
   onClear: () => void;
   onNewTask?: () => void;
+  /** Leading control (the List / Board / Table switcher). */
+  lead?: React.ReactNode;
+  /** Extra trailing controls (column chooser). */
+  trail?: React.ReactNode;
+  /** The board's columns are always the stages, so grouping is not offered there. */
+  hideGroup?: boolean;
 }
 
 /**
@@ -155,7 +161,7 @@ interface TaskToolbarProps {
  * works on the list's loaded rows and is remembered per list.
  */
 const TaskToolbar = forwardRef<HTMLInputElement, TaskToolbarProps>(
-  ({ view, members, total, matched, onFilters, onView, onClear, onNewTask }, searchRef) => {
+  ({ view, members, total, matched, onFilters, onView, onClear, onNewTask, lead, trail, hideGroup }, searchRef) => {
     const f = view.filters;
     const active = countActiveFilters(f);
     const staff = members.filter((m) => m.role !== 'CLIENT_VIEWER');
@@ -163,6 +169,7 @@ const TaskToolbar = forwardRef<HTMLInputElement, TaskToolbarProps>(
     return (
       <div className="flex flex-col gap-2" role="toolbar" aria-label="Task view">
         <div className="flex flex-wrap items-center gap-2">
+          {lead}
           <div className="relative min-w-[10rem] flex-1 sm:max-w-xs">
             <Search aria-hidden className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
             <input
@@ -191,13 +198,15 @@ const TaskToolbar = forwardRef<HTMLInputElement, TaskToolbarProps>(
             Overdue
           </Toggle>
           <div className="ml-auto flex items-center gap-1">
-            <MenuChoice
-              icon={<Layers aria-hidden className="h-3.5 w-3.5" />}
-              label="Group"
-              value={view.groupBy}
-              options={GROUP_OPTIONS}
-              onChange={(v) => onView({ groupBy: v as TaskViewState['groupBy'] })}
-            />
+            {!hideGroup && (
+              <MenuChoice
+                icon={<Layers aria-hidden className="h-3.5 w-3.5" />}
+                label="Group"
+                value={view.groupBy}
+                options={GROUP_OPTIONS}
+                onChange={(v) => onView({ groupBy: v as TaskViewState['groupBy'] })}
+              />
+            )}
             <MenuChoice
               icon={view.dir === 'asc' ? <ArrowUpNarrowWide aria-hidden className="h-3.5 w-3.5" /> : <ArrowDownNarrowWide aria-hidden className="h-3.5 w-3.5" />}
               label="Sort"
@@ -214,6 +223,7 @@ const TaskToolbar = forwardRef<HTMLInputElement, TaskToolbarProps>(
             >
               {view.dir === 'asc' ? <ArrowUpNarrowWide className="h-4 w-4" /> : <ArrowDownNarrowWide className="h-4 w-4" />}
             </Button>
+            {trail}
             <ShortcutsHint />
             {onNewTask && (
               <Button size="sm" className="h-8" onClick={onNewTask} aria-label="New task">

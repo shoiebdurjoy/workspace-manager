@@ -118,6 +118,28 @@ describe('sorting', () => {
   });
 });
 
+describe('sorting by stage, people and last update', () => {
+  const ctx = { workflow: WF, members: [member('me', 'Pat Person'), member('zara', 'Ada Zara'), member('qc', 'Quinn QC')] };
+
+  it('stage follows the workflow order, unknown stages last', () => {
+    const odd = task({ title: 'Odd', status: 'LEGACY' });
+    expect(titles(sortTasks([...ALL, odd], 'status', 'asc', ctx))).toEqual(['Lori Bales video', 'Unassigned clip', 'Walmart series', 'Patton moving', 'Odd']);
+    expect(titles(sortTasks([...ALL, odd], 'status', 'desc', ctx))[0]).toBe('Odd'.length ? 'Odd' : '');
+  });
+
+  it('editor and QC sort by name with nobody assigned last in both directions', () => {
+    expect(titles(sortTasks(ALL, 'editor', 'asc', ctx))).toEqual(['Lori Bales video', 'Walmart series', 'Patton moving', 'Unassigned clip']);
+    expect(titles(sortTasks(ALL, 'editor', 'desc', ctx))).toEqual(['Walmart series', 'Lori Bales video', 'Patton moving', 'Unassigned clip']);
+    expect(titles(sortTasks(ALL, 'qc', 'asc', ctx)).slice(0, 2)).toEqual(['Patton moving', 'Walmart series']);
+  });
+
+  it('last updated sorts by time', () => {
+    const a = task({ title: 'old', updatedAt: '2026-01-01T00:00:00Z' });
+    const b = task({ title: 'new', updatedAt: '2026-06-01T00:00:00Z' });
+    expect(titles(sortTasks([a, b], 'updated', 'desc'))).toEqual(['new', 'old']);
+  });
+});
+
 describe('grouping', () => {
   it('groups by status in workflow order and drops empty groups (unless asked to keep them)', () => {
     expect(groupTasks(ALL, 'status', { workflow: WF }).map((g) => [g.label, g.tasks.length])).toEqual([

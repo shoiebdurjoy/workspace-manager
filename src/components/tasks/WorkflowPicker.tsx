@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react';
-import { ArrowRight, ChevronDown, CornerUpLeft, ShieldAlert, Undo2 } from 'lucide-react';
+import { ArrowRight, ArrowRightLeft, ChevronDown, CornerUpLeft, ShieldAlert, Undo2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Command, CommandGroup, CommandInput, CommandItem, CommandList, CommandSeparator } from '@/components/ui/command';
@@ -20,7 +20,7 @@ interface WorkflowPickerProps {
   task: WorkflowTaskRef;
   members?: readonly WorkspaceMember[];
   /** "cell" is the compact list-row pill; "field" fills a property row (detail panel). */
-  variant?: 'cell' | 'field';
+  variant?: 'cell' | 'field' | 'icon';
   label?: string;
   align?: 'start' | 'center' | 'end';
 }
@@ -51,6 +51,7 @@ const WorkflowPicker: React.FC<WorkflowPickerProps> = ({ task, members = [], var
 
   const pill = <TaskStatusPill status={task.status} plain={variant === 'field'} />;
 
+  if (!editable && variant === 'icon') return null;
   if (!editable) {
     const why = moves[0]?.reason ?? undefined;
     return (
@@ -87,10 +88,13 @@ const WorkflowPicker: React.FC<WorkflowPickerProps> = ({ task, members = [], var
             onClick={(e) => e.stopPropagation()}
             className={cn(
               'group/status inline-flex min-w-0 max-w-full items-center rounded-full text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-wait',
-              variant === 'field' && 'h-8 w-full justify-between rounded-md px-2 hover:bg-muted data-[state=open]:bg-muted'
+              variant === 'field' && 'h-8 w-full justify-between rounded-md px-2 hover:bg-muted data-[state=open]:bg-muted',
+              variant === 'icon' && 'h-7 w-7 justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground data-[state=open]:bg-muted'
             )}
           >
-            {variant === 'field' ? (
+            {variant === 'icon' ? (
+              <ArrowRightLeft aria-hidden className="h-3.5 w-3.5" />
+            ) : variant === 'field' ? (
               <>
                 {pill}
                 <ChevronDown aria-hidden className="h-3.5 w-3.5 text-muted-foreground" />

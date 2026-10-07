@@ -61,7 +61,7 @@ const LINK_LABELS: Record<LinkField, string> = {
 };
 
 /** The production links a row has, as one-click icons (only safe http(s) links are ever linked). */
-const RowLinks: React.FC<{ task: TaskSummary; compact?: boolean }> = ({ task, compact }) => {
+export const RowLinks: React.FC<{ task: Pick<TaskSummary, LinkField>; compact?: boolean }> = ({ task, compact }) => {
   const present = (Object.keys(LINK_ICONS) as LinkField[]).filter((k) => task[k] && isValidTaskUrl(task[k] as string));
   if (present.length === 0) return compact ? null : <span className="text-xs text-muted-foreground/50" aria-label="No links">-</span>;
   return (

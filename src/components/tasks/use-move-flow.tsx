@@ -9,17 +9,17 @@ import TransitionDialog, { type TransitionValues } from './TransitionDialog';
 export type WorkflowTaskRef = Pick<TaskSummary, 'id' | 'status' | 'editorId' | 'qcId' | 'reviewLink' | 'finalExportLink' | 'revisionCount'>;
 
 /**
- * Starting a move: straight away when the next stage needs nothing, otherwise through the dialog
- * that asks for it. One flow for the picker, the detail panel's action buttons and anything else.
+ * Runs a workflow move for any task: first assigns the editor when the move asked for one, then moves
+ * the task in one atomic call from the stage the person saw. Resolves true when the move was applied;
+ * on a refusal the hooks have already explained why and put the task back. One runner for the stage
+ * picker, the detail panel, the board's drag and drop and the table.
  */
-export function useMoveFlow(task: WorkflowTaskRef | null | undefined, members: readonly WorkspaceMember[] = []) {
+export function useMoveRunner() {
   const transition = useTransitionTask();
   const setAssignee = useSetAssignee();
-  const [asking, setAsking] = useState<Move | null>(null);
   const pending = transition.isPending || setAssignee.isPending;
 
-  const run = async (move: Move, values: TransitionValues) => {
-    if (!task) return;
+  const run = async (task: WorkflowTaskRef, move: Move, values: TransitionValues = {}): Promise<boolean> => {
     try {
       if (values.editorId) await setAssignee.mutateAsync({ taskId: task.id, role: 'EDITOR', userId: values.editorId });
       await transition.mutateAsync({
@@ -32,16 +32,26 @@ export function useMoveFlow(task: WorkflowTaskRef | null | undefined, members: r
           expectedFrom: task.status,
         },
       });
-      setAsking(null);
+      return true;
     } catch {
-      // the hooks already said what went wrong and put the task back; keep the dialog so nothing typed is lost
+      return false;
     }
   };
+  return { run, pending };
+}
+
+/**
+ * Starting a move: straight away when the next stage needs nothing, otherwise through the dialog
+ * that asks for it. One flow for the picker, the detail panel's action buttons and anything else.
+ */
+export function useMoveFlow(task: WorkflowTaskRef | null | undefined, members: readonly WorkspaceMember[] = []) {
+  const { run, pending } = useMoveRunner();
+  const [asking, setAsking] = useState<Move | null>(null);
 
   const start = (move: Move) => {
-    if (!move.allowed || pending) return;
+    if (!task || !move.allowed || pending) return;
     if (move.needs.length) setAsking(move);
-    else void run(move, {});
+    else void run(task, move);
   };
 
   const dialog =
@@ -55,7 +65,12 @@ export function useMoveFlow(task: WorkflowTaskRef | null | undefined, members: r
         override={asking.override}
         pending={pending}
         onCancel={() => setAsking(null)}
-        onConfirm={(values) => void run(asking, values)}
+        onConfirm={(values) =>
+          void run(task, asking, values).then((ok) => {
+            // keep the dialog on a refusal so nothing typed is lost
+            if (ok) setAsking(null);
+          })
+        }
       />
     ) : null;
 

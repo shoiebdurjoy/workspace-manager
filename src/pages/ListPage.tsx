@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { useMatch, useNavigate, useParams } from 'react-router-dom';
+import { useLocation, useMatch, useNavigate, useParams } from 'react-router-dom';
 import { ListTodo } from 'lucide-react';
 import HierarchyGate from '@/components/hierarchy/HierarchyGate';
 import HierarchyPageHeader from '@/components/hierarchy/HierarchyPageHeader';
@@ -16,6 +16,7 @@ const ListView: React.FC<{
   taskId?: string;
 }> = ({ space, folder, list, taskId }) => {
   const navigate = useNavigate();
+  const { search } = useLocation();
   const [visibleOrder, setVisibleOrderState] = useState<string[]>([]);
   // only a real change of order re-renders the page (the list reports it after every render)
   const setVisibleOrder = useCallback(
@@ -51,7 +52,7 @@ const ListView: React.FC<{
           folder={folder}
           list={list}
           orderedIds={visibleOrder}
-          onClose={() => navigate(hierarchyPaths.list(space.id, list.id), { replace: true })}
+          onClose={() => navigate(`${hierarchyPaths.list(space.id, list.id)}${search}`, { replace: true })}
         />
       )}
     </div>
