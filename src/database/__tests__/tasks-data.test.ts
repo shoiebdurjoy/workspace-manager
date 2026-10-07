@@ -40,6 +40,7 @@ import {
   getTask,
   listTasks,
   mapTaskError,
+  searchTasks,
   moveTask,
   setTaskAssignee,
   updateSubtask,
@@ -408,5 +409,50 @@ describe('mapTaskError', () => {
     const unknown = mapTaskError('save', { code: '23514', message: 'violates check constraint "mystery"' });
     expect(unknown.message).toMatch(/not valid/);
     expect(mapTaskError('save', { code: '23514', message: 'only editors and managers can be assigned to edit a video' }).message).toBe('only editors and managers can be assigned to edit a video');
+  });
+});
+
+describe('searchTasks (the database answers every search, filter and sort)', () => {
+  const row = {
+    id: 't1', list_id: LIST, title: 'Walmart hook', status: 'QC_REVISION_NEEDED', priority: 'HIGH', position: 0, aspect_ratio: '9:16',
+    due_date: 'd', client_deadline: null, revision_count: 2, raw_footage_link: null, project_file_link: null, review_link: 'https://app.frame.io/r',
+    final_export_link: null, created_at: 'c', updated_at: 'u', editor_id: 'ed', qc_id: 'qc', subtask_total: 3, subtask_done: 1, total_count: 42,
+  };
+
+  it('is one RPC with the text, the filters, the sort and the page: nothing is filtered in the browser', async () => {
+    rpcResults.search_tasks = { data: [row] };
+    const page = await searchTasks('w1', { query: '  walmart hook ', filters: { statuses: ['IN_EDIT'] }, sort: 'priority', dir: 'desc' }, 2, 100);
+    expect(rpcCalls).toEqual([
+      {
+        fn: 'search_tasks',
+        args: { p_workspace_id: 'w1', p_query: 'walmart hook', p_filters: { statuses: ['IN_EDIT'] }, p_sort: 'priority', p_dir: 'desc', p_limit: 100, p_offset: 200 },
+      },
+    ]);
+    expect(page.total).toBe(42);
+    expect(page.items[0]).toMatchObject({
+      id: 't1', listId: LIST, title: 'Walmart hook', status: 'QC_REVISION_NEEDED', revisionCount: 2, editorId: 'ed', qcId: 'qc', subtaskTotal: 3, subtaskDone: 1, reviewLink: 'https://app.frame.io/r',
+    });
+  });
+
+  it('uses sensible defaults, and a blank search is no search', async () => {
+    rpcResults.search_tasks = { data: [] };
+    expect(await searchTasks('w1', { query: '   ' })).toEqual({ items: [], total: 0 });
+    expect(rpcCalls[0].args).toMatchObject({ p_query: null, p_filters: {}, p_sort: 'manual', p_dir: 'asc', p_limit: 500, p_offset: 0 });
+  });
+
+  it('refuses a missing workspace before asking', async () => {
+    await expect(searchTasks('')).rejects.toBeInstanceOf(ValidationError);
+    expect(rpcCalls).toHaveLength(0);
+  });
+
+  it('turns the database\'s refusals into readable errors', async () => {
+    rpcResults.search_tasks = { error: { code: '42501', message: 'you do not have access to this workspace\'s tasks' } };
+    await expect(searchTasks('w1')).rejects.toBeInstanceOf(PermissionDeniedError);
+    for (const code of ['22023', '22P02', '22007']) {
+      rpcResults.search_tasks = { error: { code, message: 'bad input' } };
+      await expect(searchTasks('w1')).rejects.toThrow(/filters are not valid/);
+    }
+    rpcResults.search_tasks = { error: { code: '57014', message: 'canceling statement due to statement timeout' } };
+    await expect(searchTasks('w1')).rejects.toThrow(/Failed to search the tasks/);
   });
 });

@@ -723,6 +723,41 @@ export interface Database {
         };
         Returns: Database['public']['Tables']['tasks']['Row'];
       };
+      // Phase 9 (migration 11): database-side search, filters, sorting and paging. SECURITY INVOKER.
+      search_tasks: {
+        Args: {
+          p_workspace_id: string;
+          p_query?: string | null;
+          p_filters?: Json;
+          p_sort?: string;
+          p_dir?: string;
+          p_limit?: number;
+          p_offset?: number;
+        };
+        Returns: Array<{
+          id: string;
+          list_id: string;
+          title: string;
+          status: string;
+          priority: TaskPriority;
+          position: number;
+          aspect_ratio: AspectRatio | null;
+          due_date: string | null;
+          client_deadline: string | null;
+          revision_count: number;
+          raw_footage_link: string | null;
+          project_file_link: string | null;
+          review_link: string | null;
+          final_export_link: string | null;
+          created_at: string;
+          updated_at: string;
+          editor_id: string | null;
+          qc_id: string | null;
+          subtask_total: number;
+          subtask_done: number;
+          total_count: number;
+        }>;
+      };
       // Phase 7b (migration 9): production analytics, Owner / Admin only. SECURITY INVOKER.
       production_monthly: {
         Args: { p_workspace_id: string; p_timezone?: string };

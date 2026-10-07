@@ -35,6 +35,8 @@ export interface AppHeaderProps {
 
 const PAGE_TITLES: Record<string, string> = {
   "/home": "Home",
+  "/everything": "Everything",
+  "/production": "Production",
   "/team": "Team",
   "/profile": "Profile",
   "/settings": "Settings",
@@ -48,7 +50,8 @@ export const AppHeader: React.FC<AppHeaderProps> = ({ onToggleMobileSidebar, onO
   const params = useParams();
   const { data: tree } = useHierarchy();
   const trail = tree ? breadcrumbFor(tree, params) : [];
-  const pageTitle = PAGE_TITLES[location.pathname] ?? (trail.length === 0 ? "Overview" : "");
+  const pageTitle =
+    PAGE_TITLES[location.pathname] ?? (location.pathname.startsWith("/everything/") ? "Everything" : trail.length === 0 ? "Overview" : "");
 
   const onSignOut = async () => {
     await signOut();

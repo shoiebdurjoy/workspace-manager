@@ -121,3 +121,31 @@ export function mapTaskDetailRow(row: TaskDetailRow): TaskDetail {
       .sort((a, b) => a.position - b.position || a.createdAt.localeCompare(b.createdAt)),
   };
 }
+
+/** One row of search_tasks (it already carries the assignees and the checklist counts). */
+export type SearchRow = Database['public']['Functions']['search_tasks']['Returns'][number];
+
+export function mapSearchRow(row: SearchRow): TaskSummary {
+  return {
+    id: row.id,
+    listId: row.list_id,
+    title: row.title,
+    status: row.status,
+    priority: row.priority,
+    position: row.position,
+    aspectRatio: row.aspect_ratio,
+    dueDate: row.due_date,
+    clientDeadline: row.client_deadline,
+    revisionCount: row.revision_count ?? 0,
+    rawFootageLink: row.raw_footage_link,
+    projectFileLink: row.project_file_link,
+    reviewLink: row.review_link,
+    finalExportLink: row.final_export_link,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    editorId: row.editor_id,
+    qcId: row.qc_id,
+    subtaskTotal: row.subtask_total ?? 0,
+    subtaskDone: row.subtask_done ?? 0,
+  };
+}

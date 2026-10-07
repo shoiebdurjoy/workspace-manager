@@ -5,6 +5,7 @@ import {
   mapSubtaskRow,
   mapTaskDetailRow,
   mapTaskRow,
+  mapSearchRow,
   mapTaskSummaryRow,
   TASK_DETAIL_SELECT,
   TASK_SUMMARY_SELECT,
@@ -158,6 +159,46 @@ export async function listTasks(listId: string, page = 0, pageSize = TASK_PAGE_S
   if (error) throw toDatabaseError('load the tasks', error);
   const rows = (data ?? []) as unknown as TaskSummaryRow[];
   return { items: rows.map(mapTaskSummaryRow), total: count ?? rows.length };
+}
+
+export interface TaskSearchRequest {
+  /** Free text: every word must match the title, brief, short id, list / folder / space or a person's name. */
+  query?: string;
+  /** What lib/task-filters.toSearchFilters produced: only the filters in use. */
+  filters?: Record<string, unknown>;
+  sort?: string;
+  dir?: string;
+}
+
+/**
+ * One page of tasks found, filtered and sorted BY THE DATABASE (search_tasks). Nothing is filtered in the
+ * browser; the function runs under the caller's RLS, so it can only return what they may already read.
+ * `total` is how many tasks match (not just this page).
+ */
+export async function searchTasks(
+  workspaceId: string,
+  request: TaskSearchRequest = {},
+  page = 0,
+  pageSize = TASK_PAGE_SIZE
+): Promise<TaskPage> {
+  if (!workspaceId) throw new ValidationError('Workspace ID is required.');
+  const { data, error } = await getSupabaseClient().rpc('search_tasks', {
+    p_workspace_id: workspaceId,
+    p_query: request.query?.trim() ? request.query.trim() : null,
+    p_filters: (request.filters ?? {}) as never,
+    p_sort: request.sort ?? 'manual',
+    p_dir: request.dir ?? 'asc',
+    p_limit: pageSize,
+    p_offset: page * pageSize,
+  });
+  if (error) {
+    if (error.code === '22023' || error.code === '22P02' || error.code === '22007') {
+      throw new ValidationError('Those filters are not valid. Clear them and try again.', error);
+    }
+    throw toDatabaseError('search the tasks', error);
+  }
+  const rows = data ?? [];
+  return { items: rows.map(mapSearchRow), total: Number(rows[0]?.total_count ?? 0) };
 }
 
 /** The full task with assignees and checklist. NotFoundError if it does not exist or is not visible. */

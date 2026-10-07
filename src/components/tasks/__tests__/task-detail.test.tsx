@@ -50,7 +50,9 @@ beforeEach(() => {
   db.listInvitations.mockResolvedValue([]);
   db.listTeams.mockResolvedValue([]);
   db.listTeamMembers.mockResolvedValue([]);
-  db.listTasks.mockResolvedValue({ items: [makeSummary({ id: TASK_IDS.one, title: 'Episode 12 - Founder story' })], total: 1 });
+  const first = { items: [makeSummary({ id: TASK_IDS.one, title: 'Episode 12 - Founder story' })], total: 1 };
+  db.listTasks.mockResolvedValue(first);
+  db.searchTasks.mockResolvedValue(first);
   db.updateTask.mockResolvedValue({});
   db.setTaskAssignee.mockResolvedValue(undefined);
   db.createSubtask.mockResolvedValue({});
@@ -748,6 +750,7 @@ describe('task detail sheet: moving between tasks', () => {
 
   it('shows where this task is in the list and steps to the next and previous task', async () => {
     db.listTasks.mockResolvedValue({ items: rows, total: 3 });
+    db.searchTasks.mockResolvedValue({ items: rows, total: 3 });
     const { dialog } = await openTask('PRODUCTION_MANAGER', { id: TASK_IDS.two }, taskUrl(TASK_IDS.two));
     expect(await within(dialog).findByLabelText('Task 2 of 3')).toHaveTextContent('2 / 3');
     await userEvent.click(within(dialog).getByRole('button', { name: 'Next task' }));
@@ -758,6 +761,7 @@ describe('task detail sheet: moving between tasks', () => {
 
   it('the first task has no previous and the last has no next', async () => {
     db.listTasks.mockResolvedValue({ items: rows, total: 3 });
+    db.searchTasks.mockResolvedValue({ items: rows, total: 3 });
     const { dialog } = await openTask('PRODUCTION_MANAGER', { id: TASK_IDS.one }, taskUrl(TASK_IDS.one));
     await within(dialog).findByLabelText('Task 1 of 3');
     expect(within(dialog).getByRole('button', { name: 'Previous task' })).toBeDisabled();

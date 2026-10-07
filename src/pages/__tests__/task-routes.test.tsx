@@ -35,6 +35,7 @@ beforeEach(() => {
   db.listInvitations.mockResolvedValue([]);
   db.listTeams.mockResolvedValue([]);
   db.listTeamMembers.mockResolvedValue([]);
+  db.searchTasks.mockResolvedValue({ items: [], total: 0 });
   db.listTasks.mockResolvedValue({ items: [], total: 0 });
   db.getTask.mockResolvedValue(makeDetail());
 });
@@ -50,7 +51,7 @@ describe('task URLs', () => {
   it('the list page stays mounted while a task opens and closes (no second list request)', async () => {
     renderWithAuth(routes, { auth: makeAuth('OWNER'), route: `/spaces/${IDS.spaceA}/lists/${IDS.listEdaptx}` });
     await screen.findByText('No tasks in this list yet');
-    expect(db.listTasks).toHaveBeenCalledTimes(1);
+    expect(db.searchTasks).toHaveBeenCalledTimes(1);
   });
 
   it('opening a task URL directly shows the list AND the task sheet', async () => {

@@ -9,11 +9,13 @@ import {
   CommandList,
   CommandSeparator,
 } from "@/components/ui/command";
-import { Home, Settings, User, Users, Palette, MailPlus, UsersRound, LogOut, Folder, ListTodo } from "lucide-react";
+import { CheckSquare, Home, Settings, User, Users, Palette, MailPlus, UsersRound, LogOut, Folder, ListTodo, Loader2 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { useHierarchy } from "@/hooks/use-hierarchy";
 import { can } from "@/lib/permissions";
-import { hierarchyPaths } from "@/lib/hierarchy";
+import { findListById, hierarchyPaths } from "@/lib/hierarchy";
+import { FINDER_MIN_CHARS, useTaskFinder } from "@/hooks/use-task-finder";
+import { TaskStatusPill } from "@/components/tasks/TaskBadges";
 import SpaceIcon from "@/components/hierarchy/SpaceIcon";
 
 export interface CommandPaletteProps {
@@ -22,13 +24,16 @@ export interface CommandPaletteProps {
 }
 
 /**
- * ⌘K / Ctrl+K palette. It jumps between real pages and the workspace's real spaces, folders
- * and lists. Searching tasks and filtering is Phase 9.
+ * ⌘K / Ctrl+K palette. It jumps between real pages and the workspace's real spaces, folders and
+ * lists, and finds any task: once two letters are typed the database is asked (title, short id, list,
+ * folder, space and people's names) and the best few matches are listed under the pages.
  */
 export const CommandPalette: React.FC<CommandPaletteProps> = ({ open, onOpenChange }) => {
   const navigate = useNavigate();
   const { role, signOut } = useAuth();
   const { data: tree } = useHierarchy();
+  const [text, setText] = React.useState("");
+  const finder = useTaskFinder(text, open);
 
   React.useEffect(() => {
     const down = (e: KeyboardEvent) => {
@@ -41,6 +46,10 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ open, onOpenChan
     return () => document.removeEventListener("keydown", down);
   }, [open, onOpenChange]);
 
+  React.useEffect(() => {
+    if (!open) setText("");
+  }, [open]);
+
   const run = (command: () => void) => {
     onOpenChange(false);
     command();
@@ -48,14 +57,60 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ open, onOpenChan
 
   return (
     <CommandDialog open={open} onOpenChange={onOpenChange}>
-      <CommandInput placeholder="Go to a page or run a command..." />
+      <CommandInput value={text} onValueChange={setText} placeholder="Find a task, or go to a page..." />
       <CommandList>
-        <CommandEmpty>No results found.</CommandEmpty>
+        {/* cmdk does not count the task results (they are always shown), so only claim "nothing" when there are none */}
+        {finder.tasks.length === 0 && <CommandEmpty>{finder.isFetching ? "Searching..." : "No results found."}</CommandEmpty>}
+        {can(role, "hierarchy:view") && finder.tasks.length > 0 && (
+          <>
+            <CommandGroup forceMount heading={`Tasks${finder.total > finder.tasks.length ? ` (${finder.tasks.length} of ${finder.total})` : ""}`}>
+              {finder.tasks.map((task) => {
+                const place = tree ? findListById(tree, task.listId) : undefined;
+                return (
+                  <CommandItem
+                    key={task.id}
+                    forceMount
+                    value={`task ${task.id}`}
+                    onSelect={() =>
+                      run(() =>
+                        navigate(place ? hierarchyPaths.task(place.space.id, place.list.id, task.id) : hierarchyPaths.taskById(task.id))
+                      )
+                    }
+                    className="cursor-pointer gap-2"
+                  >
+                    <CheckSquare className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate">{task.title}</span>
+                      {place && (
+                        <span className="block truncate text-xs text-muted-foreground">
+                          {[place.space.name, place.folder?.name, place.list.name].filter(Boolean).join(" / ")}
+                        </span>
+                      )}
+                    </span>
+                    <TaskStatusPill status={task.status} />
+                  </CommandItem>
+                );
+              })}
+            </CommandGroup>
+            <CommandSeparator />
+          </>
+        )}
+        {finder.isFetching && finder.term.length >= FINDER_MIN_CHARS && finder.tasks.length === 0 && (
+          <div role="status" className="flex items-center gap-2 px-3 py-3 text-xs text-muted-foreground">
+            <Loader2 aria-hidden className="h-3.5 w-3.5 animate-spin" /> Searching tasks...
+          </div>
+        )}
         <CommandGroup heading="Navigation">
           <CommandItem onSelect={() => run(() => navigate("/home"))} className="cursor-pointer">
             <Home className="mr-2 h-4 w-4 text-muted-foreground" />
             <span>Home</span>
           </CommandItem>
+          {can(role, "hierarchy:view") && (
+            <CommandItem onSelect={() => run(() => navigate(hierarchyPaths.everything()))} className="cursor-pointer">
+              <CheckSquare className="mr-2 h-4 w-4 text-muted-foreground" />
+              <span>Everything (all tasks)</span>
+            </CommandItem>
+          )}
           {can(role, "team:view") && (
             <>
               <CommandItem onSelect={() => run(() => navigate("/team"))} className="cursor-pointer">

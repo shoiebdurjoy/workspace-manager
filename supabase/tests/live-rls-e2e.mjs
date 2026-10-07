@@ -1130,6 +1130,115 @@ VALUES (gen_random_uuid(), '${u.id}', '${u.id}', jsonb_build_object('sub','${u.i
     grantRefusals = grantsBefore;
   }
 
+  console.log('\n== Phase 9: database-side search, filters and sorting (live) ==');
+  {
+    const Z = `zq${RUN}`; // a word only this run's tasks contain
+    res = await clients.pm.from('lists').insert({ space_id: space, folder_id: folder, name: `P11 SEARCH ${Z}` }).select().single();
+    const lp = res.data?.id;
+    res = await clients.pm.from('lists').insert({ space_id: space, name: `P11 OTHER ${Z}` }).select().single();
+    const lq = res.data?.id;
+    const mk = async (title, list, o = {}) => {
+      const r = await clients.pm.rpc('create_task', { p_list_id: list, p_title: title, p_priority: o.priority ?? 'MEDIUM', p_aspect_ratio: o.aspect ?? null, p_due_date: o.due ?? null, p_editor_id: o.editor ?? null, p_qc_id: o.qc ?? null, p_description: o.desc ?? null });
+      return r.data?.id;
+    };
+    const day = (n) => new Date(Date.now() + n * 86400000).toISOString();
+    const s1 = await mk(`${Z} Walmart hook`, lp, { priority: 'HIGH', due: day(2), aspect: '9:16', desc: 'cut to fifty-eight seconds' });
+    const s2 = await mk(`${Z} Walmart long cut`, lp, { priority: 'URGENT', due: day(-3), editor: U.editor.id, qc: U.qc.id });
+    const s3 = await mk(`${Z} Lori testimonial`, lq, { priority: 'LOW', editor: U.editor2.id, qc: U.qc.id });
+    await clients.pm.rpc('transition_task', { p_task_id: s2, p_to: 'ASSIGNED' });
+    await clients.pm.rpc('transition_task', { p_task_id: s2, p_to: 'STARTED_EDITING' }).then(() => undefined);
+    const names = { [s1]: 's1', [s2]: 's2', [s3]: 's3' };
+    const search = (who, q, filters = {}, sort = 'manual', dir = 'asc', limit = 500, offset = 0) =>
+      clients[who].rpc('search_tasks', { p_workspace_id: ws, p_query: q, p_filters: { lists: [lp, lq], ...filters }, p_sort: sort, p_dir: dir, p_limit: limit, p_offset: offset });
+    const got = (r) => (r.data ?? []).map((x) => names[x.id]);
+    const sameSet = (r, ...k) => !r.error && got(r).sort().join() === k.sort().join();
+
+    // who may search (the function runs as the caller: RLS is the boundary)
+    for (const who of ['owner', 'admin', 'pm', 'qc', 'editor']) {
+      res = await search(who, Z);
+      rec(`${who} can search and finds this run's three tasks`, sameSet(res, 's1', 's2', 's3'), res.error?.message ?? got(res).join());
+    }
+    for (const who of ['client', 'stranger']) {
+      res = await search(who, Z);
+      rec(`${who} is refused (42501)`, res.error?.code === '42501', JSON.stringify(res.error));
+    }
+    res = await anon.rpc('search_tasks', { p_workspace_id: ws });
+    rec('anon cannot call search_tasks', !!res.error);
+    res = await clients.editor.rpc('search_tasks', { p_workspace_id: wsB });
+    rec("a member of one workspace cannot search another workspace's tasks", res.error?.code === '42501', JSON.stringify(res.error));
+
+    // text, filters, sort, paging
+    res = await search('editor', `${Z} walmart`);
+    rec('search: title words, any case', sameSet(res, 's1', 's2'));
+    res = await search('editor', `${Z.toUpperCase()} HOOK`);
+    rec('search: case-insensitive, every word must match', sameSet(res, 's1'));
+    res = await search('editor', 'fifty-eight');
+    rec('search: the brief', sameSet(res, 's1'));
+    res = await search('editor', `P11 OTHER`);
+    rec('search: the list name', sameSet(res, 's3'));
+    res = await search('editor', 'E2E editor2');
+    rec('search: the editor\'s name', sameSet(res, 's3'));
+    res = await search('editor', `#${s2.slice(0, 8)}`);
+    rec('search: a short task id', sameSet(res, 's2'));
+    res = await search('editor', `${Z} 100%`);
+    rec('search: a literal % is not a wildcard', sameSet(res));
+    res = await search('editor', `'; drop table public.tasks; --`);
+    rec('search: SQL typed into the box is just text', !res.error && (res.data ?? []).length === 0);
+    res = await search('editor', null, { priorities: ['URGENT', 'LOW'] });
+    rec('filter: priority', sameSet(res, 's2', 's3'));
+    res = await search('editor', null, { editors: [U.editor.id] });
+    rec('filter: editor', sameSet(res, 's2'));
+    res = await search('editor', null, { noEditor: true });
+    rec('filter: nobody assigned', sameSet(res, 's1'));
+    res = await search('editor', null, { qcs: [U.qc.id], priorities: ['URGENT'] });
+    rec('filter: QC reviewer AND priority', sameSet(res, 's2'));
+    res = await search('editor', null, { statuses: ['STARTED_EDITING'] });
+    rec('filter: stage', sameSet(res, 's2'));
+    res = await search('editor', null, { dueFrom: day(-5), dueTo: day(5) });
+    rec('filter: due date range', sameSet(res, 's1', 's2'));
+    res = await search('editor', null, { noDue: true });
+    rec('filter: no due date', sameSet(res, 's3'));
+    res = await search('editor', null, { overdue: true, overdueBefore: new Date().toISOString() });
+    rec('filter: overdue', sameSet(res, 's2'));
+    res = await search('editor', null, { spaces: [crypto.randomUUID()] });
+    rec('filter: another space has none of them', sameSet(res));
+    res = await search('editor', null, { lists: ['not-a-uuid'] });
+    rec('a malformed id is refused, not ignored', !!res.error);
+    res = await search('editor', null, { statuses: Array.from({ length: 101 }, (_, i) => `S${i}`) });
+    rec('more than 100 values in a filter is refused', res.error?.code === '22023', JSON.stringify(res.error));
+    res = await search('editor', Z, {}, 'priority', 'asc');
+    rec('sort: priority, most urgent first', !res.error && got(res).join() === 's2,s1,s3', got(res).join());
+    res = await search('editor', Z, {}, 'dueDate', 'desc');
+    rec('sort: due date descending, empty last', !res.error && got(res).join() === 's1,s2,s3', got(res).join());
+    res = await search('editor', Z, {}, 'title', 'asc');
+    rec('sort: title', !res.error && got(res).join() === 's3,s1,s2', got(res).join());
+    res = await search('editor', Z, {}, 'robert); drop table tasks;--', 'sideways');
+    rec('an unknown sort falls back safely', !res.error && (res.data ?? []).length === 3);
+    res = await search('editor', Z, {}, 'title', 'asc', 2, 0);
+    const p2 = await search('editor', Z, {}, 'title', 'asc', 2, 2);
+    rec('paging: pages of two, in order, with the full count on every row', !res.error && got(res).join() === 's3,s1' && got(p2).join() === 's2' && Number(res.data[0].total_count) === 3);
+    res = await search('editor', null, { lists: [lp, lq] }, 'manual', 'asc');
+    const row = (res.data ?? []).find((x) => x.id === s2);
+    rec('rows carry editor, QC and the task\'s own properties', row?.editor_id === U.editor.id && row.qc_id === U.qc.id && row.priority === 'URGENT' && row.status === 'STARTED_EDITING');
+
+    // latency on a realistic amount of data, through the real API (test workspace only, removed with it)
+    runSql(`INSERT INTO public.tasks (list_id, title, description, priority)
+            SELECT '${lp}', 'perf ${Z} video ' || g || CASE WHEN g % 1000 = 0 THEN ' marlin${RUN}' ELSE '' END, 'brief ' || g, 'MEDIUM'
+            FROM generate_series(1, 3000) g;`);
+    const t0 = Date.now();
+    res = await clients.editor.rpc('search_tasks', { p_workspace_id: ws, p_query: `marlin${RUN}`, p_filters: {} });
+    const ms = Date.now() - t0;
+    rec('searching 3,000+ tasks for a rare word finds the right ones', !res.error && (res.data ?? []).length === 3 && Number(res.data[0].total_count) === 3, res.error?.message ?? String((res.data ?? []).length));
+    console.log(`      (search over 3,000+ tasks through the API: ${ms} ms)`);
+    rec('...in well under two seconds, network included', ms < 2000, `${ms}ms`);
+    const t1 = Date.now();
+    res = await clients.editor.rpc('search_tasks', { p_workspace_id: ws, p_query: null, p_filters: { lists: [lp], priorities: ['MEDIUM'] }, p_sort: 'priority', p_limit: 500 });
+    const ms2 = Date.now() - t1;
+    rec('a filtered, sorted first page of a big list comes back as one page of 500', !res.error && res.data?.length === 500 && Number(res.data[0].total_count) >= 3000, res.error?.message);
+    console.log(`      (first page, filtered + sorted: ${ms2} ms)`);
+    rec('...also quickly', ms2 < 3000, `${ms2}ms`);
+  }
+
   console.log('\n== Deactivation (flag flipped by the service owner) ==');
   const run = runSql;
   run(`UPDATE public.profiles SET is_active = false WHERE id = '${U.editor.id}'`);

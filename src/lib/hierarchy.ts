@@ -189,6 +189,9 @@ export const hierarchyPaths = {
   list: (spaceId: string, listId: string) => `/spaces/${spaceId}/lists/${listId}`,
   /** A task opens as a side sheet over its list, so a task URL is the list URL plus the task id. */
   task: (spaceId: string, listId: string, taskId: string) => `/spaces/${spaceId}/lists/${listId}/tasks/${taskId}`,
+  /** Every task the person can see, across all lists (optionally narrowed by ?space= ?folder= ?list= ...). */
+  everything: () => '/everything',
+  everythingTask: (taskId: string) => `/everything/tasks/${taskId}`,
   /** Stable deep link for places that know only a task id (notifications, search, My Tasks). */
   taskById: (taskId: string) => `/tasks/${taskId}`,
 };

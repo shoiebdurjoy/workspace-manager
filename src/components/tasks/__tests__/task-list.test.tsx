@@ -1,6 +1,6 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { act, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Route, Routes, useLocation } from 'react-router-dom';
 import ListPage from '@/pages/ListPage';
@@ -11,6 +11,7 @@ import { IDS, makeTree } from '@/test/hierarchy-fixtures';
 import { MEMBERS, PEOPLE, TASK_IDS, makeDetail, makeSummary } from '@/test/task-fixtures';
 import { taskViewStorageKey } from '@/hooks/use-task-view';
 import { TBB_WORKFLOW } from '@/test/workflow-fixture';
+import { fakeSearch } from '@/test/fake-search';
 import type { TbbRole } from '@/types/database';
 
 vi.mock('@/database', async () => (await import('@/test/database-mock')).createDatabaseMock());
@@ -18,7 +19,12 @@ const toasts = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn(), message: vi
 vi.mock('sonner', () => ({ toast: toasts }));
 const db = dbModule as unknown as ReturnType<typeof createDatabaseMock>;
 
-const Where: React.FC = () => <span data-testid="where">{useLocation().pathname}</span>;
+const Where: React.FC = () => {
+  const l = useLocation();
+  return <span data-testid="where">{l.pathname + l.search}</span>;
+};
+/** The tasks on screen (rows, not the filter chips that are list items too). */
+const shownTitles = () => screen.getAllByRole('link').filter((l) => l.getAttribute('href')?.includes('/tasks/')).map((l) => l.textContent);
 const routes = (
   <>
     <Routes>
@@ -55,6 +61,7 @@ beforeEach(() => {
   db.listTeams.mockResolvedValue([]);
   db.listTeamMembers.mockResolvedValue([]);
   db.listTasks.mockResolvedValue({ items: ROWS, total: 3 });
+  db.searchTasks.mockImplementation(fakeSearch(() => ROWS));
   db.getTask.mockResolvedValue(makeDetail());
   db.updateTask.mockImplementation(async (id: string) => ({ ...makeDetail({ id }), updatedAt: 'now' }));
   db.setTaskAssignee.mockResolvedValue(undefined);
@@ -77,7 +84,7 @@ describe('the list workspace: real data, grouped', () => {
   it('groups tasks by status (in workflow order) with counts, and shows each row with its properties', async () => {
     renderList();
     await screen.findByRole('link', { name: 'Product teaser' });
-    expect(db.listTasks).toHaveBeenCalledWith(IDS.listEdaptx, 0);
+    expect(db.searchTasks).toHaveBeenCalledWith('ws-1', { query: '', filters: { lists: [IDS.listEdaptx] }, sort: 'manual', dir: 'asc' }, 0);
     const groups = screen.getAllByRole('group').map((g) => g.getAttribute('aria-label'));
     expect(groups).toEqual(['TO BE EDITED, 1', 'STARTED EDITING, 1', 'CLOSED, 1']); // workflow order; empty stages are not shown
 
@@ -101,12 +108,12 @@ describe('the list workspace: real data, grouped', () => {
     const page1 = Array.from({ length: 500 }, (_, i) =>
       makeSummary({ id: `cccccccc-cccc-4ccc-8ccc-${String(i).padStart(12, '0')}`, title: `Clip ${i}`, position: i })
     );
-    db.listTasks.mockImplementation(async (_list: string, page: number) =>
+    db.searchTasks.mockImplementation(async (_ws: string, _request: unknown, page: number) =>
       page === 0 ? { items: page1, total: 501 } : { items: [makeSummary({ id: 'dddddddd-dddd-4ddd-8ddd-dddddddddd01', title: 'Clip 500', position: 500 })], total: 501 }
     );
     renderList();
     expect(await screen.findByRole('link', { name: 'Clip 500' }, { timeout: 5000 })).toBeInTheDocument();
-    expect(db.listTasks).toHaveBeenCalledWith(IDS.listEdaptx, 1);
+    expect(db.searchTasks).toHaveBeenCalledWith('ws-1', expect.anything(), 1);
     expect(screen.getByRole('group', { name: 'TO BE EDITED, 501' })).toBeInTheDocument();
   }, 30_000);
 
@@ -119,7 +126,7 @@ describe('the list workspace: real data, grouped', () => {
 
   it('shows a loading state, then the tasks', async () => {
     let resolve: (v: unknown) => void = () => undefined;
-    db.listTasks.mockReturnValue(new Promise((r) => (resolve = r)));
+    db.searchTasks.mockReturnValue(new Promise((r) => (resolve = r)));
     renderList();
     expect(await screen.findByRole('status', { name: 'Loading tasks' })).toBeInTheDocument();
     resolve({ items: ROWS, total: 3 });
@@ -127,7 +134,7 @@ describe('the list workspace: real data, grouped', () => {
   });
 
   it('shows a readable error with Try again that really retries', async () => {
-    db.listTasks.mockRejectedValueOnce(new Error('Failed to load the tasks: connection failure'));
+    db.searchTasks.mockRejectedValueOnce(new Error('Failed to load the tasks: connection failure'));
     renderList();
     expect(await screen.findByRole('alert')).toHaveTextContent('connection failure');
     await userEvent.click(screen.getByRole('button', { name: /try again/i }));
@@ -135,7 +142,7 @@ describe('the list workspace: real data, grouped', () => {
   });
 
   it('an empty list has a designed empty state (no invented tasks); managers can start from it', async () => {
-    db.listTasks.mockResolvedValue({ items: [], total: 0 });
+    db.searchTasks.mockResolvedValue({ items: [], total: 0 });
     renderList('PRODUCTION_MANAGER');
     expect(await screen.findByText('No tasks in this list yet')).toBeInTheDocument();
     expect(screen.getByLabelText('Add a task')).toBeInTheDocument();
@@ -143,7 +150,7 @@ describe('the list workspace: real data, grouped', () => {
   });
 
   it.each<TbbRole>(['EDITOR', 'QC_SPECIALIST'])('an empty list for a %s offers no way to create', async (role) => {
-    db.listTasks.mockResolvedValue({ items: [], total: 0 });
+    db.searchTasks.mockResolvedValue({ items: [], total: 0 });
     renderList(role);
     expect(await screen.findByText(/added to this list by a Production Manager/)).toBeInTheDocument();
     expect(screen.queryByLabelText('Add a task')).not.toBeInTheDocument();
@@ -178,7 +185,7 @@ describe('editing right in the list (inline, optimistic, rolled back on failure)
     expect(screen.queryByRole('group', { name: /^TO BE EDITED/ })).not.toBeInTheDocument();
     finish({ ...makeDetail({ id: TASK_IDS.three }), status: 'IN_EDIT', updatedAt: 'now' });
     // a field edit does not refetch the whole list
-    await waitFor(() => expect(db.listTasks).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(db.searchTasks).toHaveBeenCalledTimes(1));
     expect(screen.getByTestId('where')).toHaveTextContent(new RegExp(`${LIST_URL}$`)); // did not open the task
   });
 
@@ -198,7 +205,7 @@ describe('editing right in the list (inline, optimistic, rolled back on failure)
     await screen.findByRole('link', { name: 'Behind the scenes' });
     await userEvent.click(within(await openPicker('Behind the scenes')).getByRole('option', { name: /Move to edit queue/ }));
     await waitFor(() => expect(toasts.error).toHaveBeenCalledWith(expect.stringMatching(/Someone else moved this task/)));
-    await waitFor(() => expect(db.listTasks.mock.calls.length).toBeGreaterThan(1));
+    await waitFor(() => expect(db.searchTasks.mock.calls.length).toBeGreaterThan(1));
   });
 
   it('a step that needs something asks for it first (assigning an editor), then moves', async () => {
@@ -239,7 +246,7 @@ describe('editing right in the list (inline, optimistic, rolled back on failure)
   });
 
   it('a cut sent back for changes is unmistakable in the list: red stage, revision number', async () => {
-    db.listTasks.mockResolvedValue({
+    db.searchTasks.mockResolvedValue({
       items: [...ROWS, makeSummary({ id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa4', title: 'Recut ad', status: 'QC_REVISION_NEEDED', revisionCount: 2, editorId: PEOPLE.me, reviewLink: 'https://frame.io/x', position: 3 })],
       total: 4,
     });
@@ -331,7 +338,7 @@ describe('who can change what, row by row (the database enforces the same)', () 
   });
 
   it('a QC SPECIALIST approves or sends back cuts in QC (with a note), and has no editing or closing steps', async () => {
-    db.listTasks.mockResolvedValue({
+    db.searchTasks.mockResolvedValue({
       items: [...ROWS, makeSummary({ id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa4', title: 'First cut', status: 'QC_FIRST_APPROVAL', editorId: PEOPLE.editor2, reviewLink: 'https://frame.io/x', position: 3 })],
       total: 4,
     });
@@ -362,52 +369,144 @@ describe('who can change what, row by row (the database enforces the same)', () 
   it('a client viewer gets no task requests at all (fails closed in the UI as in the database)', async () => {
     renderList('CLIENT_VIEWER');
     expect(await screen.findByRole('alert')).toHaveTextContent('No access');
-    expect(db.listTasks).not.toHaveBeenCalled();
+    expect(db.searchTasks).not.toHaveBeenCalled();
   });
 });
 
-describe('finding work: search, filters, grouping, sorting (remembered per list)', () => {
-  it('searches titles and shows "x of y"', async () => {
+describe('finding work: search, filters, grouping, sorting (answered by the database, kept in the URL)', () => {
+  const lastRequest = () => db.searchTasks.mock.calls.at(-1)?.[1] as { query: string; filters: Record<string, unknown>; sort: string; dir: string };
+
+  it('searches by asking the database once typing pauses (one request, not one per keystroke)', async () => {
     renderList();
     await screen.findByRole('link', { name: 'Product teaser' });
+    const before = db.searchTasks.mock.calls.length;
     await userEvent.type(screen.getByRole('searchbox', { name: 'Search tasks' }), 'teaser');
+    expect(await screen.findByText('1 task matches')).toBeInTheDocument();
+    expect(db.searchTasks.mock.calls.length - before).toBe(1);
+    expect(lastRequest()).toEqual({ query: 'teaser', filters: { lists: [IDS.listEdaptx] }, sort: 'manual', dir: 'asc' });
     expect(screen.getByRole('link', { name: 'Product teaser' })).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Behind the scenes' })).not.toBeInTheDocument();
-    expect(screen.getByText('1 of 3 tasks')).toBeInTheDocument();
+    expect(screen.getByTestId('where')).toHaveTextContent('q=teaser');
   });
 
-  it('"Needs my action" shows only the tasks waiting on me', async () => {
+  it('"Needs my action" asks for my tasks and keeps only those where the next step is mine', async () => {
     renderList('EDITOR');
     await screen.findByRole('link', { name: 'Product teaser' });
     await userEvent.click(screen.getByRole('button', { name: 'Needs my action' }));
-    expect(screen.getAllByRole('listitem').map((li) => within(li).getAllByRole('link')[0].textContent)).toEqual(['Episode 12 - Founder story']);
-    expect(screen.getByText('1 of 3 tasks')).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole('link', { name: 'Product teaser' })).not.toBeInTheDocument());
+    expect(lastRequest().filters).toEqual({ lists: [IDS.listEdaptx], people: ['user-1'] });
+    expect(shownTitles()).toEqual(['Episode 12 - Founder story']);
+    expect(screen.getByText('1 task matches')).toBeInTheDocument();
   });
 
   it('"Assigned to me" and "Overdue" answer the two daily questions', async () => {
     renderList();
     await screen.findByRole('link', { name: 'Product teaser' });
     await userEvent.click(screen.getByRole('button', { name: 'Assigned to me' }));
-    expect(screen.getAllByRole('listitem').map((li) => within(li).getAllByRole('link')[0].textContent)).toEqual(['Episode 12 - Founder story']);
+    await waitFor(() => expect(screen.queryByRole('link', { name: 'Product teaser' })).not.toBeInTheDocument());
+    expect(shownTitles()).toEqual(['Episode 12 - Founder story']);
     await userEvent.click(screen.getByRole('button', { name: 'Assigned to me' }));
     await userEvent.click(screen.getByRole('button', { name: 'Overdue' }));
-    expect(screen.getByText('1 of 3 tasks')).toBeInTheDocument();
+    expect(await screen.findByText('1 task matches')).toBeInTheDocument();
+    expect(lastRequest().filters).toMatchObject({ overdue: true, overdueBefore: expect.stringMatching(/^\d{4}-\d\d-\d\dT/) });
     expect(screen.getByRole('link', { name: 'Episode 12 - Founder story' })).toBeInTheDocument();
   });
 
-  it('filters by status, people and priority, explains an empty result, and clears', async () => {
+  it('filters by priority and editor, shows what is on as chips, explains an empty result, and clears', async () => {
     renderList();
     await screen.findByRole('link', { name: 'Product teaser' });
     await userEvent.click(screen.getByRole('button', { name: 'Priority filter' }));
     await userEvent.click(await screen.findByRole('option', { name: /Urgent/ }));
     await userEvent.keyboard('{Escape}');
-    expect(screen.getByText('1 of 3 tasks')).toBeInTheDocument();
-    await userEvent.click(screen.getByRole('button', { name: /^People filter/ }));
+    expect(await screen.findByText('1 task matches')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Remove filter: Priority: Urgent' })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Editor filter' }));
     await userEvent.click(await screen.findByRole('option', { name: /Nobody assigned/ }));
     await userEvent.keyboard('{Escape}');
-    expect(screen.getByText('No tasks match these filters.')).toBeInTheDocument();
+    expect(await screen.findByText('No tasks match these filters.')).toBeInTheDocument();
+    expect(lastRequest().filters).toEqual({ lists: [IDS.listEdaptx], priorities: ['URGENT'], noEditor: true });
+    // the toolbar stays, so the person can change their mind without losing the filters row
+    expect(screen.getByRole('searchbox', { name: 'Search tasks' })).toBeInTheDocument();
     await userEvent.click(screen.getAllByRole('button', { name: /Clear filters/ })[0]);
-    expect(screen.getByText('3 tasks')).toBeInTheDocument();
+    expect(await screen.findByText('3 tasks')).toBeInTheDocument();
+    expect(screen.queryByRole('list', { name: 'Active filters' })).not.toBeInTheDocument();
+  });
+
+  it('removes one filter from its chip and leaves the others', async () => {
+    renderList('PRODUCTION_MANAGER', `${LIST_URL}?status=STARTED_EDITING&priority=URGENT`);
+    await screen.findByRole('link', { name: 'Episode 12 - Founder story' });
+    expect(lastRequest().filters).toEqual({ lists: [IDS.listEdaptx], statuses: ['STARTED_EDITING'], priorities: ['URGENT'] });
+    await userEvent.click(screen.getByRole('button', { name: 'Remove filter: Status: STARTED EDITING' }));
+    await waitFor(() => expect(lastRequest().filters).toEqual({ lists: [IDS.listEdaptx], priorities: ['URGENT'] }));
+    expect(screen.getByTestId('where')).toHaveTextContent('priority=URGENT');
+    expect(screen.getByTestId('where').textContent).not.toMatch(/status=/);
+  });
+
+  it('opens a shared link with the same search and filters already applied', async () => {
+    renderList('PRODUCTION_MANAGER', `${LIST_URL}?q=story&status=STARTED_EDITING&editor=${PEOPLE.me}&aspect=9:16&sort=title&dir=desc`);
+    await screen.findByRole('link', { name: 'Episode 12 - Founder story' });
+    expect(screen.getByRole('searchbox', { name: 'Search tasks' })).toHaveValue('story');
+    expect(lastRequest()).toMatchObject({
+      query: 'story',
+      sort: 'title',
+      dir: 'desc',
+      filters: { lists: [IDS.listEdaptx], statuses: ['STARTED_EDITING'], editors: [PEOPLE.me], aspectRatios: ['9:16'] },
+    });
+    expect(screen.getByRole('button', { name: 'Editor filter: 1 selected' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Aspect ratio filter: 1 selected' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Remove filter: Editor: Pat Person' })).toBeInTheDocument();
+  });
+
+  it('ignores a malformed link instead of passing it on', async () => {
+    renderList('PRODUCTION_MANAGER', `${LIST_URL}?status=drop%20table&editor=%27%3B%20drop&due=whenever&sort=;drop&group=bogus`);
+    await screen.findByRole('link', { name: 'Episode 12 - Founder story' });
+    expect(lastRequest()).toEqual({ query: '', filters: { lists: [IDS.listEdaptx] }, sort: 'manual', dir: 'asc' });
+  });
+
+  it('filters by a date preset and a custom range, for the QC due date, the client deadline and creation', async () => {
+    renderList();
+    await screen.findByRole('link', { name: 'Product teaser' });
+    await userEvent.click(screen.getByRole('button', { name: 'QC due filter' }));
+    await userEvent.click(await screen.findByRole('option', { name: 'Next 7 days' }));
+    await waitFor(() => expect(lastRequest().filters).toHaveProperty('dueFrom'));
+    expect(screen.getByRole('button', { name: 'QC due filter: Next 7 days' })).toBeInTheDocument();
+    await userEvent.click(await screen.findByRole('option', { name: 'No date' }));
+    await waitFor(() => expect(lastRequest().filters).toMatchObject({ noDue: true }));
+    expect(lastRequest().filters).not.toHaveProperty('dueFrom');
+    await userEvent.keyboard('{Escape}');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Created filter' }));
+    fireEvent.change(await screen.findByLabelText('Created from'), { target: { value: '2026-10-01' } });
+    await waitFor(() => expect(lastRequest().filters).toHaveProperty('createdFrom'));
+    expect(lastRequest().filters).not.toHaveProperty('createdTo');
+    expect(screen.getByTestId('where')).toHaveTextContent('created=2026-10-01..');
+    await userEvent.keyboard('{Escape}');
+    await userEvent.click(screen.getByRole('button', { name: /^Remove filter: Created: From/ }));
+    expect(screen.getByTestId('where').textContent).not.toMatch(/created=/); // answered from the cache: nothing new to ask
+    expect(screen.queryByRole('button', { name: /^Remove filter: Created/ })).not.toBeInTheDocument();
+  });
+
+  it('keeps the previous results on screen while a new search is answered (no flicker per keystroke)', async () => {
+    renderList();
+    await screen.findByRole('link', { name: 'Product teaser' });
+    let finish: (v: unknown) => void = () => undefined;
+    db.searchTasks.mockImplementationOnce(() => new Promise((r) => (finish = r)));
+    await userEvent.type(screen.getByRole('searchbox', { name: 'Search tasks' }), 'beh');
+    await waitFor(() => expect(screen.getByLabelText('Searching')).toBeInTheDocument());
+    expect(screen.getByRole('link', { name: 'Product teaser' })).toBeInTheDocument(); // still the old answer
+    finish({ items: [ROWS[2]], total: 1 });
+    await waitFor(() => expect(screen.queryByRole('link', { name: 'Product teaser' })).not.toBeInTheDocument());
+    expect(screen.getByRole('link', { name: 'Behind the scenes' })).toBeInTheDocument();
+  });
+
+  it('a failed search says so and can be retried', async () => {
+    renderList();
+    await screen.findByRole('link', { name: 'Product teaser' });
+    db.searchTasks.mockRejectedValueOnce(new Error('Failed to search the tasks: timeout'));
+    await userEvent.click(screen.getByRole('button', { name: 'Overdue' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('timeout');
+    await userEvent.click(screen.getByRole('button', { name: /try again/i }));
+    expect(await screen.findByRole('link', { name: 'Episode 12 - Founder story' })).toBeInTheDocument();
   });
 
   it('groups by editor, by priority or not at all; collapses a group; remembers the choice for this list', async () => {
@@ -490,7 +589,7 @@ describe('many at once: selection and bulk actions', () => {
   it('a bulk request for changes asks once for the note every task gets; failures go back and are reported', async () => {
     const inQc = (id: string, title: string, position: number) =>
       makeSummary({ id, title, status: 'QC_FIRST_APPROVAL', editorId: PEOPLE.editor2, reviewLink: 'https://frame.io/x', position });
-    db.listTasks.mockResolvedValue({ items: [inQc(TASK_IDS.one, 'Cut A', 0), inQc(TASK_IDS.two, 'Cut B', 1)], total: 2 });
+    db.searchTasks.mockResolvedValue({ items: [inQc(TASK_IDS.one, 'Cut A', 0), inQc(TASK_IDS.two, 'Cut B', 1)], total: 2 });
     db.transitionTask.mockImplementation(async (id: string, input: { to: string }) => {
       if (id === TASK_IDS.two) throw new Error('Someone else moved this task in the meantime.');
       return { ...makeDetail({ id }), status: input.to, revisionCount: 1, updatedAt: 'now' };
@@ -510,7 +609,7 @@ describe('many at once: selection and bulk actions', () => {
     }
     await waitFor(() => expect(toasts.error).toHaveBeenCalledWith(expect.stringMatching(/1 task; 1 task could not be changed: Someone else moved/)));
     // the failed one is back in QC, and the list is reloaded to show the truth
-    await waitFor(() => expect(db.listTasks.mock.calls.length).toBeGreaterThan(1));
+    await waitFor(() => expect(db.searchTasks.mock.calls.length).toBeGreaterThan(1));
   });
 
   it('when some bulk writes fail, exactly those rows go back and the person is told', async () => {
@@ -579,11 +678,11 @@ describe('quick add', () => {
     await waitFor(() => expect(db.createTask).toHaveBeenCalledWith(IDS.listEdaptx, { title: 'Next clip' }));
     await waitFor(() => expect(input).toHaveValue(''));
     // creating changes which rows exist, so the list is refreshed from the database
-    await waitFor(() => expect(db.listTasks.mock.calls.length).toBeGreaterThan(1));
+    await waitFor(() => expect(db.searchTasks.mock.calls.length).toBeGreaterThan(1));
   });
 
   it('adding inside a stage group moves the new task there through the workflow, only where that is one plain step', async () => {
-    db.listTasks.mockResolvedValue({ items: [...ROWS, makeSummary({ id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa4', title: 'Queued', status: 'IN_EDIT', position: 3 })], total: 4 });
+    db.searchTasks.mockResolvedValue({ items: [...ROWS, makeSummary({ id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa4', title: 'Queued', status: 'IN_EDIT', position: 3 })], total: 4 });
     db.createTask.mockResolvedValue({ id: 'new-task', title: 'Teaser v2', status: 'TO_BE_EDITED' });
     renderList();
     await screen.findByRole('link', { name: 'Product teaser' });

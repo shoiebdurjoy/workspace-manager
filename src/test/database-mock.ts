@@ -43,6 +43,7 @@ export function createDatabaseMock() {
     reorderHierarchy: vi.fn(),
     // tasks (Phase 6)
     listTasks: vi.fn(),
+    searchTasks: vi.fn(),
     getTask: vi.fn(),
     createTask: vi.fn(),
     updateTask: vi.fn(),

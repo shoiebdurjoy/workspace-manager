@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { format } from 'date-fns';
 import { toast } from 'sonner';
 import { ClipboardList, Loader2, Plus } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -23,13 +24,14 @@ import { useHierarchy } from '@/hooks/use-hierarchy';
 import { useTableColumns } from '@/hooks/use-table-columns';
 import { useTaskView } from '@/hooks/use-task-view';
 import { useViewMode } from '@/hooks/use-view-mode';
-import { useBulkTasks, useListTasks, useMoveTask, useSetAssignee, useUpdateTask, type BulkAction } from '@/hooks/use-tasks';
+import { useBulkTasks, useMoveTask, useSetAssignee, useTaskSearch, useUpdateTask, type BulkAction } from '@/hooks/use-tasks';
 import { useWorkspaceMembers } from '@/hooks/use-team';
 import { useWorkflow } from '@/hooks/use-workflow';
 import { can } from '@/lib/permissions';
 import { hierarchyPaths } from '@/lib/hierarchy';
 import { TASK_LOAD_CAP, taskAccess } from '@/lib/tasks';
-import { buildView, canReorderInView, groupTasks, type TaskGroup } from '@/lib/task-view';
+import { buildView, canReorderInView, countActiveFilters, groupOptionsFor, groupTasks, type ListInfo, type TaskGroup } from '@/lib/task-view';
+import { toSearchFilters } from '@/lib/task-filters';
 import { nextSort } from '@/lib/task-views';
 import { initialStatus, movesFor } from '@/lib/workflow';
 import type { AssigneeRole, HierarchyList, HierarchySpace, TaskSummary, WorkspaceMember } from '@/types/database';
@@ -38,14 +40,16 @@ import BulkBar from './BulkBar';
 import DeleteTaskDialog from './DeleteTaskDialog';
 import ListView from './ListView';
 import QuickAdd from './QuickAdd';
-import TableView, { ColumnsMenu, type ListContext } from './TableView';
+import TableView, { ColumnsMenu } from './TableView';
 import TaskDialog from './TaskDialog';
-import TaskToolbar from './TaskToolbar';
+import TaskToolbar, { type Option, type ScopeOptions } from './TaskToolbar';
 import ViewSwitcher from './ViewSwitcher';
 
-interface TaskListProps {
-  space: HierarchySpace;
-  list: HierarchyList;
+/** Which tasks a workspace shows: one list, or every task the person can see. */
+export type WorkspaceScope = { kind: 'list'; space: HierarchySpace; list: HierarchyList } | { kind: 'everything' };
+
+interface TaskWorkspaceProps {
+  scope: WorkspaceScope;
   selectedTaskId?: string;
   /** The order tasks are shown in (after filters, sort and grouping), for previous / next in the sheet. */
   onVisibleOrder?: (taskIds: string[]) => void;
@@ -58,26 +62,45 @@ const isTyping = (el: EventTarget | null) =>
   el instanceof HTMLElement && (el.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName) || !!el.closest('[role="dialog"],[role="menu"],[role="listbox"]'));
 
 /**
- * The task workspace of a list: the same tasks as a grouped List, a stage Board or a Table. All three
- * share one query, one set of filters, one selection (List and Table), the inline controls and the
- * workflow rules; only the layout differs. The detail sheet is for the brief, links and checklist.
+ * The task workspace: the same tasks as a grouped List, a stage Board or a Table, for one list or for
+ * everything the person can see. The tasks come from the DATABASE: search text, filters and sorting are
+ * part of the request (and of the URL), so a thousand tasks are never downloaded to be searched in the
+ * browser. All three layouts share the query, the selection (List and Table), the inline controls and
+ * the workflow rules.
  */
-const TaskList: React.FC<TaskListProps> = ({ space, list, selectedTaskId, onVisibleOrder }) => {
+const TaskWorkspace: React.FC<TaskWorkspaceProps> = ({ scope, selectedTaskId, onVisibleOrder }) => {
   const navigate = useNavigate();
   const { search } = useLocation();
   const { role, user } = useAuth();
   const me = user?.id ?? null;
-  const canCreate = can(role, 'task:create');
-  const query = useListTasks(list.id);
+  const list = scope.kind === 'list' ? scope.list : null;
+  const everything = scope.kind === 'everything';
+  const canCreate = can(role, 'task:create') && !!list;
   const members = useWorkspaceMembers().data ?? NO_MEMBERS;
   const tree = useHierarchy().data;
-  const { view, update: updateView, setFilters, toggleCollapsed, reset } = useTaskView(list.id);
-  const [mode, setMode] = useViewMode(list.id);
+  const scopeKey = list ? list.id : 'everything';
+  const { view, update: updateView, setFilters, toggleCollapsed, reset } = useTaskView(scopeKey);
+  const [mode, setMode] = useViewMode(scopeKey);
   const [columns, setColumns, resetColumns] = useTableColumns();
   const updateTask = useUpdateTask();
   const setAssignee = useSetAssignee();
   const move = useMoveTask();
   const bulk = useBulkTasks();
+
+  // The request the database answers: free text, the filters in use, the sort. A list is simply
+  // "lists = [this one]"; the viewer's own calendar day decides what "today" and "overdue" mean.
+  const day = format(new Date(), 'yyyy-MM-dd');
+  const request = useMemo(() => {
+    const [y, m, d] = day.split('-').map(Number);
+    const filters = list ? { ...view.filters, lists: [list.id] } : view.filters;
+    return {
+      query: view.filters.search.trim(),
+      filters: toSearchFilters(filters, { me, today: new Date(y, m - 1, d) }),
+      sort: view.sort,
+      dir: view.dir,
+    };
+  }, [view.filters, view.sort, view.dir, list, me, day]);
+  const query = useTaskSearch(request);
 
   const [creating, setCreating] = useState(false);
   const [deleting, setDeleting] = useState<TaskSummary | null>(null);
@@ -92,8 +115,36 @@ const TaskList: React.FC<TaskListProps> = ({ space, list, selectedTaskId, onVisi
   const tasks = useMemo(() => query.data?.pages.flatMap((p) => p.items) ?? [], [query.data]);
   const total = query.data?.pages[0]?.total ?? 0;
   const loadingMore = query.hasNextPage || query.isFetchingNextPage;
+  const answering = query.isFetching && !query.isLoading && !loadingMore;
   const workflow = useWorkflow().data;
-  const ctx = useMemo(() => ({ me, role, workflow, members }), [me, role, workflow, members]);
+  const hasFilters = countActiveFilters(view.filters) > 0;
+
+  // where each list lives: grouping and the table's List column, and the scope filters' labels
+  const lists = useMemo(() => {
+    const map = new Map<string, ListInfo>();
+    for (const sp of tree ?? []) {
+      for (const l of sp.folderlessLists) map.set(l.id, { listName: l.name, folderName: null, spaceName: sp.name });
+      for (const f of sp.folders) for (const l of f.lists) map.set(l.id, { listName: l.name, folderName: f.name, spaceName: sp.name });
+    }
+    return map;
+  }, [tree]);
+  const scopeOptions = useMemo<ScopeOptions | undefined>(() => {
+    if (!everything || !tree) return undefined;
+    const spaces: Option[] = [];
+    const folders: Option[] = [];
+    const listOptions: Option[] = [];
+    for (const sp of tree) {
+      spaces.push({ value: sp.id, label: sp.name });
+      for (const l of sp.folderlessLists) listOptions.push({ value: l.id, label: `${sp.name} / ${l.name}` });
+      for (const f of sp.folders) {
+        folders.push({ value: f.id, label: `${sp.name} / ${f.name}` });
+        for (const l of f.lists) listOptions.push({ value: l.id, label: `${sp.name} / ${f.name} / ${l.name}` });
+      }
+    }
+    return { spaces, folders, lists: listOptions };
+  }, [everything, tree]);
+
+  const ctx = useMemo(() => ({ me, role, workflow, members, lists }), [me, role, workflow, members, lists]);
   const { groups, visible: groupedVisible, matched, items } = useMemo(() => buildView(tasks, view, ctx), [tasks, view, ctx]);
 
   // The board always has the stages as its columns; its reading order is column by column.
@@ -103,24 +154,15 @@ const TaskList: React.FC<TaskListProps> = ({ space, list, selectedTaskId, onVisi
   );
   const visible = mode === 'board' ? boardVisible : groupedVisible;
   const visibleIds = useMemo(() => visible.map((t) => t.id), [visible]);
-  const reorderable = mode === 'list' && canReorderInView(view) && can(role, 'task:edit-brief') && !loadingMore;
+  const reorderable = mode === 'list' && !!list && canReorderInView(view) && can(role, 'task:edit-brief') && !loadingMore;
   const byId = useMemo(() => new Map(tasks.map((t) => [t.id, t])), [tasks]);
   const accessOf = useCallback((t: TaskSummary) => taskAccess(role, { isAssignedEditor: !!me && t.editorId === me }), [role, me]);
-
-  // where each task lives (the table's List column)
-  const contexts = useMemo(() => {
-    const map = new Map<string, ListContext>();
-    for (const sp of tree ?? []) {
-      for (const l of sp.folderlessLists) map.set(l.id, { listName: l.name, folderName: null, spaceName: sp.name });
-      for (const f of sp.folders) for (const l of f.lists) map.set(l.id, { listName: l.name, folderName: f.name, spaceName: sp.name });
-    }
-    return map;
-  }, [tree]);
-  const contextOf = useCallback((t: TaskSummary) => contexts.get(t.listId), [contexts]);
+  const contextOf = useCallback((t: TaskSummary) => lists.get(t.listId), [lists]);
 
   /** A new task starts at the first stage; it can be added straight into a group one plain step away. */
   const canAddIn = useCallback(
     (group: TaskGroup) => {
+      if (!list) return false;
       if (group.kind !== 'status') return true;
       const first = initialStatus(workflow)?.key;
       if (!first || group.value === first) return true;
@@ -128,7 +170,7 @@ const TaskList: React.FC<TaskListProps> = ({ space, list, selectedTaskId, onVisi
         (m) => m.to.key === group.value && m.allowed && !m.override && m.needs.length === 0
       );
     },
-    [workflow, role]
+    [workflow, role, list]
   );
 
   useEffect(() => onVisibleOrder?.(visibleIds), [visibleIds, onVisibleOrder]);
@@ -145,8 +187,15 @@ const TaskList: React.FC<TaskListProps> = ({ space, list, selectedTaskId, onVisi
   }, [mode]);
 
   // Opening a task keeps the URL's view and filters, so closing the sheet returns to the same screen.
-  const listHref = `${hierarchyPaths.list(space.id, list.id)}${search}`;
-  const taskHref = useCallback((id: string) => `${hierarchyPaths.task(space.id, list.id, id)}${search}`, [space.id, list.id, search]);
+  const basePath = scope.kind === 'list' ? hierarchyPaths.list(scope.space.id, scope.list.id) : hierarchyPaths.everything();
+  const listHref = `${basePath}${search}`;
+  const taskHref = useCallback(
+    (id: string) => {
+      const path = scope.kind === 'list' ? hierarchyPaths.task(scope.space.id, scope.list.id, id) : hierarchyPaths.everythingTask(id);
+      return `${path}${search}`;
+    },
+    [scope, search]
+  );
   const onPatch = useCallback((taskId: string, patch: TaskPatch) => updateTask.mutate({ taskId, patch }), [updateTask]);
   const onAssign = useCallback(
     (taskId: string, slot: AssigneeRole, userId: string | null) => setAssignee.mutate({ taskId, role: slot, userId }),
@@ -252,6 +301,9 @@ const TaskList: React.FC<TaskListProps> = ({ space, list, selectedTaskId, onVisi
         title="The tasks could not be loaded"
         message={query.error instanceof Error ? query.error.message : 'Please try again.'}
         onRetry={() => void query.refetch()}
+        // a filter from an old or hand-edited link can be what fails: let the person drop it
+        onBack={hasFilters ? reset : undefined}
+        backLabel="Clear filters"
       />
     );
   }
@@ -268,23 +320,27 @@ const TaskList: React.FC<TaskListProps> = ({ space, list, selectedTaskId, onVisi
 
   const selectedTasks = [...checked].map((id) => byId.get(id)).filter((t): t is TaskSummary => !!t);
   const showGroups = view.groupBy !== 'none';
+  // nothing at all (no filters either): the empty state invites the first task; with filters the toolbar stays
+  const nothingYet = tasks.length === 0 && !hasFilters && !answering;
 
   return (
     <section aria-label="Tasks" className={cn('space-y-3', checked.size > 0 && 'pb-20')}>
-      {tasks.length === 0 ? (
+      {nothingYet ? (
         <>
-          {canCreate && (
+          {canCreate && list && (
             <div className="rounded-xl border border-border/80 bg-card">
               <QuickAdd listId={list.id} inputRef={quickAddRef} />
             </div>
           )}
           <EmptyState
             icon={<ClipboardList className="h-6 w-6" />}
-            title="No tasks in this list yet"
+            title={list ? 'No tasks in this list yet' : 'No tasks yet'}
             description={
-              canCreate
-                ? 'Each task is one video deliverable: add the brief, assign an editor and a QC reviewer, set the deadlines and keep the links together. Type a title above to start, or use New task for the full form.'
-                : 'Tasks added to this list by a Production Manager will appear here.'
+              !list
+                ? 'Tasks from every list you can see appear here as soon as they are created.'
+                : canCreate
+                  ? 'Each task is one video deliverable: add the brief, assign an editor and a QC reviewer, set the deadlines and keep the links together. Type a title above to start, or use New task for the full form.'
+                  : 'Tasks added to this list by a Production Manager will appear here.'
             }
             action={
               canCreate ? (
@@ -302,24 +358,26 @@ const TaskList: React.FC<TaskListProps> = ({ space, list, selectedTaskId, onVisi
             ref={searchRef}
             view={view}
             members={members}
-            total={total}
             matched={matched}
+            loading={answering}
             onFilters={setFilters}
             onView={updateView}
             onClear={reset}
             onNewTask={canCreate ? () => setCreating(true) : undefined}
             lead={<ViewSwitcher mode={mode} onChange={setMode} />}
             hideGroup={mode === 'board'}
+            groupOptions={groupOptionsFor(everything)}
+            scopeOptions={scopeOptions}
             trail={mode === 'table' ? <ColumnsMenu visible={columns} onChange={setColumns} onReset={resetColumns} /> : undefined}
           />
           {loadingMore && (
             <p className="flex items-center gap-2 text-xs text-muted-foreground" role="status">
-              <Loader2 aria-hidden className="h-3 w-3 animate-spin" /> Loading the rest of this list ({tasks.length} of {total})...
+              <Loader2 aria-hidden className="h-3 w-3 animate-spin" /> Loading the rest ({tasks.length} of {total})...
             </p>
           )}
           {!loadingMore && total > tasks.length && (
             <p className="text-xs text-muted-foreground" role="note">
-              Showing the first {TASK_LOAD_CAP.toLocaleString()} of {total.toLocaleString()} tasks. Narrow the list with filters.
+              Showing the first {TASK_LOAD_CAP.toLocaleString()} of {total.toLocaleString()} tasks. Narrow them down with filters or search.
             </p>
           )}
 
@@ -338,8 +396,8 @@ const TaskList: React.FC<TaskListProps> = ({ space, list, selectedTaskId, onVisi
               groupBy={view.groupBy}
               collapsed={view.collapsed}
               checked={checked}
-              listId={list.id}
-              listName={list.name}
+              listId={list?.id}
+              listName={list?.name ?? 'all lists'}
               canCreate={canCreate}
               canAddIn={canAddIn}
               members={members}
@@ -369,7 +427,7 @@ const TaskList: React.FC<TaskListProps> = ({ space, list, selectedTaskId, onVisi
             <BoardView
               tasks={items}
               members={members}
-              listId={list.id}
+              listId={list?.id}
               canAddIn={canAddIn}
               canCreate={canCreate}
               openId={selectedTaskId}
@@ -405,7 +463,7 @@ const TaskList: React.FC<TaskListProps> = ({ space, list, selectedTaskId, onVisi
               collapsed={view.collapsed}
               onToggleCollapsed={toggleCollapsed}
               footer={
-                canCreate ? (
+                canCreate && list ? (
                   <div className="border-t border-border/70">
                     <QuickAdd listId={list.id} inputRef={quickAddRef} />
                   </div>
@@ -428,7 +486,7 @@ const TaskList: React.FC<TaskListProps> = ({ space, list, selectedTaskId, onVisi
         />
       )}
 
-      {creating && (
+      {creating && list && (
         <TaskDialog
           listId={list.id}
           listName={list.name}
@@ -492,4 +550,4 @@ const TaskList: React.FC<TaskListProps> = ({ space, list, selectedTaskId, onVisi
   );
 };
 
-export default TaskList;
+export default TaskWorkspace;

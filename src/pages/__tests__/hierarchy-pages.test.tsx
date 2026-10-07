@@ -39,6 +39,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   db.getWorkspaceHierarchy.mockResolvedValue(makeTree());
   db.getWorkspaceMembers.mockResolvedValue([]);
+  db.searchTasks.mockResolvedValue({ items: [], total: 0 });
   db.listTasks.mockResolvedValue({ items: [], total: 0 });
   db.listInvitations.mockResolvedValue([]);
   db.listTeams.mockResolvedValue([]);
@@ -126,7 +127,7 @@ describe('List page /spaces/:spaceId/lists/:listId', () => {
       'href', `/spaces/${IDS.spaceA}/folders/${IDS.folderZim}`
     );
     expect(await screen.findByText('No tasks in this list yet')).toBeInTheDocument();
-    expect(db.listTasks).toHaveBeenCalledWith(IDS.listEdaptx, 0);
+    expect(db.searchTasks).toHaveBeenCalledWith('ws-1', { query: '', filters: { lists: [IDS.listEdaptx] }, sort: 'manual', dir: 'asc' }, 0);
     // no invented tasks, assignees, statuses or counts
     expect(screen.queryByRole('row')).not.toBeInTheDocument();
     expect(screen.queryByText(/QC - |IN EDIT|assigned/i)).not.toBeInTheDocument();
@@ -247,7 +248,7 @@ describe('command palette', () => {
   it('filters as you type', async () => {
     palette();
     await screen.findByText('Spaces, folders and lists');
-    await userEvent.type(screen.getByPlaceholderText(/Go to a page/), 'conor');
+    await userEvent.type(screen.getByPlaceholderText(/Find a task, or go to a page/), 'conor');
     await waitFor(() => expect(screen.queryByRole('option', { name: /25\. EDAPTX/ })).not.toBeInTheDocument());
     expect(screen.getByRole('option', { name: /2\. CONOR CONTENT/ })).toBeInTheDocument();
   });

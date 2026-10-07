@@ -4,7 +4,7 @@ import { ListTodo } from 'lucide-react';
 import HierarchyGate from '@/components/hierarchy/HierarchyGate';
 import HierarchyPageHeader from '@/components/hierarchy/HierarchyPageHeader';
 import { ListMenu } from '@/components/hierarchy/NodeMenus';
-import TaskList from '@/components/tasks/TaskList';
+import TaskWorkspace from '@/components/tasks/TaskWorkspace';
 import TaskDetailSheet from '@/components/tasks/TaskDetailSheet';
 import { findList, hierarchyPaths } from '@/lib/hierarchy';
 import type { HierarchyFolder, HierarchyList, HierarchySpace } from '@/types/database';
@@ -42,7 +42,7 @@ const ListView: React.FC<{
         actions={<ListMenu space={space} folder={folder} list={list} />}
       />
 
-      <TaskList space={space} list={list} selectedTaskId={taskId} onVisibleOrder={setVisibleOrder} />
+      <TaskWorkspace scope={{ kind: 'list', space, list }} selectedTaskId={taskId} onVisibleOrder={setVisibleOrder} />
 
       {/* The task opens as a side sheet over the list; closing it returns to the plain list URL. */}
       {taskId && (

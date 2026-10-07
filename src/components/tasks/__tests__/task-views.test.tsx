@@ -10,6 +10,7 @@ import * as dbModule from '@/database';
 import { IDS, makeTree } from '@/test/hierarchy-fixtures';
 import { MEMBERS, PEOPLE, TASK_IDS, makeDetail, makeSummary } from '@/test/task-fixtures';
 import { TBB_WORKFLOW } from '@/test/workflow-fixture';
+import { fakeSearch } from '@/test/fake-search';
 import { tableColumnsStorageKey } from '@/hooks/use-table-columns';
 import { viewModeStorageKey } from '@/hooks/use-view-mode';
 import type { TbbRole } from '@/types/database';
@@ -73,6 +74,7 @@ beforeEach(() => {
   db.listTeams.mockResolvedValue([]);
   db.listTeamMembers.mockResolvedValue([]);
   db.listTasks.mockResolvedValue({ items: ROWS, total: ROWS.length });
+  db.searchTasks.mockImplementation(fakeSearch(() => ROWS));
   db.getTask.mockResolvedValue(makeDetail());
   db.updateTask.mockImplementation(async (taskId: string) => ({ ...makeDetail({ id: taskId }), updatedAt: 'now' }));
   db.setTaskAssignee.mockResolvedValue(undefined);
@@ -91,13 +93,13 @@ const drag = (taskId: string, toStatus: string | undefined) => {
 
 describe('view switching', () => {
   it('opens the List by default and switches with the tabs; the choice goes into the URL, keeping everything else', async () => {
-    renderList('PRODUCTION_MANAGER', `${LIST_URL}?q=keep`);
+    renderList('PRODUCTION_MANAGER', `${LIST_URL}?priority=URGENT`);
     await screen.findByRole('link', { name: 'Founder story' });
     const tabs = screen.getByRole('tablist', { name: 'View' });
     expect(within(tabs).getByRole('tab', { name: 'List' })).toHaveAttribute('aria-selected', 'true');
     await userEvent.click(within(tabs).getByRole('tab', { name: 'Board' }));
     expect(screen.getByTestId('where')).toHaveTextContent('view=board');
-    expect(screen.getByTestId('where')).toHaveTextContent('q=keep');
+    expect(screen.getByTestId('where')).toHaveTextContent('priority=URGENT');
     expect(await screen.findByRole('region', { name: 'Board' })).toBeInTheDocument();
     await userEvent.click(within(tabs).getByRole('tab', { name: 'Table' }));
     expect(screen.getByTestId('where')).toHaveTextContent('view=table');
@@ -130,18 +132,18 @@ describe('view switching', () => {
 
   it('shows the same real tasks in all three views (one query, no copies)', async () => {
     await openView('list');
-    expect(db.listTasks).toHaveBeenCalledTimes(1);
+    expect(db.searchTasks).toHaveBeenCalledTimes(1);
     await userEvent.click(screen.getByRole('tab', { name: 'Board' }));
     expect(screen.getByRole('link', { name: 'Founder story' })).toBeInTheDocument();
     await userEvent.click(screen.getByRole('tab', { name: 'Table' }));
     expect(screen.getByRole('link', { name: 'Founder story' })).toBeInTheDocument();
-    expect(db.listTasks).toHaveBeenCalledTimes(1);
+    expect(db.searchTasks).toHaveBeenCalledTimes(1);
   });
 
   it('keeps the search and filters when the view changes, and the URL when a task opens and closes', async () => {
     await openView('board');
     await userEvent.type(screen.getByRole('searchbox', { name: 'Search tasks' }), 'story');
-    expect(screen.queryByRole('link', { name: 'Product teaser' })).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole('link', { name: 'Product teaser' })).not.toBeInTheDocument());
     await userEvent.click(screen.getByRole('tab', { name: 'Table' }));
     expect(screen.getByRole('link', { name: 'Founder story' })).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Product teaser' })).not.toBeInTheDocument();
@@ -149,7 +151,10 @@ describe('view switching', () => {
     await userEvent.click(screen.getByRole('link', { name: 'Founder story' }));
     await waitFor(() => expect(screen.getByTestId('where')).toHaveTextContent(`/tasks/${TASK_IDS.one}?view=table`));
     await userEvent.keyboard('{Escape}');
-    await waitFor(() => expect(screen.getByTestId('where').textContent).toBe(`${LIST_URL}?view=table`));
+    await waitFor(() => expect(screen.getByTestId('where').textContent).toMatch(new RegExp(`^${LIST_URL}\\?`)));
+    expect(screen.getByTestId('where').textContent).toMatch(/view=table/);
+    expect(screen.getByTestId('where').textContent).toMatch(/q=story/);
+    expect(screen.getByTestId('where').textContent).not.toMatch(/tasks/);
   });
 });
 
@@ -253,7 +258,7 @@ describe('board', () => {
       await openView('board');
       drag(TASK_IDS.three, 'IN_EDIT');
       await waitFor(() => expect(toasts.error).toHaveBeenCalledWith(expect.stringMatching(/Someone else moved this task/)));
-      await waitFor(() => expect(db.listTasks.mock.calls.length).toBeGreaterThan(1));
+      await waitFor(() => expect(db.searchTasks.mock.calls.length).toBeGreaterThan(1));
     });
 
     it('an editor can only drag their own cuts along editing steps; approval is refused with the reason', async () => {
@@ -309,7 +314,7 @@ describe('board', () => {
 
   it('long columns show the first cards and offer "Show more"', async () => {
     const many = Array.from({ length: 45 }, (_, i) => makeSummary({ id: id(100 + i), title: `Clip ${i}`, status: 'TO_BE_EDITED', position: i }));
-    db.listTasks.mockResolvedValue({ items: many, total: 45 });
+    db.searchTasks.mockResolvedValue({ items: many, total: 45 });
     renderList('PRODUCTION_MANAGER', `${LIST_URL}?view=board`);
     await screen.findByRole('link', { name: 'Clip 0' });
     expect(screen.queryByRole('link', { name: 'Clip 40' })).not.toBeInTheDocument();
@@ -321,6 +326,7 @@ describe('board', () => {
     await openView('board');
     await userEvent.type(screen.getByRole('searchbox', { name: 'Search tasks' }), 'zzzz');
     expect(await screen.findByText('No tasks match these filters.')).toBeInTheDocument();
+    expect(screen.getByRole('searchbox', { name: 'Search tasks' })).toHaveValue('zzzz'); // the toolbar stays
     await userEvent.click(screen.getAllByRole('button', { name: /Clear filters/ })[0]);
     expect(await screen.findByRole('link', { name: 'Founder story' })).toBeInTheDocument();
   });
@@ -447,7 +453,7 @@ describe('table', () => {
 
   it('draws long tables progressively', async () => {
     const many = Array.from({ length: 180 }, (_, i) => makeSummary({ id: id(1000 + i), title: `Clip ${i}`, position: i }));
-    db.listTasks.mockResolvedValue({ items: many, total: 180 });
+    db.searchTasks.mockResolvedValue({ items: many, total: 180 });
     renderList('PRODUCTION_MANAGER', `${LIST_URL}?view=table`);
     await screen.findByRole('link', { name: 'Clip 0' });
     expect(screen.queryByRole('link', { name: 'Clip 170' })).not.toBeInTheDocument();
@@ -480,7 +486,7 @@ describe('table', () => {
 
 describe('no fake data in any view', () => {
   it('every view renders only what the database returned', async () => {
-    db.listTasks.mockResolvedValue({ items: [ROWS[2]], total: 1 });
+    db.searchTasks.mockResolvedValue({ items: [ROWS[2]], total: 1 });
     for (const view of ['list', 'board', 'table'] as const) {
       const { unmount } = renderList('PRODUCTION_MANAGER', `${LIST_URL}?view=${view}`);
       await screen.findByRole('link', { name: 'Behind the scenes' });

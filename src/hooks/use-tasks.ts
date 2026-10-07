@@ -9,6 +9,7 @@ import {
   getTask,
   listTasks,
   moveTask,
+  searchTasks,
   setTaskAssignee,
   transitionTask,
   updateSubtask,
@@ -16,6 +17,7 @@ import {
   type TaskInput,
   type TaskPage,
   type TaskPatch,
+  type TaskSearchRequest,
 } from '@/database';
 import type { AssigneeRole, TaskDetail, TaskSummary } from '@/types/database';
 import { useAuth } from '@/hooks/use-auth';
@@ -70,6 +72,33 @@ export function useListTasks(listId: string | undefined) {
   useEffect(() => {
     if (hasNextPage && !isFetchingNextPage && !isError) void fetchNextPage();
   }, [hasNextPage, isFetchingNextPage, isError, fetchNextPage]);
+  return query;
+}
+
+/**
+ * The tasks a view shows, found by the DATABASE: the free text, the filters and the sort are part of
+ * the request (and of the cache key), so changing any of them is a new query and a new answer, never a
+ * pass over every task in the browser. Pages are fetched one after another up to TASK_LOAD_CAP; while a
+ * new answer loads, the previous one stays on screen (no flicker per keystroke).
+ */
+export function useTaskSearch(request: TaskSearchRequest, enabledByCaller = true) {
+  const { workspaceId, enabled } = useTasksEnabled();
+  const query = useInfiniteQuery({
+    queryKey: [...taskKeys.lists(workspaceId), 'search', request] as const,
+    queryFn: ({ pageParam }) => searchTasks(workspaceId, request, pageParam),
+    initialPageParam: 0,
+    getNextPageParam: (last: TaskPage, pages) => {
+      const loaded = pages.length * TASK_PAGE_SIZE;
+      return loaded < last.total && loaded < TASK_LOAD_CAP ? pages.length : undefined;
+    },
+    enabled: enabled && enabledByCaller,
+    placeholderData: (previous) => previous,
+    staleTime: 15_000,
+  });
+  const { hasNextPage, isFetchingNextPage, isError, isPlaceholderData, fetchNextPage } = query;
+  useEffect(() => {
+    if (hasNextPage && !isFetchingNextPage && !isError && !isPlaceholderData) void fetchNextPage();
+  }, [hasNextPage, isFetchingNextPage, isError, isPlaceholderData, fetchNextPage]);
   return query;
 }
 

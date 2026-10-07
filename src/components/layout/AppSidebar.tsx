@@ -57,7 +57,7 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
     { label: "Home", icon: Home, href: "/home" },
     { label: "Inbox", icon: Inbox, comingInPhase: 11 },
     { label: "My Tasks", icon: UserCheck, comingInPhase: 11 },
-    { label: "Everything", icon: CheckSquare, comingInPhase: 8 },
+    ...(can(role, "hierarchy:view") ? [{ label: "Everything", icon: CheckSquare, href: "/everything" }] : []),
   ];
 
   const managementNavItems: NavItem[] = [

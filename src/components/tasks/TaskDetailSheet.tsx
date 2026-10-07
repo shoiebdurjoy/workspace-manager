@@ -65,6 +65,10 @@ interface TaskDetailSheetProps {
   /** The order the list shows tasks in right now (filters, sort, groups), for previous / next. */
   orderedIds?: readonly string[];
   onClose: () => void;
+  /** Where a task lives in the address bar (default: over its list). The Everything view opens tasks over itself. */
+  taskPath?: (taskId: string) => string;
+  /** Load the whole list for previous / next when the open task is not in the view's order (default: yes). */
+  listFallback?: boolean;
 }
 
 const LINK_ICONS: Record<LinkField, React.ReactNode> = {
@@ -101,14 +105,14 @@ const Section: React.FC<{ title: string; aside?: React.ReactNode; children: Reac
  * further <Section>s below the checklist, or as tabs around the body, without touching the fields
  * above them. Nothing is simulated for them here.
  */
-const TaskDetailSheet: React.FC<TaskDetailSheetProps> = ({ taskId, space, folder, list, orderedIds: visibleOrder, onClose }) => {
+const TaskDetailSheet: React.FC<TaskDetailSheetProps> = ({ taskId, space, folder, list, orderedIds: visibleOrder, onClose, taskPath, listFallback = true }) => {
   const navigate = useNavigate();
   const { search } = useLocation();
   const { user, role } = useAuth();
   const malformed = !isUuid(taskId);
   const { data: task, isLoading, isError, error, refetch } = useTask(malformed ? undefined : taskId);
   const { data: members = [] } = useWorkspaceMembers();
-  const siblings = useListTasks(list.id);
+  const siblings = useListTasks(listFallback ? list.id : undefined);
   const update = useUpdateTask();
   const setAssignee = useSetAssignee();
   const { state: saveState, track } = useSaveIndicator();
@@ -130,7 +134,7 @@ const TaskDetailSheet: React.FC<TaskDetailSheetProps> = ({ taskId, space, folder
   const index = orderedIds.indexOf(taskId);
   const total = orderedIds === loadedIds ? siblings.data?.pages[0]?.total ?? loadedIds.length : orderedIds.length;
   const goTo = (id: string | undefined) => {
-    if (id) navigate(`${hierarchyPaths.task(space.id, list.id, id)}${search}`, { replace: true });
+    if (id) navigate(`${taskPath ? taskPath(id) : hierarchyPaths.task(space.id, list.id, id)}${search}`, { replace: true });
   };
 
   const save = (patch: TaskPatch) => track(update.mutateAsync({ taskId, patch }));

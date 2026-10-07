@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react';
-import { useParams } from 'react-router-dom';
-import { Folder, FolderPlus, ListPlus, ListTodo } from 'lucide-react';
+import { Link, useParams } from 'react-router-dom';
+import { CheckSquare, Folder, FolderPlus, ListPlus, ListTodo } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
 import HierarchyGate from '@/components/hierarchy/HierarchyGate';
@@ -32,6 +32,11 @@ const SpaceView: React.FC<{ space: HierarchySpace }> = ({ space }) => {
         description={space.description}
         actions={
           <>
+            <Button asChild size="sm" variant="outline" className="h-8 text-xs">
+              <Link to={`${hierarchyPaths.everything()}?space=${space.id}`}>
+                <CheckSquare className="mr-1.5 h-3.5 w-3.5" /> All tasks
+              </Link>
+            </Button>
             {canCreate && (
               <>
                 <Button size="sm" variant="outline" className="h-8 text-xs" onClick={() => dialogs.open({ type: 'folder', space })}>

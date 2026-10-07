@@ -1,35 +1,23 @@
-import type { TaskPriority, TaskStatus, TaskSummary, TbbRole, Workflow, WorkspaceMember } from '@/types/database';
+import { differenceInCalendarDays } from 'date-fns';
+import type { TaskSummary, TbbRole, Workflow, WorkspaceMember } from '@/types/database';
 import { TASK_PRIORITIES, dueState, priorityOption } from '@/lib/tasks';
+import { EMPTY_FILTERS, NOBODY, countActiveFilters, type TaskFilters } from '@/lib/task-filters';
 import { isFinishedStatus, needsMyAction } from '@/lib/workflow';
 
+export { EMPTY_FILTERS, NOBODY, countActiveFilters };
+export type { TaskFilters };
+
 /**
- * Pure view logic for the list workspace: filtering, searching, sorting and grouping a list's tasks,
- * and (de)serialising the person's view preferences. No network, no React.
+ * Pure view logic for the task workspace: sorting and grouping the loaded tasks, refining them by what
+ * only the browser knows, and reading / writing how a person likes to see them. No network, no React.
  *
- * It works on the list's complete, already-loaded rows (a list loads all its pages), so counts and
- * groups are exact. Server-side search and saved views across lists are Phase 9; Board / Table views
- * reuse these same functions in Phase 8.
+ * Which tasks are shown is decided by the database (search_tasks, with the filters in lib/task-filters):
+ * this file never filters by text, status, people or dates. It orders and groups what came back.
  */
 
-export type GroupBy = 'status' | 'editor' | 'priority' | 'none';
+export type GroupBy = 'status' | 'editor' | 'priority' | 'due' | 'list' | 'none';
 export type SortKey = 'manual' | 'dueDate' | 'clientDeadline' | 'priority' | 'status' | 'editor' | 'qc' | 'title' | 'created' | 'updated';
 export type SortDir = 'asc' | 'desc';
-
-/** A person filter matches the editor OR the QC reviewer; UNASSIGNED matches a task with neither. */
-export const UNASSIGNED = '__unassigned__';
-
-export interface TaskFilters {
-  search: string;
-  statuses: TaskStatus[];
-  priorities: TaskPriority[];
-  people: string[];
-  mine: boolean;
-  /** Tasks assigned to me where the next workflow step is mine. */
-  needsAction: boolean;
-  overdue: boolean;
-  /** Completed / closed work is shown unless switched off. */
-  hideFinished: boolean;
-}
 
 export interface TaskViewState {
   groupBy: GroupBy;
@@ -40,23 +28,20 @@ export interface TaskViewState {
   collapsed: string[];
 }
 
-export const EMPTY_FILTERS: TaskFilters = {
-  search: '',
-  statuses: [],
-  priorities: [],
-  people: [],
-  mine: false,
-  needsAction: false,
-  overdue: false,
-  hideFinished: false,
-};
+/** Where a list lives, for grouping and labelling by list. */
+export interface ListInfo {
+  listName: string;
+  folderName: string | null;
+  spaceName: string;
+}
 
-/** Who is looking and with which workflow: what the filters and groups depend on besides the tasks. */
+/** Who is looking and with which workflow: what refining and grouping depend on besides the tasks. */
 export interface ViewContext {
   me?: string | null;
   role?: TbbRole | null;
   workflow?: Workflow | null;
   members?: readonly WorkspaceMember[];
+  lists?: ReadonlyMap<string, ListInfo>;
 }
 
 export const DEFAULT_VIEW: TaskViewState = {
@@ -71,8 +56,13 @@ export const GROUP_OPTIONS: ReadonlyArray<{ value: GroupBy; label: string }> = [
   { value: 'status', label: 'Status' },
   { value: 'editor', label: 'Editor' },
   { value: 'priority', label: 'Priority' },
+  { value: 'due', label: 'Due date' },
+  { value: 'list', label: 'List' },
   { value: 'none', label: 'No grouping' },
 ];
+
+/** A single list has no use for grouping by list. */
+export const groupOptionsFor = (spansLists: boolean) => GROUP_OPTIONS.filter((o) => spansLists || o.value !== 'list');
 
 export const SORT_OPTIONS: ReadonlyArray<{ value: SortKey; label: string }> = [
   { value: 'manual', label: 'Manual order' },
@@ -88,21 +78,8 @@ export const SORT_OPTIONS: ReadonlyArray<{ value: SortKey; label: string }> = [
 ];
 
 // ---------------------------------------------------------------------------------------
-// Filtering
+// Overdue, and refining what the database returned
 // ---------------------------------------------------------------------------------------
-
-export function countActiveFilters(f: TaskFilters): number {
-  return (
-    (f.search.trim() ? 1 : 0) +
-    (f.statuses.length ? 1 : 0) +
-    (f.priorities.length ? 1 : 0) +
-    (f.people.length ? 1 : 0) +
-    (f.mine ? 1 : 0) +
-    (f.needsAction ? 1 : 0) +
-    (f.overdue ? 1 : 0) +
-    (f.hideFinished ? 1 : 0)
-  );
-}
 
 /** Overdue = an unfinished task whose internal QC date or client deadline is before today. */
 export function isOverdue(
@@ -114,30 +91,14 @@ export function isOverdue(
   return dueState(task.dueDate, now) === 'overdue' || dueState(task.clientDeadline, now) === 'overdue';
 }
 
-export function applyFilters(
-  tasks: readonly TaskSummary[],
-  f: TaskFilters,
-  ctx: ViewContext,
-  now: Date = new Date()
-): TaskSummary[] {
-  const { me, role, workflow } = ctx;
-  const needle = f.search.trim().toLowerCase();
-  return tasks.filter((t) => {
-    if (needle && !t.title.toLowerCase().includes(needle)) return false;
-    if (f.statuses.length && !f.statuses.includes(t.status)) return false;
-    if (f.priorities.length && !f.priorities.includes(t.priority)) return false;
-    if (f.people.length) {
-      const hit = f.people.some((p) =>
-        p === UNASSIGNED ? !t.editorId && !t.qcId : t.editorId === p || t.qcId === p
-      );
-      if (!hit) return false;
-    }
-    if (f.mine && (!me || (t.editorId !== me && t.qcId !== me))) return false;
-    if (f.needsAction && !needsMyAction(workflow, t, me, role)) return false;
-    if (f.overdue && !isOverdue(t, workflow, now)) return false;
-    if (f.hideFinished && isFinishedStatus(workflow, t.status)) return false;
-    return true;
-  });
+/**
+ * The one filter the browser applies itself: "needs my action" depends on the workflow rules for this
+ * person's role, which the database does not know how to evaluate. It only ever narrows rows the
+ * database already returned (assigned to me), so it can never reveal anything.
+ */
+export function refineLoaded(tasks: readonly TaskSummary[], f: TaskFilters, ctx: ViewContext): TaskSummary[] {
+  if (!f.needsAction) return [...tasks];
+  return tasks.filter((t) => needsMyAction(ctx.workflow, t, ctx.me, ctx.role));
 }
 
 // ---------------------------------------------------------------------------------------
@@ -200,6 +161,25 @@ export interface TaskGroup {
   tasks: TaskSummary[];
 }
 
+const DUE_BUCKETS = [
+  { key: 'overdue', label: 'Overdue' },
+  { key: 'today', label: 'Today' },
+  { key: 'week', label: 'Next 7 days' },
+  { key: 'later', label: 'Later' },
+  { key: 'none', label: 'No due date' },
+  { key: 'done', label: 'Finished' },
+] as const;
+
+/** Where a task sits on the due-date timeline (by its internal QC due date; finished work is its own bucket). */
+export function dueBucket(task: Pick<TaskSummary, 'status' | 'dueDate'>, workflow: Workflow | null | undefined, now: Date): string {
+  if (isFinishedStatus(workflow, task.status)) return 'done';
+  if (!task.dueDate) return 'none';
+  const days = differenceInCalendarDays(new Date(task.dueDate), now);
+  if (days < 0) return 'overdue';
+  if (days === 0) return 'today';
+  return days <= 7 ? 'week' : 'later';
+}
+
 export function groupTasks(
   tasks: readonly TaskSummary[],
   groupBy: GroupBy,
@@ -229,6 +209,24 @@ export function groupTasks(
       value: p.value,
       tasks: tasks.filter((t) => t.priority === p.value),
     }));
+  } else if (groupBy === 'due') {
+    const now = new Date();
+    const buckets = DUE_BUCKETS.map((b) => ({
+      key: `due:${b.key}`,
+      label: b.label,
+      kind: 'due' as const,
+      value: b.key,
+      tasks: tasks.filter((t) => dueBucket(t, ctx.workflow, now) === b.key),
+    }));
+    groups = buckets;
+  } else if (groupBy === 'list') {
+    const info = (id: string) => ctx.lists?.get(id);
+    const label = (id: string) => {
+      const i = info(id);
+      return i ? [i.spaceName, i.folderName, i.listName].filter(Boolean).join(' / ') : 'Unknown list';
+    };
+    const ids = [...new Set(tasks.map((t) => t.listId))].sort((x, y) => label(x).localeCompare(label(y), undefined, { numeric: true }));
+    groups = ids.map((id) => ({ key: `list:${id}`, label: label(id), kind: 'list' as const, value: id, tasks: tasks.filter((t) => t.listId === id) }));
   } else {
     const nameOf = (id: string) => members.find((m) => m.userId === id)?.profile?.fullName ?? 'Former member';
     const editors = [...new Set(tasks.map((t) => t.editorId).filter((id): id is string => !!id))].sort((a, b) =>
@@ -242,20 +240,19 @@ export function groupTasks(
         value: id,
         tasks: tasks.filter((t) => t.editorId === id),
       })),
-      { key: `editor:${UNASSIGNED}`, label: 'No editor', kind: 'editor' as const, value: null, tasks: tasks.filter((t) => !t.editorId) },
+      { key: `editor:${NOBODY}`, label: 'No editor', kind: 'editor' as const, value: null, tasks: tasks.filter((t) => !t.editorId) },
     ];
   }
   return options.keepEmpty ? groups : groups.filter((g) => g.tasks.length > 0);
 }
 
-/** Filter, sort and group in one go: what the list renders, plus the flat visible order. */
+/** Refine, sort and group in one go: what the list renders, plus the flat visible order. */
 export function buildView(
   tasks: readonly TaskSummary[],
   view: TaskViewState,
-  ctx: ViewContext,
-  now: Date = new Date()
+  ctx: ViewContext
 ): { groups: TaskGroup[]; visible: TaskSummary[]; matched: number; items: TaskSummary[] } {
-  const filtered = applyFilters(tasks, view.filters, ctx, now);
+  const filtered = refineLoaded(tasks, view.filters, ctx);
   const sorted = sortTasks(filtered, view.sort, view.dir, ctx);
   const groups = groupTasks(sorted, view.groupBy, ctx);
   // the visible order is the reading order: group by group, skipping collapsed groups
@@ -270,57 +267,60 @@ export function canReorderInView(view: TaskViewState): boolean {
 }
 
 // ---------------------------------------------------------------------------------------
-// Persistence (a UI preference per list, never data)
+// Preferences (browser-local, per list) and the URL
 // ---------------------------------------------------------------------------------------
 
-const pick = <T extends string>(value: unknown, allowed: readonly T[], fallback: T): T =>
+const pick = <T extends string>(value: unknown, allowed: readonly T[], fallback: T | null): T | null =>
   typeof value === 'string' && (allowed as readonly string[]).includes(value) ? (value as T) : fallback;
 
-const stringList = (value: unknown, allowed?: readonly string[] | RegExp): string[] =>
-  Array.isArray(value)
-    ? value
-        .filter(
-          (v): v is string =>
-            typeof v === 'string' &&
-            v.length <= 100 &&
-            (!allowed || (allowed instanceof RegExp ? allowed.test(v) : allowed.includes(v)))
-        )
-        .slice(0, 50)
-    : [];
+/** How a person likes to see a list when the link they opened says nothing: never data, never filters. */
+export interface ViewPrefs {
+  groupBy: GroupBy | null;
+  sort: SortKey | null;
+  dir: SortDir | null;
+  collapsed: string[];
+}
 
-/** Workflow status keys are configuration; a stored one only has to look like a key. */
-const STATUS_KEY = /^[A-Z][A-Z0-9_]{0,63}$/;
+export const NO_PREFS: ViewPrefs = { groupBy: null, sort: null, dir: null, collapsed: [] };
 
-/** Reads a stored view defensively: anything unknown or malformed falls back to the default. */
-export function parseStoredView(raw: string | null | undefined): TaskViewState {
-  if (!raw) return DEFAULT_VIEW;
+const GROUP_KEYS = GROUP_OPTIONS.map((g) => g.value);
+const SORT_KEYS = SORT_OPTIONS.map((o) => o.value);
+
+/** Reads stored preferences defensively: anything unknown or malformed is dropped. */
+export function parseViewPrefs(raw: string | null | undefined): ViewPrefs {
+  if (!raw) return NO_PREFS;
   let data: Record<string, unknown>;
   try {
     data = JSON.parse(raw) as Record<string, unknown>;
   } catch {
-    return DEFAULT_VIEW;
+    return NO_PREFS;
   }
-  if (!data || typeof data !== 'object') return DEFAULT_VIEW;
-  const f = (data.filters && typeof data.filters === 'object' ? data.filters : {}) as Record<string, unknown>;
+  if (!data || typeof data !== 'object') return NO_PREFS;
   return {
-    groupBy: pick(data.groupBy, GROUP_OPTIONS.map((g) => g.value), DEFAULT_VIEW.groupBy),
-    sort: pick(data.sort, SORT_OPTIONS.map((o) => o.value), DEFAULT_VIEW.sort),
-    dir: pick(data.dir, ['asc', 'desc'] as const, DEFAULT_VIEW.dir),
-    filters: {
-      // the search box is deliberately not restored: it is a momentary thing
-      search: '',
-      statuses: stringList(f.statuses, STATUS_KEY) as TaskStatus[],
-      priorities: stringList(f.priorities, TASK_PRIORITIES.map((p) => p.value)) as TaskPriority[],
-      people: stringList(f.people),
-      mine: f.mine === true,
-      needsAction: f.needsAction === true,
-      overdue: f.overdue === true,
-      hideFinished: f.hideFinished === true,
-    },
-    collapsed: stringList(data.collapsed),
+    groupBy: pick(data.groupBy, GROUP_KEYS, null),
+    sort: pick(data.sort, SORT_KEYS, null),
+    dir: pick(data.dir, ['asc', 'desc'] as const, null),
+    collapsed: Array.isArray(data.collapsed)
+      ? data.collapsed.filter((k): k is string => typeof k === 'string' && k.length <= 100).slice(0, 50)
+      : [],
   };
 }
 
-export function serializeView(view: TaskViewState): string {
-  return JSON.stringify({ ...view, filters: { ...view.filters, search: '' } });
+export const serializeViewPrefs = (prefs: ViewPrefs): string => JSON.stringify(prefs);
+
+/** The view as written in a URL (?group=editor&sort=dueDate&dir=desc): only what the link says. */
+export function readViewParams(params: URLSearchParams): Pick<ViewPrefs, 'groupBy' | 'sort' | 'dir'> {
+  return {
+    groupBy: pick(params.get('group'), GROUP_KEYS, null),
+    sort: pick(params.get('sort'), SORT_KEYS, null),
+    dir: pick(params.get('dir'), ['asc', 'desc'] as const, null),
+  };
+}
+
+export function writeViewParams(params: URLSearchParams, view: Partial<Pick<TaskViewState, 'groupBy' | 'sort' | 'dir'>>): URLSearchParams {
+  const next = new URLSearchParams(params);
+  if (view.groupBy) next.set('group', view.groupBy);
+  if (view.sort) next.set('sort', view.sort);
+  if (view.dir) next.set('dir', view.dir);
+  return next;
 }

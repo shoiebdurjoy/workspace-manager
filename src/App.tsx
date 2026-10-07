@@ -18,6 +18,7 @@ const Onboarding = lazy(() => import('@/pages/Onboarding'));
 const Home = lazy(() => import('@/pages/Home'));
 const Team = lazy(() => import('@/pages/Team'));
 const Production = lazy(() => import('@/pages/Production'));
+const EverythingPage = lazy(() => import('@/pages/EverythingPage'));
 const SpacePage = lazy(() => import('@/pages/SpacePage'));
 const FolderPage = lazy(() => import('@/pages/FolderPage'));
 const ListPage = lazy(() => import('@/pages/ListPage'));
@@ -132,6 +133,19 @@ const App = () => (
               >
                 {/* The task is a side sheet over the list: a child route keeps the list mounted
                     (no refetch, no flicker) while the sheet opens and closes. ListPage renders it. */}
+                <Route path="tasks/:taskId" element={null} />
+              </Route>
+              <Route
+                path="/everything"
+                element={
+                  <ProtectedRoute capability="hierarchy:view">
+                    <Layout>
+                      <EverythingPage />
+                    </Layout>
+                  </ProtectedRoute>
+                }
+              >
+                {/* like a list: the task is a side sheet over the view, so the view stays mounted */}
                 <Route path="tasks/:taskId" element={null} />
               </Route>
               <Route

@@ -2,15 +2,19 @@ import { describe, it, expect } from 'vitest';
 import {
   DEFAULT_VIEW,
   EMPTY_FILTERS,
-  UNASSIGNED,
-  applyFilters,
+  NOBODY,
   buildView,
   canReorderInView,
   countActiveFilters,
+  dueBucket,
+  groupOptionsFor,
   groupTasks,
   isOverdue,
-  parseStoredView,
-  serializeView,
+  parseViewPrefs,
+  readViewParams,
+  refineLoaded,
+  serializeViewPrefs,
+  writeViewParams,
   sortTasks,
 } from '../task-view';
 import type { TaskSummary, WorkspaceMember } from '@/types/database';
@@ -54,35 +58,28 @@ const D = task({ title: 'Unassigned clip', status: 'TO_BE_EDITED', priority: 'ME
 const ALL = [A, B, C, D];
 const titles = (ts: TaskSummary[]) => ts.map((t) => t.title);
 
-describe('filters', () => {
-  it('searches titles case-insensitively', () => {
-    expect(titles(applyFilters(ALL, { ...EMPTY_FILTERS, search: '  WALMART ' }, { me: 'me', workflow: WF }, NOW))).toEqual(['Walmart series']);
+describe('what the browser still refines (everything else is the database)', () => {
+  const ctx = { me: 'me', role: 'EDITOR' as const, workflow: WF };
+
+  it('returns the rows untouched when nothing needs refining', () => {
+    expect(refineLoaded(ALL, EMPTY_FILTERS, ctx)).toEqual(ALL);
+    expect(refineLoaded(ALL, EMPTY_FILTERS, ctx)).not.toBe(ALL); // a copy, never the loaded array itself
   });
 
-  it('"mine" matches the editor OR the QC reviewer slot', () => {
-    expect(titles(applyFilters(ALL, { ...EMPTY_FILTERS, mine: true }, { me: 'me', workflow: WF }, NOW))).toEqual(['Walmart series', 'Patton moving']);
-    expect(applyFilters(ALL, { ...EMPTY_FILTERS, mine: true }, { workflow: WF }, NOW)).toEqual([]);
-  });
-
-  it('people filter matches either slot, and "nobody assigned" matches only fully unassigned tasks', () => {
-    expect(titles(applyFilters(ALL, { ...EMPTY_FILTERS, people: ['qc'] }, { workflow: WF }, NOW))).toEqual(['Walmart series']);
-    expect(titles(applyFilters(ALL, { ...EMPTY_FILTERS, people: [UNASSIGNED] }, { workflow: WF }, NOW))).toEqual(['Unassigned clip']);
-    expect(titles(applyFilters(ALL, { ...EMPTY_FILTERS, people: ['zara', UNASSIGNED] }, { workflow: WF }, NOW))).toEqual(['Lori Bales video', 'Unassigned clip']);
+  it('"needs my action" keeps the tasks assigned to me where the next workflow step is mine', () => {
+    const mine = task({ title: 'Mine to start', status: 'ASSIGNED', editorId: 'me', qcId: 'qc' });
+    const waiting = task({ title: 'Waiting on QC', status: 'QC_FIRST_APPROVAL', editorId: 'me', qcId: 'qc' });
+    const notMine = task({ title: 'Someone else', status: 'ASSIGNED', editorId: 'zara' });
+    expect(titles(refineLoaded([mine, waiting, notMine], { ...EMPTY_FILTERS, needsAction: true }, ctx))).toEqual(['Mine to start']);
   });
 
   it('overdue = unfinished with a past QC date or client deadline; finished work never counts', () => {
-    expect(titles(applyFilters(ALL, { ...EMPTY_FILTERS, overdue: true }, { workflow: WF }, NOW))).toEqual(['Walmart series', 'Unassigned clip']);
-    expect(isOverdue(C, WF, NOW)).toBe(false);
+    expect(isOverdue(A, WF, NOW)).toBe(true);
+    expect(isOverdue(D, WF, NOW)).toBe(true); // a past client deadline
+    expect(isOverdue(B, WF, NOW)).toBe(false);
+    expect(isOverdue(C, WF, NOW)).toBe(false); // closed
     // without the workflow nothing is known to be finished, so a past date counts
     expect(isOverdue(C, null, NOW)).toBe(true);
-  });
-
-  it('combines status, priority and hide-finished (AND across filters, OR within one)', () => {
-    expect(titles(applyFilters(ALL, { ...EMPTY_FILTERS, statuses: ['TO_BE_EDITED', 'CLOSED'], priorities: ['LOW', 'HIGH'] }, { workflow: WF }, NOW))).toEqual([
-      'Lori Bales video',
-      'Patton moving',
-    ]);
-    expect(titles(applyFilters(ALL, { ...EMPTY_FILTERS, hideFinished: true }, { workflow: WF }, NOW))).not.toContain('Patton moving');
   });
 
   it('counts active filters for the toolbar', () => {
@@ -90,6 +87,7 @@ describe('filters', () => {
     expect(countActiveFilters({ ...EMPTY_FILTERS, search: '  ' })).toBe(0);
     expect(countActiveFilters({ ...EMPTY_FILTERS, search: 'x', statuses: ['TO_BE_EDITED'], mine: true, overdue: true })).toBe(4);
     expect(countActiveFilters({ ...EMPTY_FILTERS, needsAction: true })).toBe(1);
+    expect(countActiveFilters({ ...EMPTY_FILTERS, editors: ['a', NOBODY], due: 'week', client: 'today', created: 'past7' })).toBe(4);
   });
 });
 
@@ -178,7 +176,7 @@ describe('grouping', () => {
 describe('the whole view', () => {
   it('filters, sorts within groups, and reports the reading order (skipping collapsed groups)', () => {
     const view = { ...DEFAULT_VIEW, sort: 'title' as const, collapsed: ['status:STARTED_EDITING'] };
-    const result = buildView(ALL, view, { me: 'me', workflow: WF }, NOW);
+    const result = buildView(ALL, view, { me: 'me', workflow: WF });
     expect(result.matched).toBe(4);
     expect(result.groups.map((g) => titles(g.tasks))).toEqual([['Lori Bales video', 'Unassigned clip'], ['Walmart series'], ['Patton moving']]);
     expect(titles(result.visible)).toEqual(['Lori Bales video', 'Unassigned clip', 'Patton moving']);
@@ -194,28 +192,76 @@ describe('the whole view', () => {
 });
 
 describe('stored view preference', () => {
-  it('round-trips, but never stores or restores the search text', () => {
-    const view = { ...DEFAULT_VIEW, groupBy: 'editor' as const, sort: 'dueDate' as const, dir: 'desc' as const, collapsed: ['editor:x'], filters: { ...EMPTY_FILTERS, search: 'secret client', mine: true, statuses: ['TO_BE_EDITED'], needsAction: true } };
-    const raw = serializeView(view);
-    expect(raw).not.toContain('secret client');
-    expect(parseStoredView(raw)).toEqual({ ...view, filters: { ...view.filters, search: '' } });
+  it('round-trips grouping, sort and collapsed groups, and nothing else', () => {
+    const prefs = { groupBy: 'editor' as const, sort: 'dueDate' as const, dir: 'desc' as const, collapsed: ['editor:x'] };
+    expect(parseViewPrefs(serializeViewPrefs(prefs))).toEqual(prefs);
+    expect(serializeViewPrefs(prefs)).not.toMatch(/search|filters|status|mine/);
   });
 
-  it('falls back to the default for missing, corrupt or hostile values', () => {
-    expect(parseStoredView(null)).toEqual(DEFAULT_VIEW);
-    expect(parseStoredView('{not json')).toEqual(DEFAULT_VIEW);
-    expect(parseStoredView('"a string"')).toEqual(DEFAULT_VIEW);
-    const odd = parseStoredView(
-      JSON.stringify({ groupBy: 'everything', sort: 'drop table', dir: 'sideways', filters: { statuses: ['TO_BE_EDITED', 'lower case', 'DROP TABLE x;', 42], priorities: 'URGENT', mine: 'yes', people: ['x'.repeat(500), 'ok'] }, collapsed: [1, 'k'] })
-    );
-    expect(odd.groupBy).toBe('status');
-    expect(odd.sort).toBe('manual');
-    expect(odd.dir).toBe('asc');
-    expect(odd.filters.statuses).toEqual(['TO_BE_EDITED']);
-    expect(odd.filters.needsAction).toBe(false);
-    expect(odd.filters.priorities).toEqual([]);
-    expect(odd.filters.mine).toBe(false);
-    expect(odd.filters.people).toEqual(['ok']);
-    expect(odd.collapsed).toEqual(['k']);
+  it('falls back to nothing stored for missing, corrupt or hostile values', () => {
+    const none = { groupBy: null, sort: null, dir: null, collapsed: [] };
+    expect(parseViewPrefs(null)).toEqual(none);
+    expect(parseViewPrefs('{not json')).toEqual(none);
+    expect(parseViewPrefs('"a string"')).toEqual(none);
+    const odd = parseViewPrefs(JSON.stringify({ groupBy: 'everything', sort: 'drop table', dir: 'sideways', collapsed: [1, 'k', 'x'.repeat(500)] }));
+    expect(odd).toEqual({ groupBy: null, sort: null, dir: null, collapsed: ['k'] });
+  });
+
+  it('reads and writes grouping and sort in a URL, leaving other parameters alone', () => {
+    const url = writeViewParams(new URLSearchParams('view=board&q=x'), { groupBy: 'due', sort: 'priority', dir: 'desc' });
+    expect(url.toString()).toBe('view=board&q=x&group=due&sort=priority&dir=desc');
+    expect(readViewParams(url)).toEqual({ groupBy: 'due', sort: 'priority', dir: 'desc' });
+    expect(readViewParams(new URLSearchParams('group=bogus&sort=;drop&dir=up'))).toEqual({ groupBy: null, sort: null, dir: null });
+    expect(readViewParams(new URLSearchParams(''))).toEqual({ groupBy: null, sort: null, dir: null });
+  });
+});
+
+describe('grouping by due date and by list', () => {
+  const NOW_D = new Date();
+  const inDays = (n: number) => new Date(NOW_D.getFullYear(), NOW_D.getMonth(), NOW_D.getDate() + n, 12).toISOString();
+
+  it('puts each task in its place on the due-date timeline; finished work is its own bucket', () => {
+    const overdue = task({ title: 'late', dueDate: inDays(-2) });
+    const today = task({ title: 'today', dueDate: inDays(0) });
+    const soon = task({ title: 'soon', dueDate: inDays(5) });
+    const later = task({ title: 'later', dueDate: inDays(30) });
+    const none = task({ title: 'none' });
+    const done = task({ title: 'done', status: 'CLOSED', dueDate: inDays(-9) });
+    const groups = groupTasks([overdue, today, soon, later, none, done], 'due', { workflow: WF });
+    expect(groups.map((g) => [g.label, titles(g.tasks)])).toEqual([
+      ['Overdue', ['late']],
+      ['Today', ['today']],
+      ['Next 7 days', ['soon']],
+      ['Later', ['later']],
+      ['No due date', ['none']],
+      ['Finished', ['done']],
+    ]);
+    expect(groupTasks([overdue], 'due', { workflow: WF }, { keepEmpty: true })).toHaveLength(6);
+  });
+
+  it('dueBucket uses the QC due date, and without a workflow nothing counts as finished', () => {
+    expect(dueBucket({ status: 'CLOSED', dueDate: null }, WF, NOW_D)).toBe('done');
+    expect(dueBucket({ status: 'CLOSED', dueDate: null }, null, NOW_D)).toBe('none');
+    expect(dueBucket({ status: 'IN_EDIT', dueDate: inDays(7) }, WF, NOW_D)).toBe('week');
+    expect(dueBucket({ status: 'IN_EDIT', dueDate: inDays(8) }, WF, NOW_D)).toBe('later');
+  });
+
+  it('groups by list, labelled with where the list lives, in a stable order', () => {
+    const lists = new Map([
+      ['l1', { listName: 'Gamma', folderName: 'Pod B', spaceName: 'Content' }],
+      ['l2', { listName: 'Alpha', folderName: null, spaceName: 'Content' }],
+    ]);
+    const t = [task({ title: 'a', listId: 'l1' }), task({ title: 'b', listId: 'l2' }), task({ title: 'c', listId: 'l1' }), task({ title: 'd', listId: 'gone' })];
+    const groups = groupTasks(t, 'list', { lists });
+    expect(groups.map((g) => [g.label, titles(g.tasks), g.value])).toEqual([
+      ['Content / Alpha', ['b'], 'l2'],
+      ['Content / Pod B / Gamma', ['a', 'c'], 'l1'],
+      ['Unknown list', ['d'], 'gone'],
+    ]);
+  });
+
+  it('offers grouping by list only where a view spans several lists', () => {
+    expect(groupOptionsFor(false).map((o) => o.value)).toEqual(['status', 'editor', 'priority', 'due', 'none']);
+    expect(groupOptionsFor(true).map((o) => o.value)).toContain('list');
   });
 });

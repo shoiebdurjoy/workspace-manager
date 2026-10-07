@@ -6,13 +6,14 @@
 //   node supabase/tests/rls-check.mjs
 
 import { PGlite } from '@electric-sql/pglite';
+import { pg_trgm } from '@electric-sql/pglite/contrib/pg_trgm';
 import fs from 'fs';
 
 import { fileURLToPath } from 'url';
 const MIGRATIONS_DIR = fileURLToPath(new URL('../migrations/', import.meta.url));
 const MIGRATION_FILES = fs.readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith('.sql')).sort();
 const readMigration = (f) => fs.readFileSync(MIGRATIONS_DIR + f, 'utf8');
-const db = new PGlite();
+const db = new PGlite({ extensions: { pg_trgm } });
 
 // ---- Minimal stand-in for Supabase's auth schema and roles -----------------
 const BOOTSTRAP = `
@@ -20,6 +21,7 @@ const BOOTSTRAP = `
   CREATE ROLE authenticated NOLOGIN;
   CREATE ROLE service_role NOLOGIN BYPASSRLS;
   CREATE SCHEMA auth;
+  CREATE SCHEMA extensions;
   CREATE TABLE auth.users (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     email text UNIQUE,
@@ -28,7 +30,7 @@ const BOOTSTRAP = `
   );
   CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS
     $$ SELECT nullif(current_setting('request.jwt.claim.sub', true), '')::uuid $$;
-  GRANT USAGE ON SCHEMA auth, public TO anon, authenticated, service_role;
+  GRANT USAGE ON SCHEMA auth, public, extensions TO anon, authenticated, service_role;
   GRANT EXECUTE ON FUNCTION auth.uid() TO anon, authenticated, service_role;
   -- Mirrors the live tbb-workspace project: objects created by the migration role get
   -- NO automatic grants for anon/authenticated/service_role (verified in pg_default_acl).
@@ -1174,6 +1176,232 @@ console.log('\n== Phase 7b: first-QC production credits ==');
   await svc(`INSERT INTO public.task_production_credits (task_id, workspace_id, editor_id, first_qc_submitted_at) VALUES ($1,$2,$3,now())`, [tC, wsC, editor]);
   try { await svc(`DELETE FROM public.workspaces WHERE id = $1`, [wsC]); record('deleting a whole workspace removes its credits (cascade)', (await nCredits(tC)) === 0); }
   catch (e) { record('deleting a whole workspace removes its credits (cascade)', false, e.message); }
+}
+
+console.log('\n== Phase 9: database-side task search, filters and sorting ==');
+{
+  const editor2 = (await svc(`SELECT id FROM auth.users WHERE email = 'editor2@tbb.test'`))[0].id;
+  await svc(`UPDATE public.profiles SET full_name = 'Zelda Zimmer' WHERE id = $1`, [editor]);
+  await svc(`UPDATE public.profiles SET full_name = 'Yara Young' WHERE id = $1`, [editor2]);
+  await svc(`UPDATE public.profiles SET full_name = 'Quentin Quill' WHERE id = $1`, [qc]);
+
+  // ---- a controlled corner of the workspace: two spaces, a folder, three lists, six tasks ----------
+  const SP = (await svc(`INSERT INTO public.spaces (workspace_id, name, slug) VALUES ($1, 'Search Space', 'p9-a'), ($1, 'Elsewhere', 'p9-b') RETURNING id, name`, [ws]));
+  const spA = SP.find((x) => x.name === 'Search Space').id;
+  const spB = SP.find((x) => x.name === 'Elsewhere').id;
+  const fd = (await svc(`INSERT INTO public.folders (space_id, name) VALUES ($1, 'Folder Nine') RETURNING id`, [spA]))[0].id;
+  const lA = (await svc(`INSERT INTO public.lists (space_id, folder_id, name) VALUES ($1, $2, 'Alpha pipeline') RETURNING id`, [spA, fd]))[0].id;
+  const lB = (await svc(`INSERT INTO public.lists (space_id, name) VALUES ($1, 'Beta pipeline') RETURNING id`, [spA]))[0].id;
+  const lC = (await svc(`INSERT INTO public.lists (space_id, name) VALUES ($1, 'Gamma pipeline') RETURNING id`, [spB]))[0].id;
+  await svc(`UPDATE public.spaces SET position = CASE WHEN id = $1 THEN 0 ELSE 1 END WHERE id IN ($1, $2)`, [spA, spB]);
+  await svc(`UPDATE public.lists SET position = CASE WHEN id = $2 THEN 1 ELSE 0 END WHERE id IN ($1, $2, $3)`, [lA, lB, lC]);
+  const mkTask = async (key, o) => {
+    const t = (await svc(`INSERT INTO public.tasks (list_id, title, description, priority, due_date, client_deadline, aspect_ratio) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
+      [o.list, o.title, o.desc ?? null, o.priority, o.due ?? null, o.client ?? null, o.aspect ?? null]))[0].id;
+    if (o.editor) await svc(`INSERT INTO public.task_assignees (task_id, role_type, user_id) VALUES ($1,'EDITOR',$2)`, [t, o.editor]);
+    if (o.qc) await svc(`INSERT INTO public.task_assignees (task_id, role_type, user_id) VALUES ($1,'QC_REVIEWER',$2)`, [t, o.qc]);
+    if (o.status) await svc(`UPDATE public.tasks SET status = $2, review_link = 'https://app.frame.io/r/x' WHERE id = $1`, [t, o.status]);
+    await svc(`UPDATE public.tasks SET position = $2 WHERE id = $1`, [t, o.pos ?? 0]);
+    if (o.created) await svc(`UPDATE public.tasks SET created_at = $2 WHERE id = $1`, [t, o.created]);
+    return [key, t];
+  };
+  const day = (n) => new Date(Date.now() + n * 86400000).toISOString();
+  const ids = Object.fromEntries(await Promise.all([
+    mkTask('t1', { list: lA, title: 'Walmart hook test', desc: 'Cut to 58 seconds', priority: 'HIGH', due: day(2), client: day(10), aspect: '9:16', pos: 0 }),
+  ]));
+  // sequential, so created_at order (the tie-break) is the order written here
+  for (const [key, o] of [
+    ['t2', { list: lA, title: 'Walmart long cut', priority: 'URGENT', due: day(-3), aspect: '16:9', editor, qc, status: 'STARTED_EDITING', pos: 1 }],
+    ['t3', { list: lB, title: 'Lori Bales testimonial', priority: 'MEDIUM', aspect: '9:16', editor: editor2, qc, status: 'QC_FIRST_APPROVAL', pos: 0 }],
+    ['t4', { list: lB, title: 'Patton Moving 100% done', priority: 'LOW', due: day(-20), editor, status: 'CLOSED', pos: 1 }],
+    ['t5', { list: lC, title: 'under_score task', priority: 'MEDIUM', pos: 0 }],
+    ['t6', { list: lC, title: 'Gamma ad', priority: 'LOW', status: 'IN_EDIT', created: day(-40), pos: 1 }],
+  ]) ids[key] = (await mkTask(key, o))[1];
+  await svc(`UPDATE public.tasks SET status = 'IN_EDIT' WHERE id = $1`, [ids.t6]);
+  // another workspace's task with a matching word: it must never show up here
+  await svc(`INSERT INTO public.tasks (workspace_id, list_id, title) VALUES ($1, $2, 'Walmart secret of another workspace')`, [wsB, listB]);
+
+  const BASE = { spaces: [spA, spB] };
+  const search = (who, q, filters = {}, sort = 'manual', dir = 'asc', limit = 500, offset = 0) =>
+    as(who, `SELECT * FROM public.search_tasks($1, $2, $3::jsonb, $4, $5, $6, $7)`, [ws, q, JSON.stringify({ ...BASE, ...filters }), sort, dir, limit, offset]);
+  const named = (res) => res.rows.map((r) => Object.keys(ids).find((k) => ids[k] === r.id));
+  const set = (...keys) => keys.sort().join(',');
+  let last = '';
+  const sameSet = (res, ...keys) => {
+    last = res.error ? res.error.message : named(res).join(',');
+    return !res.error && named(res).sort().join(',') === set(...keys);
+  };
+
+  // ---- who may search ------------------------------------------------------------------------
+  for (const [name, who] of [['owner', owner], ['admin', admin], ['production manager', pm], ['QC specialist', qc], ['editor', editor]]) {
+    r = await search(who, null);
+    record(`${name} can search the workspace's tasks`, !r.error && r.rows.length === 6, r.error?.message ?? String(r.rows.length));
+  }
+  for (const [name, who] of [['client viewer', client], ['outsider', stranger]]) {
+    r = await search(who, null);
+    record(`${name} is refused (42501)`, r.error?.code === '42501', r.error?.message);
+  }
+  r = await as('anon', `SELECT * FROM public.search_tasks($1)`, [ws]);
+  record('anon cannot call search_tasks', !!r.error);
+  r = await as(editor, `SELECT * FROM public.search_tasks($1)`, [wsB]);
+  record("a staff member of one workspace cannot search another workspace's tasks", r.error?.code === '42501', r.error?.message);
+  r = await search(editor, 'secret');
+  record("another workspace's task never appears, even for a matching word", !r.error && r.rows.length === 0);
+  r = await as(editor, `SELECT proname FROM pg_proc WHERE proname = 'search_tasks' AND prosecdef`);
+  record('search_tasks runs as the caller (SECURITY INVOKER), so RLS applies to every table it reads', r.rows.length === 0);
+
+  // ---- free text -----------------------------------------------------------------------------
+  const q = (text, ...keys) => async () => sameSet(await search(editor, text), ...keys);
+  const cases = [
+    ['title, any case', 'WALMART', ['t1', 't2']],
+    ['every word must match, in any order', 'hook walmart', ['t1']],
+    ['the brief', '58 seconds', ['t1']],
+    ['the list name', 'alpha', ['t1', 't2']],
+    ['a word in two list names', 'pipeline', ['t1', 't2', 't3', 't4', 't5', 't6']],
+    ['the folder name', 'nine', ['t1', 't2']],
+    ['the space name', 'elsewhere', ['t5', 't6']],
+    ['the editor name', 'zelda', ['t2', 't4']],
+    ['the QC reviewer name', 'quentin', ['t2', 't3']],
+    ['a name and a title word together', 'zelda walmart', ['t2']],
+    ['nothing matches', 'zzzzzz-no-such', []],
+    ['an empty search returns everything', '   ', ['t1', 't2', 't3', 't4', 't5', 't6']],
+    ['a literal % is not a wildcard', '100%', ['t4']],
+    ['a lone % matches only text that really contains one', '%', ['t4']],
+    ['a literal _ is not a wildcard', '_', ['t5']],
+    ['a backslash is just a character', '\\', []],
+  ];
+  for (const [name, text, keys] of cases) { const ok = await q(text, ...keys)(); record(`search: ${name}`, ok, `${text} -> ${last}`); }
+  const prefix = ids.t3.slice(0, 8);
+  r = await search(editor, `#${prefix}`);
+  record('search: a short task id (with #) finds that task', sameSet(r, 't3'), named(r).join());
+  r = await search(editor, prefix.toUpperCase());
+  record('search: a short id is case-insensitive', sameSet(r, 't3'));
+  r = await search(editor, `'; DROP TABLE public.tasks; --`);
+  const stillThere = await svc(`SELECT count(*)::int n FROM public.tasks`);
+  record('search: SQL in the search box is just text (nothing dropped, nothing matched)', !r.error && r.rows.length === 0 && stillThere[0].n >= 7, r.error?.message);
+  r = await search(editor, 'a '.repeat(40));
+  record('search: a very long query is bounded, not an error', !r.error);
+  r = await search(editor, 'x'.repeat(500));
+  record('search: a very long word is cut short, not an error', !r.error);
+
+  // ---- filters (each alone, then together) -------------------------------------------------------
+  const f = async (filters, ...keys) => sameSet(await search(editor, null, filters), ...keys);
+  const rf = async (name, filters, ...keys) => { const ok = await f(filters, ...keys); record(name, ok, last); };
+  await rf('filter: status', { statuses: ['QC_FIRST_APPROVAL', 'CLOSED'] }, 't3', 't4');
+  await rf('filter: priority', { priorities: ['URGENT', 'LOW'] }, 't2', 't4', 't6');
+  await rf('filter: aspect ratio', { aspectRatios: ['9:16'] }, 't1', 't3');
+  await rf('filter: editor', { editors: [editor] }, 't2', 't4');
+  await rf('filter: no editor', { noEditor: true }, 't1', 't5', 't6');
+  await rf('filter: an editor or nobody', { editors: [editor2], noEditor: true }, 't3', 't1', 't5', 't6');
+  await rf('filter: QC reviewer', { qcs: [qc] }, 't2', 't3');
+  await rf('filter: no QC reviewer', { noQc: true }, 't1', 't4', 't5', 't6');
+  await rf('filter: assigned to (editor or QC)', { people: [qc] }, 't2', 't3');
+  await rf('filter: assigned to someone who is only an editor', { people: [editor2] }, 't3');
+  await rf('filter: space', { spaces: [spB] }, 't5', 't6');
+  await rf('filter: folder', { folders: [fd] }, 't1', 't2');
+  await rf('filter: list', { lists: [lB] }, 't3', 't4');
+  await rf('filter: due date range', { dueFrom: day(-5), dueTo: day(5) }, 't1', 't2');
+  await rf('filter: no due date', { noDue: true }, 't3', 't5', 't6');
+  await rf('filter: client deadline range', { clientFrom: day(5), clientTo: day(15) }, 't1');
+  await rf('filter: created before a date', { createdTo: day(-30) }, 't6');
+  await rf('filter: created since a date', { createdFrom: day(-1) }, 't1', 't2', 't3', 't4', 't5');
+  await rf('filter: overdue = unfinished with a past deadline (a closed task never counts)', { overdue: true, overdueBefore: new Date().toISOString() }, 't2');
+  await rf('filter: hide finished', { hideFinished: true }, 't1', 't2', 't3', 't5', 't6');
+  await rf('filters combine with AND', { editors: [editor], statuses: ['CLOSED'] }, 't4');
+  record('filters combine with the search text', sameSet(await search(editor, 'walmart', { priorities: ['URGENT'] }), 't2'));
+  await rf('three filters at once (editor + status + priority)', { editors: [editor], statuses: ['STARTED_EDITING'], priorities: ['URGENT'] }, 't2');
+  await rf('unknown filter keys are ignored', { nonsense: [1], statuses: ['CLOSED'] }, 't4');
+  await rf('an empty list is no filter', { statuses: [], priorities: null }, 't1', 't2', 't3', 't4', 't5', 't6');
+  r = await search(editor, null, { lists: ['not-a-uuid'] });
+  record('a malformed id is refused, not ignored', !!r.error, r.error?.message);
+  r = await as(editor, `SELECT * FROM public.search_tasks($1, NULL, '["a"]'::jsonb)`, [ws]);
+  record('filters must be an object', r.error?.code === '22023', r.error?.code);
+  r = await search(editor, null, { statuses: Array.from({ length: 101 }, (_, i) => `S${i}`) });
+  record('more than 100 values in one filter is refused (never silently dropped)', r.error?.code === '22023', r.error?.code);
+  r = await search(editor, null, { dueFrom: 'yesterday-ish' });
+  record('a malformed date is refused', !!r.error);
+
+  // ---- sorting ---------------------------------------------------------------------------------
+  const order = async (sort, dir) => named(await search(editor, null, {}, sort, dir));
+  const sorted = (keys, ranks, dir = 'asc') => keys.every((k, i) => i === 0 || (dir === 'asc' ? ranks[keys[i - 1]] <= ranks[k] : ranks[keys[i - 1]] >= ranks[k]));
+  const prio = { t1: 1, t2: 0, t3: 2, t4: 3, t5: 2, t6: 3 };
+  record('sort: priority, most urgent first', sorted(await order('priority', 'asc'), prio));
+  record('sort: priority descending', sorted(await order('priority', 'desc'), prio, 'desc'));
+  let o = await order('dueDate', 'asc');
+  record('sort: due date ascending, empty dates last', o.slice(0, 3).join() === 't4,t2,t1' && new Set(o.slice(3)).size === 3, o.join());
+  o = await order('dueDate', 'desc');
+  record('sort: due date descending, empty dates STILL last', o.slice(0, 3).join() === 't1,t2,t4', o.join());
+  o = await order('status', 'asc');
+  record('sort: stage in workflow order', o.join() === 't1,t5,t6,t2,t3,t4', o.join());
+  o = await order('editor', 'asc');
+  record('sort: editor by name, nobody last', o.slice(0, 3).join() === 't3,t2,t4' && new Set(o.slice(3)).size === 3, o.join());
+  o = await order('editor', 'desc');
+  record('sort: editor descending, nobody still last', o.slice(0, 3).join() === 't2,t4,t3', o.join());
+  o = await order('qc', 'asc');
+  record('sort: QC reviewer, nobody last', new Set(o.slice(0, 2)).has('t2') && new Set(o.slice(0, 2)).has('t3') && new Set(o.slice(2)).size === 4, o.join());
+  o = await order('title', 'asc');
+  record('sort: title, case-insensitive', o.join() === 't6,t3,t4,t5,t1,t2', o.join());
+  o = await order('created', 'asc');
+  record('sort: oldest created first', o[0] === 't6', o.join());
+  o = await order('created', 'desc');
+  record('sort: newest created first', o[o.length - 1] === 't6', o.join());
+  r = await search(editor, null, {}, 'updated', 'desc');
+  record('sort: last updated', !r.error && r.rows.length === 6 && new Date(r.rows[0].updated_at) >= new Date(r.rows[5].updated_at));
+  const m1 = await order('manual', 'asc');
+  const m2 = await order('manual', 'asc');
+  record('sort: manual order is the hierarchy order: space, folders before loose lists, list, then position', m1.join() === 't1,t2,t3,t4,t5,t6' && m1.join() === m2.join(), m1.join());
+  r = await search(editor, null, {}, 'robert); drop table tasks;--', 'sideways');
+  record('an unknown sort or direction falls back safely (nothing is spliced into SQL)', !r.error && r.rows.length === 6);
+
+  // ---- paging ----------------------------------------------------------------------------------
+  r = await search(editor, null, {}, 'title', 'asc', 2, 0);
+  const p1 = named(r);
+  const p2 = named(await search(editor, null, {}, 'title', 'asc', 2, 2));
+  const p3 = named(await search(editor, null, {}, 'title', 'asc', 2, 4));
+  record('paging: three pages of two, in order, no overlap', [...p1, ...p2, ...p3].join() === 't6,t3,t4,t5,t1,t2', [p1, p2, p3].join('|'));
+  record('paging: every row carries the full match count', r.rows.every((x) => Number(x.total_count) === 6));
+  r = await search(editor, null, {}, 'title', 'asc', 2, 6);
+  record('paging: past the end is empty, not an error', !r.error && r.rows.length === 0);
+  r = await search(editor, null, {}, 'title', 'asc', 0, -5);
+  record('paging: a limit of 0 and a negative offset are clamped', !r.error && r.rows.length === 1);
+  r = await search(editor, null, {}, 'title', 'asc', 999999, 0);
+  record('paging: a huge limit is clamped to 1000', !r.error && r.rows.length === 6);
+
+  // ---- what each row carries ---------------------------------------------------------------------
+  await svc(`INSERT INTO public.subtasks (task_id, title, is_completed) VALUES ($1,'a',true), ($1,'b',false), ($1,'c',true)`, [ids.t2]);
+  r = await search(editor, 'walmart long');
+  const row = r.rows[0];
+  record('rows carry assignees, revision count, subtask progress and the properties the views show',
+    row?.editor_id === editor && row.qc_id === qc && row.subtask_total === 3 && row.subtask_done === 2 && row.revision_count === 0 &&
+    row.status === 'STARTED_EDITING' && row.priority === 'URGENT' && row.aspect_ratio === '16:9' && row.list_id === lA, JSON.stringify(row));
+
+  // ---- the index, and speed on a realistic amount of data ------------------------------------------
+  await svc(`SET session_replication_role = replica`);
+  await svc(`INSERT INTO public.lists (workspace_id, space_id, name) VALUES ($1, $2, 'PERF')`, [ws, spA]);
+  const perfList = (await svc(`SELECT id FROM public.lists WHERE name = 'PERF' AND space_id = $1`, [spA]))[0].id;
+  await svc(`INSERT INTO public.tasks (workspace_id, list_id, title, description, status, priority, position)
+             SELECT $1, $2, 'perf video ' || g || CASE WHEN g % 2500 = 0 THEN ' zebrafish' ELSE '' END, 'brief number ' || g,
+                    'TO_BE_EDITED', 'MEDIUM', g FROM generate_series(1, 40000) g`, [ws, perfList]);
+  await svc(`SET session_replication_role = origin`);
+  await svc(`ANALYZE public.tasks`);
+  const plan = (await svc(`EXPLAIN SELECT id FROM public.tasks WHERE title ILIKE '%zebrafish%'`)).map((x) => x['QUERY PLAN']).join('\n');
+  record('the trigram index is used for a title search on thousands of tasks', /idx_tasks_title_trgm/.test(plan), plan);
+  const t0 = Date.now();
+  r = await as(editor, `SELECT * FROM public.search_tasks($1, 'zebrafish', '{}'::jsonb)`, [ws]);
+  const ms = Date.now() - t0;
+  record('searching 40,000 tasks for a rare word finds exactly the right ones', !r.error && r.rows.length === 16 && Number(r.rows[0].total_count) === 16, r.error?.message ?? String(r.rows.length));
+  console.log(`      (search over ${40000 + 7} tasks took ${ms} ms in the in-process test database)`);
+  record('...quickly (well under a second even here)', ms < 3000, `${ms}ms`);
+  r = await as(editor, `SELECT * FROM public.search_tasks($1, NULL, $2::jsonb, 'priority', 'asc', 500, 0)`, [ws, JSON.stringify({ lists: [perfList], priorities: ['MEDIUM'] })]);
+  record('a filtered, sorted page of a big list returns exactly one page', !r.error && r.rows.length === 500 && Number(r.rows[0].total_count) === 40000, r.error?.message);
+  await svc(`SET session_replication_role = replica`);
+  await svc(`DELETE FROM public.tasks WHERE list_id = $1`, [perfList]);
+  await svc(`SET session_replication_role = origin`);
+  await svc(`DELETE FROM public.lists WHERE id = $1`, [perfList]);
+
+  // ---- nothing the search did changed any data -----------------------------------------------------
+  const after = await svc(`SELECT count(*)::int n FROM public.tasks WHERE list_id IN ($1,$2,$3)`, [lA, lB, lC]);
+  record('searching changes nothing', after[0].n === 6);
 }
 
 console.log('\n== Deactivation & service role ==');

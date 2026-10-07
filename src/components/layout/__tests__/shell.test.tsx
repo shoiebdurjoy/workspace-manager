@@ -55,11 +55,13 @@ describe('AppSidebar (Phase 2 shell on real data)', () => {
 
   it('later-phase areas are visibly disabled, not simulated (no fake badge counts)', () => {
     sidebar();
-    for (const name of ['Inbox', 'My Tasks', 'Everything']) {
+    for (const name of ['Inbox', 'My Tasks']) {
       expect(screen.getByRole('button', { name: new RegExp(name) })).toBeDisabled();
     }
     expect(screen.getByRole('button', { name: /Home/ })).toBeEnabled();
-    expect(screen.getAllByText('Soon')).toHaveLength(3);
+    // Everything (all tasks) is real now: Phase 8 / 9
+    expect(screen.getByRole('button', { name: /Everything/ })).toBeEnabled();
+    expect(screen.getAllByText('Soon')).toHaveLength(2);
     expect(screen.queryByText(/^2$/)).not.toBeInTheDocument();
   });
 
