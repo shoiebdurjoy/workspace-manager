@@ -2629,6 +2629,55 @@ console.log('\n== Phase 12e: list templates ==');
   record('anon cannot read templates', !!r.error);
 }
 
+console.log('\n== Phase 14: KPI report ==');
+{
+  const oK = await mkUser('k-owner@tbb.test', {}, true);
+  const adK = await mkUser('k-admin@tbb.test', {}, true);
+  const pmK = await mkUser('k-pm@tbb.test', {}, true);
+  const edK = await mkUser('k-editor@tbb.test', {}, true);
+  const wsK = (await svc(`INSERT INTO public.workspaces (name, slug, owner_id) VALUES ('K','k-kpi',$1) RETURNING id`, [oK]))[0].id;
+  await svc(`INSERT INTO public.workspace_members (workspace_id, user_id, role) VALUES ($1,$2,'ADMIN'), ($1,$3,'PRODUCTION_MANAGER'), ($1,$4,'EDITOR') ON CONFLICT DO NOTHING`, [wsK, adK, pmK, edK]);
+  const spK = (await as(oK, `INSERT INTO public.spaces (workspace_id, name, slug) VALUES ($1,'S','s') RETURNING id`, [wsK])).rows[0]?.id;
+  const lA = (await as(oK, `INSERT INTO public.lists (space_id, name) VALUES ($1,'Client A') RETURNING id`, [spK])).rows[0]?.id;
+  const lB = (await as(oK, `INSERT INTO public.lists (space_id, name) VALUES ($1,'Client B') RETURNING id`, [spK])).rows[0]?.id;
+  // three credited videos: A twice (2 and 0 revisions, 10 h and 30 h turnaround), B once (1 revision, 20 h), all this week
+  await svc(`SET session_replication_role = replica`);
+  const mk = async (list, rev, hours) => {
+    const t = (await svc(`INSERT INTO public.tasks (workspace_id, list_id, title, revision_count, created_at) VALUES ($1,$2,'k',$3, now() - make_interval(hours => $4::int)) RETURNING id`, [wsK, list, rev, hours]))[0].id;
+    await svc(`INSERT INTO public.task_production_credits (task_id, workspace_id, editor_id, first_qc_submitted_at) VALUES ($1,$2,$3, now())`, [t, wsK, edK]);
+    return t;
+  };
+  await mk(lA, 2, 10); await mk(lA, 0, 30); await mk(lB, 1, 20);
+  await svc(`SET session_replication_role = origin`);
+  const kpi = (who, w = wsK, weeks = 4, tz = 'UTC') => as(who, `SELECT public.kpi_report($1, $2, $3) AS k`, [w, weeks, tz]);
+
+  r = await kpi(oK);
+  const k = r.rows[0]?.k;
+  record('the owner gets the report', !r.error && !!k, r.error?.message);
+  record('...totals: 3 videos, 1 revision on average', k?.totals.videos === 3 && Number(k.totals.avgRevisions) === 1, JSON.stringify(k?.totals));
+  record('...turnaround: average 20 h, median 20 h', Number(k?.turnaround.avgHours) === 20 && Number(k.turnaround.medianHours) === 20, JSON.stringify(k?.turnaround));
+  record('...weekly: four zero-filled weeks, the three videos in the last one', k?.weekly.length === 4 && k.weekly.reduce((n, w) => n + w.videos, 0) === 3 && k.weekly[3].videos === 3, JSON.stringify(k?.weekly));
+  record('...clients: A first with 2 videos (1 revision on average), then B', k?.clients[0]?.name === 'Client A' && k.clients[0].videos === 2 && Number(k.clients[0].avgRevisions) === 1 && k.clients[1]?.name === 'Client B', JSON.stringify(k?.clients));
+  r = await kpi(adK);
+  record('an admin gets the same numbers', !r.error && r.rows[0].k.totals.videos === 3);
+  r = await kpi(pmK);
+  record('a production manager gets an empty report (credits are owner / admin only)', !r.error && r.rows[0].k.totals.videos === 0 && r.rows[0].k.clients.length === 0, JSON.stringify(r.rows[0]?.k?.totals));
+  r = await kpi(edK);
+  record('an editor gets an empty report', !r.error && r.rows[0].k.totals.videos === 0);
+  r = await kpi(stranger, wsK);
+  record('a non-member is refused', r.error?.code === '42501', r.error?.message ?? 'was allowed');
+  r = await kpi(oK, wsB);
+  record('another workspace is refused', r.error?.code === '42501', r.error?.message ?? 'was allowed');
+  r = await kpi(oK, wsK, 4, 'Mars/Phobos');
+  record('an unknown time zone is refused', r.error?.code === '22023', r.error?.message ?? 'was allowed');
+  r = await kpi(oK, wsK, 9999);
+  record('the window is capped at 52 weeks', !r.error && r.rows[0].k.weekly.length === 52);
+  r = await as('anon', `SELECT public.kpi_report($1, 4, 'UTC')`, [wsK]);
+  record('anon cannot call it', !!r.error);
+  r = await svc(`SELECT prosecdef FROM pg_proc WHERE proname = 'kpi_report'`);
+  record('it runs with the caller\'s rights', r[0]?.prosecdef === false);
+}
+
 console.log('\n== Deactivation & service role ==');
 await svc(`UPDATE public.profiles SET is_active = false WHERE id = $1`, [editor]);
 r = await as(editor, `SELECT id FROM public.tasks`);

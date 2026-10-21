@@ -29,6 +29,8 @@ export function createDatabaseMock() {
     getProductionMonthly: vi.fn(),
     // home (Phase 11)
     getHomeSummary: vi.fn(),
+    // reports (migration 22)
+    getKpiReport: vi.fn(),
     // list templates (migration 21)
     listTemplates: vi.fn().mockResolvedValue([]),
     saveListAsTemplate: vi.fn().mockResolvedValue(undefined),

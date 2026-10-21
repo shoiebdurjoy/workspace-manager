@@ -866,6 +866,8 @@ export interface Database {
         Returns: Database['public']['Tables']['tasks']['Row'];
       };
       // Phase 9 (migration 11): database-side search, filters, sorting and paging. SECURITY INVOKER.
+      // Phase 14 (migration 22): KPI report (SECURITY INVOKER)
+      kpi_report: { Args: { p_workspace_id: string; p_weeks?: number; p_timezone?: string }; Returns: Json };
       // Phase 12e (migration 21): list templates (SECURITY INVOKER)
       save_list_as_template: {
         Args: { p_list_id: string; p_name: string; p_description?: string | null };

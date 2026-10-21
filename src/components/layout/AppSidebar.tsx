@@ -13,6 +13,7 @@ import {
   Users,
   CalendarDays,
   Gauge,
+  TrendingUp,
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -71,6 +72,7 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
   const managementNavItems: NavItem[] = [
     ...(can(role, "team:view") ? [{ label: "Team", icon: Users, href: "/team" }] : []),
     ...(can(role, "production:view") ? [{ label: "Workload", icon: Gauge, href: "/workload" }] : []),
+    ...(can(role, "production:view") ? [{ label: "Reports", icon: TrendingUp, href: "/reports" }] : []),
     ...(can(role, "production:view") ? [{ label: "Production", icon: BarChart3, href: "/production" }] : []),
     { label: "Settings", icon: Settings, href: "/settings" },
   ];

@@ -24,6 +24,7 @@ const MyTasksPage = lazy(() => import('@/pages/MyTasksPage'));
 const InboxPage = lazy(() => import('@/pages/InboxPage'));
 const CalendarPage = lazy(() => import('@/pages/CalendarPage'));
 const WorkloadPage = lazy(() => import('@/pages/WorkloadPage'));
+const ReportsPage = lazy(() => import('@/pages/ReportsPage'));
 const SpacePage = lazy(() => import('@/pages/SpacePage'));
 const FolderPage = lazy(() => import('@/pages/FolderPage'));
 const ListPage = lazy(() => import('@/pages/ListPage'));
@@ -159,6 +160,16 @@ const App = () => (
                   <ProtectedRoute capability="hierarchy:view">
                     <Layout>
                       <CalendarPage />
+                    </Layout>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/reports"
+                element={
+                  <ProtectedRoute capability="production:view">
+                    <Layout>
+                      <ReportsPage />
                     </Layout>
                   </ProtectedRoute>
                 }
