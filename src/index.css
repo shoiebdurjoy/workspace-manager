@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400..700&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -165,7 +165,14 @@
 
   body {
     @apply bg-background text-foreground antialiased;
-    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display', 'Inter', 'Segoe UI', system-ui, sans-serif;
+    /* Inter first everywhere (Windows' system fonts render thin and soft at UI sizes); optical sizing keeps
+       small text sturdy and large titles tight, like SF Pro */
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', system-ui, sans-serif;
+    font-optical-sizing: auto;
+    font-feature-settings: 'cv11', 'ss01', 'ss03', 'calt';
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
     font-size: 13.5px;
     font-feature-settings: "rlig" 1, "calt" 1;
   }
@@ -184,6 +191,8 @@
   }
 
   @media (prefers-reduced-motion: reduce) {
+  .hero-glow { animation: none; }
+  .lift, .lift:hover { transform: none; transition: none; }
     html {
       scroll-behavior: auto;
     }
@@ -340,6 +349,47 @@
   .pill-item[data-state='active'] {
     @apply bg-background text-foreground;
     box-shadow: var(--shadow-soft);
+  }
+
+  /* the selected item's background is drawn by a moving highlight (SlidingHighlight) */
+  .pill-item.pill-sliding[aria-selected='true'],
+  .pill-item.pill-sliding[aria-pressed='true'] {
+    background: transparent;
+    box-shadow: none;
+  }
+
+  /* Cards that respond: a gentle lift and a deeper shadow on hover, a press on click. */
+  .lift {
+    transition: transform 220ms var(--ease-out), box-shadow 220ms var(--ease-out), border-color 220ms var(--ease-out);
+  }
+  .lift:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-float);
+    border-color: hsl(var(--primary) / 0.18);
+  }
+  .lift:active {
+    transform: translateY(0) scale(0.99);
+  }
+
+  /* The Home hero: a calm surface with a slow brand glow behind it. */
+  .hero-surface {
+    background: linear-gradient(135deg, hsl(var(--card)) 0%, hsl(var(--card)) 55%, hsl(var(--brand-subtle)) 100%);
+    border: 1px solid hsl(var(--border) / 0.7);
+    box-shadow: var(--shadow-soft);
+  }
+  .hero-glow {
+    position: absolute;
+    inset: -40% -10% auto auto;
+    width: 26rem;
+    height: 26rem;
+    border-radius: 9999px;
+    background: radial-gradient(circle, hsl(var(--primary) / 0.22), transparent 65%);
+    filter: blur(10px);
+    animation: hero-drift 14s ease-in-out infinite alternate;
+  }
+  @keyframes hero-drift {
+    from { transform: translate3d(0, 0, 0) scale(1); }
+    to { transform: translate3d(-6rem, 2rem, 0) scale(1.15); }
   }
 
   /* Soft brand focus ring for inputs. */

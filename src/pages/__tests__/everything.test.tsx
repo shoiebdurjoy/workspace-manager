@@ -57,6 +57,11 @@ const ROWS = [
 const lastRequest = () => db.searchTasks.mock.calls.at(-1)?.[1] as { query: string; filters: Record<string, unknown>; sort: string; dir: string };
 const titles = () => screen.getAllByRole('link').filter((l) => l.getAttribute('href')?.includes('/tasks/')).map((l) => l.textContent);
 
+// the detailed filters live in the toolbar's Filter panel (opened once, stays open while any filter is on)
+const openFilters = async () => {
+  if (!document.getElementById('task-filter-panel')) await userEvent.click(screen.getByRole('button', { name: /^Filter/ }));
+};
+
 beforeEach(() => {
   vi.clearAllMocks();
   window.localStorage.clear();
@@ -105,6 +110,7 @@ describe('Everything: every task the person can see', () => {
   it('can narrow by space, folder and list, with the names as they are in the hierarchy', async () => {
     open();
     await screen.findByRole('link', { name: 'Walmart hook test' });
+    await openFilters();
     await userEvent.click(screen.getByRole('button', { name: 'List filter' }));
     await userEvent.click(await screen.findByRole('option', { name: 'Content Pipelines / CONTENT PIPELINE - ZIM / 2. CONOR CONTENT' }));
     await userEvent.keyboard('{Escape}');
@@ -113,6 +119,7 @@ describe('Everything: every task the person can see', () => {
     await waitFor(() => expect(titles()).toEqual(['Conor intro reel']));
     expect(screen.getByRole('button', { name: /^Remove filter: List: Content Pipelines \/ CONTENT PIPELINE - ZIM \/ 2\. CONOR CONTENT/ })).toBeInTheDocument();
 
+    await openFilters();
     await userEvent.click(screen.getByRole('button', { name: 'Space filter' }));
     expect((await screen.findAllByRole('option')).map((o) => o.textContent)).toEqual(['Content Pipelines', 'Design']);
   });

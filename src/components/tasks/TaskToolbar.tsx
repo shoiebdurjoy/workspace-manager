@@ -1,5 +1,5 @@
 import React, { forwardRef, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowDownNarrowWide, ArrowUpNarrowWide, CalendarDays, Check, ChevronDown, Keyboard, Layers, Loader2, Plus, Search, X } from 'lucide-react';
+import { ArrowDownNarrowWide, ArrowUpNarrowWide, CalendarDays, Check, ChevronDown, Keyboard, Layers, Loader2, Plus, Search, SlidersHorizontal, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -369,25 +369,40 @@ const TaskToolbar = forwardRef<HTMLInputElement, TaskToolbarProps>(
       if (f.lists.length) chips.push({ key: 'list', text: `List: ${names(scopeOptions.lists, f.lists)}`, remove: () => onFilters({ lists: [] }) });
     }
     if (f.mine) chips.push({ key: 'mine', text: 'Assigned to me', remove: () => onFilters({ mine: false }) });
+    const [filtersOpen, setFiltersOpen] = useState(false);
     if (f.needsAction) chips.push({ key: 'needs', text: 'Needs my action', remove: () => onFilters({ needsAction: false }) });
     if (f.overdue) chips.push({ key: 'overdue', text: 'Overdue', remove: () => onFilters({ overdue: false }) });
     if (f.hideFinished) chips.push({ key: 'hide', text: 'Finished hidden', remove: () => onFilters({ hideFinished: false }) });
 
+    const panelOpen = filtersOpen || active > 0;
+
     return (
-      <div className="flex flex-col gap-2.5" role="toolbar" aria-label="Task view">
-        <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-col gap-2" role="toolbar" aria-label="Task view">
+        {/* one quiet row, like ClickUp: views on the left, search / filter / group / sort / add on the right */}
+        <div className="flex flex-wrap items-center gap-1.5 border-b border-border/70 pb-2">
           {lead}
-          <SearchBox ref={searchRef} value={f.search} onCommit={(text) => onFilters({ search: text })} loading={loading} />
-          <Toggle pressed={f.mine} onChange={(v) => onFilters({ mine: v })}>
-            Assigned to me
-          </Toggle>
-          <Toggle pressed={f.needsAction} onChange={(v) => onFilters({ needsAction: v })}>
-            Needs my action
-          </Toggle>
-          <Toggle pressed={f.overdue} onChange={(v) => onFilters({ overdue: v })}>
-            Overdue
-          </Toggle>
-          <div className="ml-auto flex items-center gap-0.5">
+          <div className="ml-auto flex flex-wrap items-center gap-0.5">
+            <SearchBox ref={searchRef} value={f.search} onCommit={(text) => onFilters({ search: text })} loading={loading} />
+            <Toggle pressed={f.mine} onChange={(v) => onFilters({ mine: v })}>
+              Assigned to me
+            </Toggle>
+            <Button
+              variant="ghost"
+              size="sm"
+              aria-expanded={panelOpen}
+              aria-controls="task-filter-panel"
+              onClick={() => setFiltersOpen((o) => !o)}
+              className={cn(
+                'press h-8 shrink-0 gap-1.5 rounded-full px-3 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground',
+                (panelOpen || active > 0) && 'bg-muted text-foreground'
+              )}
+            >
+              <SlidersHorizontal aria-hidden className="h-3.5 w-3.5" />
+              Filter
+              {active > 0 && (
+                <span className="ml-0.5 rounded-full bg-primary px-1.5 text-[10px] font-semibold leading-4 tabular-nums text-primary-foreground">{active}</span>
+              )}
+            </Button>
             {!hideGroup && (
               <MenuChoice
                 icon={<Layers aria-hidden className="h-3.5 w-3.5" />}
@@ -416,39 +431,51 @@ const TaskToolbar = forwardRef<HTMLInputElement, TaskToolbarProps>(
             {trail}
             <ShortcutsHint />
             {onNewTask && (
-              <Button size="sm" className="press h-8 rounded-full px-3.5 shadow-soft" onClick={onNewTask} aria-label="New task">
+              <Button size="sm" className="press ml-1 h-8 rounded-full px-3.5 shadow-soft" onClick={onNewTask} aria-label="New task">
                 <Plus aria-hidden className="h-4 w-4 sm:mr-1" />
                 <span aria-hidden className="hidden sm:inline">
-                  New task
+                  Task
                 </span>
               </Button>
             )}
           </div>
         </div>
 
-        <div className="-mx-1 flex items-center gap-1.5 overflow-x-auto px-1 pb-1 sm:flex-wrap sm:overflow-visible sm:pb-0">
-          <MultiFilter label="Status" selected={f.statuses} onChange={(v) => onFilters({ statuses: v as TaskFilters['statuses'] })} options={statusOptions} />
-          <MultiFilter label="Editor" selected={f.editors} onChange={(v) => onFilters({ editors: v })} options={editorOptions} />
-          <MultiFilter label="QC reviewer" selected={f.qcs} onChange={(v) => onFilters({ qcs: v })} options={qcOptions} />
-          <MultiFilter label="Priority" selected={f.priorities} onChange={(v) => onFilters({ priorities: v as TaskFilters['priorities'] })} options={priorityOptions} />
-          <DateFilterMenu label="QC due" code={f.due} presets={DUE_PRESETS} onChange={(code) => onFilters({ due: code })} />
-          <DateFilterMenu label="Client deadline" code={f.client} presets={DUE_PRESETS} onChange={(code) => onFilters({ client: code })} />
-          <DateFilterMenu label="Created" code={f.created} presets={CREATED_PRESETS} onChange={(code) => onFilters({ created: code })} />
-          <MultiFilter label="Aspect ratio" selected={f.aspectRatios} onChange={(v) => onFilters({ aspectRatios: v as TaskFilters['aspectRatios'] })} options={aspectOptions} />
-          {scopeOptions && (
-            <>
-              <MultiFilter label="Space" selected={f.spaces} onChange={(v) => onFilters({ spaces: v })} options={scopeOptions.spaces} />
-              <MultiFilter label="Folder" selected={f.folders} onChange={(v) => onFilters({ folders: v })} options={scopeOptions.folders} />
-              <MultiFilter label="List" selected={f.lists} onChange={(v) => onFilters({ lists: v })} options={scopeOptions.lists} />
-            </>
-          )}
-          <Toggle pressed={f.hideFinished} onChange={(v) => onFilters({ hideFinished: v })}>
-            Hide finished
-          </Toggle>
-          <span className="ml-auto shrink-0 pl-2 text-xs tabular-nums text-muted-foreground" aria-live="polite">
-            {active > 0 ? `${matched} ${matched === 1 ? 'task matches' : 'tasks match'}` : `${matched} ${matched === 1 ? 'task' : 'tasks'}`}
-          </span>
-        </div>
+        {panelOpen && (
+          <div
+            id="task-filter-panel"
+            className="motion-pop -mx-1 flex items-center gap-1.5 overflow-x-auto rounded-card border border-border/70 bg-card/60 px-2 py-1.5 sm:flex-wrap sm:overflow-visible"
+          >
+            <MultiFilter label="Status" selected={f.statuses} onChange={(v) => onFilters({ statuses: v as TaskFilters['statuses'] })} options={statusOptions} />
+            <MultiFilter label="Editor" selected={f.editors} onChange={(v) => onFilters({ editors: v })} options={editorOptions} />
+            <MultiFilter label="QC reviewer" selected={f.qcs} onChange={(v) => onFilters({ qcs: v })} options={qcOptions} />
+            <MultiFilter label="Priority" selected={f.priorities} onChange={(v) => onFilters({ priorities: v as TaskFilters['priorities'] })} options={priorityOptions} />
+            <DateFilterMenu label="QC due" code={f.due} presets={DUE_PRESETS} onChange={(code) => onFilters({ due: code })} />
+            <DateFilterMenu label="Client deadline" code={f.client} presets={DUE_PRESETS} onChange={(code) => onFilters({ client: code })} />
+            <DateFilterMenu label="Created" code={f.created} presets={CREATED_PRESETS} onChange={(code) => onFilters({ created: code })} />
+            <MultiFilter label="Aspect ratio" selected={f.aspectRatios} onChange={(v) => onFilters({ aspectRatios: v as TaskFilters['aspectRatios'] })} options={aspectOptions} />
+            {scopeOptions && (
+              <>
+                <MultiFilter label="Space" selected={f.spaces} onChange={(v) => onFilters({ spaces: v })} options={scopeOptions.spaces} />
+                <MultiFilter label="Folder" selected={f.folders} onChange={(v) => onFilters({ folders: v })} options={scopeOptions.folders} />
+                <MultiFilter label="List" selected={f.lists} onChange={(v) => onFilters({ lists: v })} options={scopeOptions.lists} />
+              </>
+            )}
+            <Toggle pressed={f.needsAction} onChange={(v) => onFilters({ needsAction: v })}>
+              Needs my action
+            </Toggle>
+            <Toggle pressed={f.overdue} onChange={(v) => onFilters({ overdue: v })}>
+              Overdue
+            </Toggle>
+            <Toggle pressed={f.hideFinished} onChange={(v) => onFilters({ hideFinished: v })}>
+              Hide finished
+            </Toggle>
+          </div>
+        )}
+
+        <p className="sr-only" aria-live="polite">
+          {active > 0 ? `${matched} ${matched === 1 ? 'task matches' : 'tasks match'}` : `${matched} ${matched === 1 ? 'task' : 'tasks'}`}
+        </p>
 
         {chips.length > 0 && (
           <ul aria-label="Active filters" className="flex flex-wrap items-center gap-1.5">

@@ -3,6 +3,8 @@ import { AppSidebar } from "@/components/layout/AppSidebar";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { CommandPalette } from "@/components/layout/CommandPalette";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
+import { useLocation } from "react-router-dom";
+import { PageTransition } from "@/components/motion";
 import { cn } from "@/lib/utils";
 
 export interface AppShellProps {
@@ -43,6 +45,10 @@ export const AppShell: React.FC<AppShellProps> = ({
   const toggleCollapse = () => {
     setIsCollapsed((prev) => !prev);
   };
+
+  // a task opened over a view is not a new page: the view stays put, only the sheet animates
+  const { pathname } = useLocation();
+  const pageKey = pathname.replace(/\/tasks\/[^/]+$/, "");
 
   return (
     <div className="flex h-screen w-full overflow-hidden surface-canvas text-foreground antialiased">
@@ -87,7 +93,9 @@ export const AppShell: React.FC<AppShellProps> = ({
             className
           )}
         >
-          <div className="mx-auto max-w-7xl w-full">{children}</div>
+          <div className="mx-auto max-w-7xl w-full">
+            <PageTransition routeKey={pageKey}>{children}</PageTransition>
+          </div>
         </main>
       </div>
 

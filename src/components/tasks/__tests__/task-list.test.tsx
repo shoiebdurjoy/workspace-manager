@@ -53,6 +53,11 @@ const row = (title: string) => screen.getByRole('link', { name: title }).closest
 /** A row renders its controls twice (table columns + phone layout; CSS decides which shows). */
 const first = <T extends HTMLElement>(els: T[]) => els[0];
 
+// the detailed filters live in the toolbar's Filter panel (opened once, stays open while any filter is on)
+const openFilters = async () => {
+  if (!document.getElementById('task-filter-panel')) await userEvent.click(screen.getByRole('button', { name: /^Filter/ }));
+};
+
 beforeEach(() => {
   vi.clearAllMocks();
   db.getWorkspaceHierarchy.mockResolvedValue(makeTree());
@@ -392,6 +397,7 @@ describe('finding work: search, filters, grouping, sorting (answered by the data
   it('"Needs my action" asks for my tasks and keeps only those where the next step is mine', async () => {
     renderList('EDITOR');
     await screen.findByRole('link', { name: 'Product teaser' });
+    await openFilters();
     await userEvent.click(screen.getByRole('button', { name: 'Needs my action' }));
     await waitFor(() => expect(screen.queryByRole('link', { name: 'Product teaser' })).not.toBeInTheDocument());
     expect(lastRequest().filters).toEqual({ lists: [IDS.listEdaptx], people: ['user-1'] });
@@ -406,6 +412,7 @@ describe('finding work: search, filters, grouping, sorting (answered by the data
     await waitFor(() => expect(screen.queryByRole('link', { name: 'Product teaser' })).not.toBeInTheDocument());
     expect(shownTitles()).toEqual(['Episode 12 - Founder story']);
     await userEvent.click(screen.getByRole('button', { name: 'Assigned to me' }));
+    await openFilters();
     await userEvent.click(screen.getByRole('button', { name: 'Overdue' }));
     expect(await screen.findByText('1 task matches')).toBeInTheDocument();
     expect(lastRequest().filters).toMatchObject({ overdue: true, overdueBefore: expect.stringMatching(/^\d{4}-\d\d-\d\dT/) });
@@ -415,11 +422,13 @@ describe('finding work: search, filters, grouping, sorting (answered by the data
   it('filters by priority and editor, shows what is on as chips, explains an empty result, and clears', async () => {
     renderList();
     await screen.findByRole('link', { name: 'Product teaser' });
+    await openFilters();
     await userEvent.click(screen.getByRole('button', { name: 'Priority filter' }));
     await userEvent.click(await screen.findByRole('option', { name: /Urgent/ }));
     await userEvent.keyboard('{Escape}');
     expect(await screen.findByText('1 task matches')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Remove filter: Priority: Urgent' })).toBeInTheDocument();
+    await openFilters();
     await userEvent.click(screen.getByRole('button', { name: 'Editor filter' }));
     await userEvent.click(await screen.findByRole('option', { name: /Nobody assigned/ }));
     await userEvent.keyboard('{Escape}');
@@ -466,6 +475,7 @@ describe('finding work: search, filters, grouping, sorting (answered by the data
   it('filters by a date preset and a custom range, for the QC due date, the client deadline and creation', async () => {
     renderList();
     await screen.findByRole('link', { name: 'Product teaser' });
+    await openFilters();
     await userEvent.click(screen.getByRole('button', { name: 'QC due filter' }));
     await userEvent.click(await screen.findByRole('option', { name: 'Next 7 days' }));
     await waitFor(() => expect(lastRequest().filters).toHaveProperty('dueFrom'));
@@ -475,6 +485,7 @@ describe('finding work: search, filters, grouping, sorting (answered by the data
     expect(lastRequest().filters).not.toHaveProperty('dueFrom');
     await userEvent.keyboard('{Escape}');
 
+    await openFilters();
     await userEvent.click(screen.getByRole('button', { name: 'Created filter' }));
     fireEvent.change(await screen.findByLabelText('Created from'), { target: { value: '2026-10-01' } });
     await waitFor(() => expect(lastRequest().filters).toHaveProperty('createdFrom'));
@@ -503,6 +514,7 @@ describe('finding work: search, filters, grouping, sorting (answered by the data
     renderList();
     await screen.findByRole('link', { name: 'Product teaser' });
     db.searchTasks.mockRejectedValueOnce(new Error('Failed to search the tasks: timeout'));
+    await openFilters();
     await userEvent.click(screen.getByRole('button', { name: 'Overdue' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('timeout');
     await userEvent.click(screen.getByRole('button', { name: /try again/i }));

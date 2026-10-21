@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import RoleBadge from '@/components/team/RoleBadge';
 import SpaceIcon from '@/components/hierarchy/SpaceIcon';
+import { AnimatedNumber, Stagger, StaggerItem } from '@/components/motion';
 import { TaskStatusPill } from '@/components/tasks/TaskBadges';
 import type { HomeQueueItem } from '@/database';
 import { useHomeSummary } from '@/hooks/use-home';
@@ -29,19 +30,35 @@ const Stat: React.FC<{ label: string; value: number | undefined; icon: React.Rea
   to,
 }) => {
   const body = (
-    <div className="press flex items-center gap-3 surface-card p-3.5 transition-colors hover:bg-muted/30">
-      <div className="flex h-9 w-9 items-center justify-center rounded-control bg-primary/10 text-primary">{icon}</div>
-      <div>
+    <div className="lift group/stat relative flex items-center gap-3 overflow-hidden surface-card p-4">
+      {/* a soft brand glow that follows the hover */}
+      <span aria-hidden className="pointer-events-none absolute -right-8 -top-10 h-24 w-24 rounded-full bg-primary/10 blur-2xl opacity-0 transition-opacity duration-300 group-hover/stat:opacity-100" />
+      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-control bg-gradient-to-br from-primary/15 to-primary/5 text-primary ring-1 ring-inset ring-primary/10 transition-transform duration-300 group-hover/stat:scale-110">
+        {icon}
+      </div>
+      <div className="min-w-0">
         {value === undefined ? (
-          <Skeleton className="h-5 w-8" />
+          <Skeleton className="h-6 w-10" />
         ) : (
-          <p className="text-xl font-semibold tabular-nums leading-none tracking-tight">{value}</p>
+          <p className="text-2xl font-semibold tabular-nums leading-none tracking-tight">
+            <AnimatedNumber value={value} />
+          </p>
         )}
-        <p className="mt-1 text-[11px] text-muted-foreground">{label}</p>
+        <p className="mt-1.5 truncate text-xs text-muted-foreground">{label}</p>
       </div>
     </div>
   );
-  return to ? <Link to={to}>{body}</Link> : body;
+  return (
+    <StaggerItem>
+      {to ? (
+        <Link to={to} className="block rounded-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+          {body}
+        </Link>
+      ) : (
+        body
+      )}
+    </StaggerItem>
+  );
 };
 
 const UNREAD_INBOX = { tab: 'inbox' as const, kinds: [], unreadOnly: true };
@@ -109,6 +126,9 @@ const Home: React.FC = () => {
   }, []);
 
   const firstName = profile?.fullName.split(' ')[0] ?? '';
+  const hour = new Date().getHours();
+  const greeting = hour < 5 ? 'Working late' : hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
+  const todayLabel = new Date().toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' });
 
   // ---- the personal hub (staff only: client viewers have no task access) ----
   const me = user?.id ?? null;
@@ -124,15 +144,34 @@ const Home: React.FC = () => {
   const s = summary.data;
   const isManager = role === 'OWNER' || role === 'ADMIN' || role === 'PRODUCTION_MANAGER';
   const showQueues = isManager || role === 'QC_SPECIALIST';
+  const headline = !canSeeSpaces
+    ? 'Here is your workspace at a glance.'
+    : !s
+      ? 'Getting your day ready...'
+      : s.mine.overdue > 0
+        ? `${s.mine.overdue} of your tasks ${s.mine.overdue === 1 ? 'is' : 'are'} overdue. Start there.`
+        : s.mine.dueToday > 0
+          ? `${s.mine.dueToday} ${s.mine.dueToday === 1 ? 'task is' : 'tasks are'} due today. You are on track.`
+          : s.mine.total > 0
+            ? 'Nothing overdue and nothing due today. A clear runway.'
+            : 'Nothing assigned to you yet. Enjoy the calm.';
 
   return (
     <div className="space-y-6">
-      <header className="flex flex-wrap items-end justify-between gap-3 pt-1">
-        <div className="space-y-1">
-          <p className="section-label">{workspace?.name}</p>
-          <h1 className="page-title text-2xl">Welcome, {firstName}</h1>
+      <header className="hero-surface relative overflow-hidden rounded-card px-6 py-7 sm:px-8 sm:py-9">
+        <div aria-hidden className="hero-glow" />
+        <div className="relative flex flex-wrap items-end justify-between gap-4">
+          <div className="space-y-1.5">
+            <p className="section-label">
+              {workspace?.name} · {todayLabel}
+            </p>
+            <h1 className="page-title text-3xl sm:text-4xl">
+              {greeting}, {firstName}
+            </h1>
+            <p className="max-w-xl text-sm text-muted-foreground">{headline}</p>
+          </div>
+          {role && <RoleBadge role={role} className="text-[11px]" />}
         </div>
-        {role && <RoleBadge role={role} className="text-[11px]" />}
       </header>
 
       {canSeeSpaces && (
@@ -152,12 +191,12 @@ const Home: React.FC = () => {
                 </button>
               </p>
             ) : (
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <Stagger className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                 <Stat label="Needs my action" value={myTasks.isLoading || !workflow ? undefined : needsMe} icon={<CircleDot className="h-4 w-4" />} to="/my-tasks" />
                 <Stat label="Overdue" value={s?.mine.overdue} icon={<AlertTriangle className="h-4 w-4" />} to="/my-tasks" />
                 <Stat label="Due today" value={s?.mine.dueToday} icon={<CalendarClock className="h-4 w-4" />} to="/my-tasks" />
                 <Stat label="Next 7 days" value={s?.mine.dueThisWeek} icon={<CalendarDays className="h-4 w-4" />} to="/my-tasks" />
-              </div>
+              </Stagger>
             )}
           </section>
 

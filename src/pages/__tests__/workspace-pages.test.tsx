@@ -139,8 +139,8 @@ describe('Home', () => {
 
   it('greets the person and shows their real role and workspace', async () => {
     renderHome('QC_SPECIALIST');
-    expect(screen.getByRole('heading', { name: 'Welcome, Pat' })).toBeInTheDocument();
-    expect(screen.getByText('Think Big Brand')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /, Pat$/ })).toBeInTheDocument();
+    expect(screen.getByText(/Think Big Brand/)).toBeInTheDocument();
     expect(screen.getAllByText('QC Specialist').length).toBeGreaterThan(0);
   });
 

@@ -97,7 +97,7 @@ const BulkBar: React.FC<BulkBarProps> = ({ selected, accessOf, members, busy, on
         {n} selected
       </span>
       {anyStatus && (
-        <ChoicePicker<TaskStatus>
+        <ChoicePicker
           label="Move selected tasks to a stage"
           value={'__none__' as TaskStatus}
           searchable
@@ -129,7 +129,7 @@ const BulkBar: React.FC<BulkBarProps> = ({ selected, accessOf, members, busy, on
         />
       )}
       {editable.length > 0 && (
-        <ChoicePicker<TaskPriority>
+        <ChoicePicker
           label="Set priority for selected tasks"
           value={'__none__' as TaskPriority}
           disabled={busy}

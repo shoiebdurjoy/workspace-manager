@@ -189,7 +189,7 @@ const Row = memo(function Row({ task, columns, href, open, checked, active, memb
       <span className="text-xs text-muted-foreground/60">-</span>
     ),
     aspectRatio: access.editBrief ? (
-      <ChoicePicker<string>
+      <ChoicePicker
         label="Aspect ratio"
         value={task.aspectRatio ?? NO_RATIO}
         choices={[{ value: NO_RATIO, label: 'Not set' }, ...ASPECT_RATIOS.map((a) => ({ value: a.value as string, label: a.label }))]}

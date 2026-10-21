@@ -1,5 +1,6 @@
 import React from 'react';
 import { Columns3, ListTodo, Table2 } from 'lucide-react';
+import { SlidingHighlight } from '@/components/motion';
 import { cn } from '@/lib/utils';
 import { VIEW_MODES, type ViewMode } from '@/lib/task-views';
 
@@ -25,7 +26,7 @@ const ViewSwitcher: React.FC<{ mode: ViewMode; onChange: (mode: ViewMode) => voi
     requestAnimationFrame(() => document.getElementById(`view-tab-${next}`)?.focus());
   };
   return (
-    <div role="tablist" aria-label="View" onKeyDown={onKey} className="pill-group h-8 shrink-0">
+    <div role="tablist" aria-label="View" onKeyDown={onKey} className="pill-group isolate h-8 shrink-0">
       {VIEW_MODES.map((m) => {
         const on = m.value === mode;
         return (
@@ -37,8 +38,9 @@ const ViewSwitcher: React.FC<{ mode: ViewMode; onChange: (mode: ViewMode) => voi
             aria-selected={on}
             tabIndex={on ? 0 : -1}
             onClick={() => onChange(m.value)}
-            className={cn('pill-item gap-1.5 outline-none focus-visible:ring-2 focus-visible:ring-ring', on && 'text-foreground')}
+            className={cn('pill-item pill-sliding relative gap-1.5 outline-none focus-visible:ring-2 focus-visible:ring-ring', on && 'text-foreground')}
           >
+            {on && <SlidingHighlight layoutId="view-switcher" className="absolute inset-0 -z-10 rounded-full bg-background shadow-[var(--shadow-soft)]" />}
             {ICONS[m.value]}
             {m.label}
           </button>
