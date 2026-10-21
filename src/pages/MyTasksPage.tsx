@@ -26,9 +26,9 @@ const MyTasksPage: React.FC = () => {
 
   return (
     <div className="space-y-4">
-      <header>
-        <h1 className="text-lg font-semibold tracking-tight">My Tasks</h1>
-        <p className="text-xs text-muted-foreground">
+      <header className="space-y-1 pt-1">
+        <h1 className="page-title">My Tasks</h1>
+        <p className="page-description">
           Everything you edit or review. What needs your next step comes first, then the rest by its nearest date.
         </p>
       </header>

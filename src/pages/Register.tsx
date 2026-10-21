@@ -101,7 +101,7 @@ const Register: React.FC = () => {
         onChange={(e) => set(e.target.value)}
         aria-invalid={!!fieldErrors[id]}
         aria-describedby={fieldErrors[id] ? `${id}-error` : hint ? `${id}-hint` : undefined}
-        className="h-9 text-sm"
+        className="focus-soft h-10 rounded-control text-sm"
       />
       {hint && !fieldErrors[id] && (
         <p id={`${id}-hint`} className="text-[11px] text-muted-foreground">
@@ -139,7 +139,7 @@ const Register: React.FC = () => {
           'At least 8 characters with upper-case, lower-case and a number.'
         )}
         {field('confirm', 'Confirm password', confirm, setConfirm, 'password', 'new-password')}
-        <Button type="submit" className="h-9 w-full text-sm" disabled={submitting}>
+        <Button type="submit" className="press h-10 w-full rounded-full text-sm" disabled={submitting}>
           {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
           Create account
         </Button>

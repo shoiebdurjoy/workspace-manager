@@ -90,10 +90,10 @@ const Profile: React.FC = () => {
 
   return (
     <div className="max-w-2xl space-y-6">
-      <header className="flex items-center gap-3">
+      <header className="flex items-center gap-4 pt-1">
         <UserAvatar name={profile.fullName} src={profile.avatarUrl ?? undefined} size="lg" />
         <div className="min-w-0">
-          <h1 className="truncate text-lg font-semibold tracking-tight">{profile.fullName}</h1>
+          <h1 className="truncate page-title">{profile.fullName}</h1>
           <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
             <span className="truncate">{profile.email}</span>
             {role && <RoleBadge role={role} />}
@@ -102,8 +102,8 @@ const Profile: React.FC = () => {
         </div>
       </header>
 
-      <form onSubmit={onSaveProfile} noValidate className="space-y-4 rounded-lg border border-border/70 bg-card p-4">
-        <h2 className="text-sm font-semibold">Personal details</h2>
+      <form onSubmit={onSaveProfile} noValidate className="space-y-4 surface-card p-4">
+        <h2 className="section-label">Personal details</h2>
         <FormError message={profileError} />
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-1.5 sm:col-span-2">
@@ -135,7 +135,7 @@ const Profile: React.FC = () => {
               id="timezone"
               value={timezone}
               onChange={(e) => setTimezone(e.target.value)}
-              className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="focus-soft h-10 w-full rounded-control border border-input bg-background px-3 text-sm outline-none transition-shadow"
             >
               {zones.map((z) => (
                 <option key={z} value={z}>
@@ -154,8 +154,8 @@ const Profile: React.FC = () => {
         </Button>
       </form>
 
-      <form onSubmit={onChangePassword} noValidate className="space-y-4 rounded-lg border border-border/70 bg-card p-4">
-        <h2 className="text-sm font-semibold">Change password</h2>
+      <form onSubmit={onChangePassword} noValidate className="space-y-4 surface-card p-4">
+        <h2 className="section-label">Change password</h2>
         <FormError message={pwFormError} />
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-1.5">

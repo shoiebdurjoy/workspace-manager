@@ -116,11 +116,11 @@ const Onboarding: React.FC = () => {
                 onChange={(e) => setName(e.target.value)}
                 aria-invalid={!!nameError}
                 aria-describedby={nameError ? 'ws-name-error' : undefined}
-                className="h-9 text-sm"
+                className="focus-soft h-10 rounded-control text-sm"
               />
               <FieldError id="ws-name-error" message={nameError} />
             </div>
-            <Button type="submit" className="h-9 w-full text-sm" disabled={creating}>
+            <Button type="submit" className="press h-10 w-full rounded-full text-sm" disabled={creating}>
               {creating && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Create workspace
             </Button>

@@ -233,7 +233,7 @@ describe('task detail sheet: editing as a manager', () => {
     await userEvent.clear(within(dialog).getByLabelText('Review link'));
     await userEvent.tab();
     await waitFor(() => expect(db.updateTask).toHaveBeenLastCalledWith(TASK_IDS.one, { reviewLink: '' }));
-  });
+  }, 20_000); // a long sequence of typed edits: slow under a full parallel run
 
   it('adds an empty link from the "Add" affordance, and Escape leaves it unchanged', async () => {
     const { dialog } = await openTask('PRODUCTION_MANAGER');

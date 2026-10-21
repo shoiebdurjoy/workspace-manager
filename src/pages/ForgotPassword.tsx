@@ -70,11 +70,11 @@ const ForgotPassword: React.FC = () => {
               onChange={(e) => setEmail(e.target.value)}
               aria-invalid={!!fieldError}
               aria-describedby={fieldError ? 'email-error' : undefined}
-              className="h-9 text-sm"
+              className="focus-soft h-10 rounded-control text-sm"
             />
             <FieldError id="email-error" message={fieldError} />
           </div>
-          <Button type="submit" className="h-9 w-full text-sm" disabled={submitting}>
+          <Button type="submit" className="press h-10 w-full rounded-full text-sm" disabled={submitting}>
             {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             Send reset link
           </Button>

@@ -29,13 +29,13 @@ const Stat: React.FC<{ label: string; value: number | undefined; icon: React.Rea
   to,
 }) => {
   const body = (
-    <div className="flex items-center gap-3 rounded-lg border border-border/70 bg-card p-3 transition-colors hover:bg-muted/30">
-      <div className="flex h-9 w-9 items-center justify-center rounded-md bg-muted text-muted-foreground">{icon}</div>
+    <div className="press flex items-center gap-3 surface-card p-3.5 transition-colors hover:bg-muted/30">
+      <div className="flex h-9 w-9 items-center justify-center rounded-control bg-primary/10 text-primary">{icon}</div>
       <div>
         {value === undefined ? (
           <Skeleton className="h-5 w-8" />
         ) : (
-          <p className="text-lg font-semibold leading-none">{value}</p>
+          <p className="text-xl font-semibold tabular-nums leading-none tracking-tight">{value}</p>
         )}
         <p className="mt-1 text-[11px] text-muted-foreground">{label}</p>
       </div>
@@ -48,9 +48,9 @@ const UNREAD_INBOX = { tab: 'inbox' as const, kinds: [], unreadOnly: true };
 
 /** A titled card on Home with an optional "see all" link. */
 const Card: React.FC<{ title: string; to?: string; toLabel?: string; children: React.ReactNode }> = ({ title, to, toLabel, children }) => (
-  <section aria-label={title} className="rounded-lg border border-border/70 bg-card p-4">
+  <section aria-label={title} className="surface-card p-4">
     <div className="mb-2 flex items-center justify-between gap-2">
-      <h2 className="text-sm font-semibold">{title}</h2>
+      <h2 className="section-label">{title}</h2>
       {to && (
         <Link to={to} className="inline-flex items-center text-xs font-medium text-muted-foreground hover:text-foreground">
           {toLabel ?? 'See all'} <ArrowRight className="ml-1 h-3 w-3" />
@@ -127,10 +127,10 @@ const Home: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <header className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <p className="text-xs text-muted-foreground">{workspace?.name}</p>
-          <h1 className="text-xl font-semibold tracking-tight">Welcome, {firstName}</h1>
+      <header className="flex flex-wrap items-end justify-between gap-3 pt-1">
+        <div className="space-y-1">
+          <p className="section-label">{workspace?.name}</p>
+          <h1 className="page-title text-2xl">Welcome, {firstName}</h1>
         </div>
         {role && <RoleBadge role={role} className="text-[11px]" />}
       </header>
@@ -139,7 +139,7 @@ const Home: React.FC = () => {
         <>
           <section aria-label="My work" className="space-y-2">
             <div className="flex items-center justify-between">
-              <h2 className="text-sm font-semibold">My work</h2>
+              <h2 className="section-label">My work</h2>
               <Link to="/my-tasks" className="inline-flex items-center text-xs font-medium text-muted-foreground hover:text-foreground">
                 Open My Tasks <ArrowRight className="ml-1 h-3 w-3" />
               </Link>
@@ -241,7 +241,7 @@ const Home: React.FC = () => {
 
           {isManager && s?.manager && (
             <section aria-label="Across the workspace" className="space-y-2">
-              <h2 className="text-sm font-semibold">Across the workspace</h2>
+              <h2 className="section-label">Across the workspace</h2>
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                 <Stat label="Open tasks" value={s.manager.open} icon={<ListTodo className="h-4 w-4" />} to="/everything?hide=1" />
                 <Stat label="Overdue" value={s.manager.overdue} icon={<AlertTriangle className="h-4 w-4" />} to="/everything?overdue=1&hide=1" />
@@ -273,7 +273,7 @@ const Home: React.FC = () => {
       {canSeeSpaces && (
         <section aria-label="Spaces" className="space-y-2">
           <div className="flex items-center justify-between">
-            <h2 className="text-sm font-semibold">Spaces</h2>
+            <h2 className="section-label">Spaces</h2>
             {canCreateSpace && (
               <Button size="sm" variant="outline" className="h-8 text-xs" onClick={() => dialogs.open({ type: 'space' })}>
                 <Plus className="mr-1 h-3.5 w-3.5" /> New space
@@ -300,7 +300,7 @@ const Home: React.FC = () => {
                 <Link
                   key={space.id}
                   to={hierarchyPaths.space(space.id)}
-                  className="flex items-center gap-3 rounded-lg border border-border/70 bg-card p-3 hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  className="flex items-center gap-3 surface-card p-3 hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   <SpaceIcon icon={space.icon} color={space.color} size="md" />
                   <span className="min-w-0">
@@ -316,10 +316,10 @@ const Home: React.FC = () => {
         </section>
       )}
 
-      <section className="rounded-lg border border-border/70 bg-card p-4">
+      <section className="surface-card p-4">
         <div className="flex items-center gap-2">
           <ShieldCheck className="h-4 w-4 text-muted-foreground" />
-          <h2 className="text-sm font-semibold">Your access</h2>
+          <h2 className="section-label">Your access</h2>
         </div>
         {role && <p className="mt-1 text-xs text-muted-foreground">{ROLE_DESCRIPTIONS[role]}</p>}
         <p className="mt-2 text-[11px] text-muted-foreground">

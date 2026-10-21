@@ -28,9 +28,9 @@ const Spark: React.FC<{ values: readonly number[] }> = ({ values }) => {
 };
 
 const Kpi: React.FC<{ label: string; value: number }> = ({ label, value }) => (
-  <div className="rounded-xl border border-border/80 bg-card px-4 py-3">
+  <div className="surface-card px-4 py-3.5">
+    <div className="section-label mb-1.5">{label}</div>
     <div className="text-2xl font-semibold tabular-nums tracking-tight">{value}</div>
-    <div className="text-xs text-muted-foreground">{label}</div>
   </div>
 );
 
@@ -92,13 +92,13 @@ const Production: React.FC = () => {
             onChange={(e) => setFilter(e.target.value)}
             placeholder="Search employees"
             aria-label="Search employees"
-            className="h-8 w-full rounded-md border border-input bg-background pl-8 pr-2 text-sm outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring"
+            className="focus-soft h-9 w-full rounded-full border border-input bg-background pl-8 pr-3 text-sm outline-none placeholder:text-muted-foreground"
           />
         </div>
         <p className="text-xs text-muted-foreground" aria-live="polite">
           Team this month: <strong className="font-semibold text-foreground tabular-nums">{teamThisMonth}</strong> {UNIT_PLURAL}
         </p>
-        <ul aria-label="Employees" className="overflow-hidden rounded-xl border border-border/80 bg-card">
+        <ul aria-label="Employees" className="overflow-hidden surface-card">
           {shown.length === 0 && <li className="px-3 py-6 text-center text-sm text-muted-foreground">No employee matches.</li>}
           {shown.map((e) => {
             const on = e.userId === selected?.userId;
@@ -165,7 +165,7 @@ const Production: React.FC = () => {
           <Kpi label="All time" value={s.allTime} />
         </div>
 
-        <div className="rounded-xl border border-border/80 bg-card p-3 sm:p-4">
+        <div className="surface-card p-3 sm:p-4">
           <div className="mb-2 flex items-center justify-between gap-2">
             <div className="flex items-center gap-1">
               <Button variant="ghost" size="sm" className="h-8 w-8 p-0" disabled={older === undefined} onClick={() => older !== undefined && setYear(older)} aria-label="Previous year">
@@ -202,8 +202,8 @@ const Production: React.FC = () => {
 
   return (
     <div className="space-y-4">
-      <header className="space-y-1">
-        <h1 className="text-lg font-semibold tracking-tight">Production</h1>
+      <header className="space-y-1 pt-1">
+        <h1 className="page-title">Production</h1>
         <p className="flex max-w-3xl items-start gap-1.5 text-xs text-muted-foreground">
           <Info aria-hidden className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           <span>

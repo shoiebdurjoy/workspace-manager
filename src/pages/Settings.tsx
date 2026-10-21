@@ -57,13 +57,13 @@ const Settings: React.FC = () => {
 
   return (
     <div className="max-w-2xl space-y-4">
-      <header>
-        <h1 className="text-lg font-semibold tracking-tight">Settings</h1>
-        <p className="text-xs text-muted-foreground">Workspace details for everyone at TBB.</p>
+      <header className="space-y-1 pt-1">
+        <h1 className="page-title">Settings</h1>
+        <p className="page-description">Workspace details for everyone at TBB.</p>
       </header>
 
-      <form onSubmit={onSave} noValidate className="space-y-4 rounded-lg border border-border/70 bg-card p-4">
-        <h2 className="text-sm font-semibold">Workspace</h2>
+      <form onSubmit={onSave} noValidate className="space-y-4 surface-card p-4">
+        <h2 className="section-label">Workspace</h2>
         <FormError message={formError} />
         <div className="space-y-1.5">
           <Label htmlFor="ws-name" className="text-xs">
@@ -76,7 +76,7 @@ const Settings: React.FC = () => {
             disabled={!editable}
             aria-invalid={!!nameError}
             aria-describedby={nameError ? 'ws-name-error' : undefined}
-            className="h-9 text-sm"
+            className="focus-soft h-10 rounded-control text-sm"
           />
           <FieldError id="ws-name-error" message={nameError} />
         </div>
@@ -90,7 +90,7 @@ const Settings: React.FC = () => {
             onChange={(e) => setDescription(e.target.value)}
             disabled={!editable}
             rows={3}
-            className="text-sm"
+            className="focus-soft rounded-control text-sm"
           />
         </div>
         <dl className="grid grid-cols-2 gap-2 text-[11px] text-muted-foreground">
@@ -100,7 +100,7 @@ const Settings: React.FC = () => {
           <dd>{new Date(workspace.createdAt).toLocaleDateString()}</dd>
         </dl>
         {editable ? (
-          <Button type="submit" size="sm" disabled={saving}>
+          <Button type="submit" size="sm" className="press rounded-full px-5" disabled={saving}>
             {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             Save
           </Button>

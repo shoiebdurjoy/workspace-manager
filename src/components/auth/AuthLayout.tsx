@@ -14,14 +14,14 @@ interface AuthLayoutProps {
  * the rest stays neutral so the single coral action stands out.
  */
 const AuthLayout: React.FC<AuthLayoutProps> = ({ title, description, children, footer }) => (
-  <div className="flex min-h-screen w-full flex-col items-center bg-background px-4 py-10 sm:justify-center">
-    <div className="mb-7 mt-4 sm:mt-0">
+  <div className="surface-canvas flex min-h-screen w-full flex-col items-center px-4 py-10 sm:justify-center">
+    <div className="mb-8 mt-4 sm:mt-0">
       <BrandLockup size="md" />
     </div>
-    <main className="w-full max-w-sm rounded-xl border border-border bg-card p-6 shadow-soft sm:p-7">
-      <div className="mb-5 space-y-1">
-        <h1 className="text-lg font-semibold tracking-tight text-foreground">{title}</h1>
-        {description && <p className="text-xs leading-relaxed text-muted-foreground">{description}</p>}
+    <main className="surface-card motion-pop w-full max-w-sm p-6 sm:p-8">
+      <div className="mb-6 space-y-1">
+        <h1 className="page-title">{title}</h1>
+        {description && <p className="page-description leading-relaxed">{description}</p>}
       </div>
       {children}
     </main>
@@ -38,7 +38,7 @@ export const FormError: React.FC<{ message: string | null }> = ({ message }) =>
   message ? (
     <div
       role="alert"
-      className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive"
+      className="rounded-control border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive"
     >
       {message}
     </div>

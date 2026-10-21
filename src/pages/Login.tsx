@@ -81,7 +81,7 @@ const Login: React.FC = () => {
             onChange={(e) => setEmail(e.target.value)}
             aria-invalid={!!fieldErrors.email}
             aria-describedby={fieldErrors.email ? 'email-error' : undefined}
-            className="h-9 text-sm"
+            className="focus-soft h-10 rounded-control text-sm"
           />
           <FieldError id="email-error" message={fieldErrors.email} />
         </div>
@@ -102,11 +102,11 @@ const Login: React.FC = () => {
             onChange={(e) => setPassword(e.target.value)}
             aria-invalid={!!fieldErrors.password}
             aria-describedby={fieldErrors.password ? 'password-error' : undefined}
-            className="h-9 text-sm"
+            className="focus-soft h-10 rounded-control text-sm"
           />
           <FieldError id="password-error" message={fieldErrors.password} />
         </div>
-        <Button type="submit" className="h-9 w-full text-sm" disabled={submitting || status === 'loading'}>
+        <Button type="submit" className="press h-10 w-full rounded-full text-sm" disabled={submitting || status === 'loading'}>
           {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
           Sign in
         </Button>

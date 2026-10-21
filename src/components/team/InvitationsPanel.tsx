@@ -41,11 +41,11 @@ const InvitationsPanel: React.FC = () => {
       <form
         onSubmit={onSubmit}
         noValidate
-        className="space-y-3 rounded-lg border border-border/70 bg-card p-4"
+        className="space-y-3 surface-card p-4"
         aria-label="Invite a person"
       >
         <div>
-          <h3 className="text-sm font-semibold">Invite someone</h3>
+          <h3 className="section-label">Invite someone</h3>
           <p className="text-[11px] text-muted-foreground">
             They get access with this role as soon as they sign in with a confirmed account for this address. Nothing is
             e-mailed automatically yet: let them know to register at TBB Workspace.
@@ -99,13 +99,13 @@ const InvitationsPanel: React.FC = () => {
       ) : (
         <>
           <section className="space-y-2">
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            <h3 className="section-label">
               Pending ({pending.length})
             </h3>
             {pending.length === 0 ? (
               <p className="text-xs text-muted-foreground">No pending invitations.</p>
             ) : (
-              <ul className="divide-y divide-border/60 rounded-lg border border-border/70 bg-card">
+              <ul className="divide-y divide-border/60 surface-card">
                 {pending.map((inv) => (
                   <li key={inv.id} className="flex items-center justify-between gap-3 px-3 py-2 text-xs">
                     <div className="min-w-0">
@@ -133,8 +133,8 @@ const InvitationsPanel: React.FC = () => {
           </section>
           {accepted.length > 0 && (
             <section className="space-y-2">
-              <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Recently accepted</h3>
-              <ul className="divide-y divide-border/60 rounded-lg border border-border/70 bg-card/60">
+              <h3 className="section-label">Recently accepted</h3>
+              <ul className="divide-y divide-border/60 surface-card bg-card/60">
                 {accepted.map((inv) => (
                   <li key={inv.id} className="flex items-center justify-between gap-3 px-3 py-2 text-xs text-muted-foreground">
                     <span className="truncate">{inv.email}</span>

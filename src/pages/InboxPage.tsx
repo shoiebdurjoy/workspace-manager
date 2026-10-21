@@ -145,10 +145,10 @@ const InboxPage: React.FC = () => {
 
   return (
     <div className="mx-auto max-w-3xl space-y-4">
-      <header className="flex flex-wrap items-end justify-between gap-3">
+      <header className="flex flex-wrap items-end justify-between gap-3 pt-1">
         <div>
-          <h1 className="text-lg font-semibold tracking-tight">Inbox</h1>
-          <p className="text-xs text-muted-foreground">
+          <h1 className="page-title">Inbox</h1>
+          <p className="page-description">
             Mentions, comments on your tasks, assignments and stage changes. <span className="hidden sm:inline">Keys: j / k move, Enter opens, e Done, u read.</span>
           </p>
         </div>
@@ -166,7 +166,7 @@ const InboxPage: React.FC = () => {
         </div>
       </header>
 
-      <div className="flex flex-wrap items-center gap-2 border-b border-border/70 pb-2">
+      <div className="flex flex-wrap items-center gap-2 border-b border-border/60 pb-3">
         <div role="tablist" aria-label="Inbox tabs" className="flex items-center gap-1">
           {TABS.map((t) => (
             <Button
@@ -176,7 +176,7 @@ const InboxPage: React.FC = () => {
               size="sm"
               variant={state.tab === t.value ? 'secondary' : 'ghost'}
               aria-selected={state.tab === t.value}
-              className="h-8 px-3 text-xs"
+              className="press h-8 rounded-full px-3.5 text-xs"
               onClick={() => update({ tab: t.value })}
             >
               {t.label}
@@ -191,7 +191,7 @@ const InboxPage: React.FC = () => {
               size="sm"
               variant={state.kinds.includes(kind) ? 'secondary' : 'outline'}
               aria-pressed={state.kinds.includes(kind)}
-              className="h-7 px-2 text-xs"
+              className="press h-7 rounded-full px-3 text-xs"
               onClick={() => toggleKind(kind)}
             >
               {INBOX_KIND_LABELS[kind]}
@@ -202,7 +202,7 @@ const InboxPage: React.FC = () => {
             size="sm"
             variant={state.unreadOnly ? 'secondary' : 'outline'}
             aria-pressed={state.unreadOnly}
-            className="h-7 px-2 text-xs"
+            className="press h-7 rounded-full px-3 text-xs"
             onClick={() => update({ unreadOnly: !state.unreadOnly })}
           >
             Unread only
@@ -224,7 +224,7 @@ const InboxPage: React.FC = () => {
         </div>
       ) : items.length === 0 ? (
         state.kinds.length || state.unreadOnly ? (
-          <div className="rounded-xl border border-border/80 bg-card px-4 py-10 text-center" role="status">
+          <div className="surface-card px-4 py-10 text-center" role="status">
             <p className="text-sm font-medium">No notifications match these filters.</p>
             <Button variant="link" size="sm" onClick={() => update({ kinds: [], unreadOnly: false })}>
               Clear filters
@@ -237,10 +237,10 @@ const InboxPage: React.FC = () => {
         <div className="space-y-4">
           {groups.map((group) => (
             <section key={group.key} aria-labelledby={`inbox-${group.key}`}>
-              <h2 id={`inbox-${group.key}`} className="mb-1 px-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+              <h2 id={`inbox-${group.key}`} className="mb-1 px-1 section-label">
                 {group.label}
               </h2>
-              <ul aria-label={group.label} className="overflow-hidden rounded-xl border border-border/80 bg-card">
+              <ul aria-label={group.label} className="overflow-hidden surface-card">
                 {group.items.map((n) => {
                   const line = describeNotification(n, lookup, workflow);
                   const isDone = n.archivedAt !== null;

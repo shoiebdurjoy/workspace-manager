@@ -154,7 +154,7 @@ const MonthVideos: React.FC<{
             Stage and links are the task&apos;s own, as they are today. The date
             is when the video first reached QC, and never changes.
           </p>
-          <ul className="overflow-hidden rounded-xl border border-border/80 bg-card">
+          <ul className="overflow-hidden surface-card">
             {videos.map((v) => (
               <VideoRow key={v.taskId} v={v} />
             ))}

@@ -86,7 +86,7 @@ const MembersPanel: React.FC = () => {
       {rows.length === 0 ? (
         <EmptyState icon={<Users className="h-6 w-6" />} title="No matching members" />
       ) : (
-        <div className="overflow-hidden rounded-lg border border-border/70 bg-card">
+        <div className="overflow-hidden surface-card">
           <table className="w-full text-xs">
             <thead className="bg-muted/40 text-left text-[10px] uppercase tracking-wider text-muted-foreground">
               <tr>

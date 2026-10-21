@@ -12,10 +12,10 @@ interface NodeCardProps {
 
 /** A clickable child of a Space or Folder on its overview page. */
 const NodeCard: React.FC<NodeCardProps> = ({ to, icon, title, subtitle, actions }) => (
-  <div className="group relative flex items-center gap-3 rounded-lg border border-border/70 bg-card p-3 transition-colors hover:bg-muted/30">
+  <div className="group relative flex items-center gap-3 surface-card press p-3 transition-shadow hover:bg-muted/30">
     <Link
       to={to}
-      className="flex min-w-0 flex-1 items-center gap-3 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className="flex min-w-0 flex-1 items-center gap-3 rounded-control focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
       {icon}
       <span className="min-w-0">

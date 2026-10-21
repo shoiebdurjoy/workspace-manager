@@ -22,22 +22,22 @@ const Team: React.FC = () => {
 
   return (
     <div className="space-y-4">
-      <header>
-        <h1 className="text-lg font-semibold tracking-tight">Team</h1>
-        <p className="text-xs text-muted-foreground">People, roles and creative pods in {workspace?.name}.</p>
+      <header className="space-y-1 pt-1">
+        <h1 className="page-title">Team</h1>
+        <p className="page-description">People, roles and creative pods in {workspace?.name}.</p>
       </header>
 
       <Tabs value={tab} onValueChange={(v) => setParams(v === 'members' ? {} : { tab: v }, { replace: true })}>
-        <TabsList className="h-8">
-          <TabsTrigger value="members" className="text-xs">
+        <TabsList className="h-auto rounded-full bg-muted p-0.5">
+          <TabsTrigger value="members" className="pill-item h-7 rounded-full px-3 text-xs data-[state=active]:bg-background data-[state=active]:shadow-soft">
             Members
           </TabsTrigger>
           {canInvite && (
-            <TabsTrigger value="invitations" className="text-xs">
+            <TabsTrigger value="invitations" className="pill-item h-7 rounded-full px-3 text-xs data-[state=active]:bg-background data-[state=active]:shadow-soft">
               Invitations
             </TabsTrigger>
           )}
-          <TabsTrigger value="pods" className="text-xs">
+          <TabsTrigger value="pods" className="pill-item h-7 rounded-full px-3 text-xs data-[state=active]:bg-background data-[state=active]:shadow-soft">
             Pods
           </TabsTrigger>
         </TabsList>

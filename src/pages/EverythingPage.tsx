@@ -64,9 +64,9 @@ const EverythingPage: React.FC = () => {
 
   return (
     <div className="space-y-4">
-      <header>
-        <h1 className="text-lg font-semibold tracking-tight">Everything</h1>
-        <p className="text-xs text-muted-foreground">Every task you can see, across all spaces. Search, filter and switch between List, Board and Table.</p>
+      <header className="space-y-1 pt-1">
+        <h1 className="page-title">Everything</h1>
+        <p className="page-description">Every task you can see, across all spaces. Search, filter and switch between List, Board and Table.</p>
       </header>
       <TaskWorkspace scope={{ kind: 'everything' }} selectedTaskId={taskId} onVisibleOrder={setVisibleOrder} />
       {taskId && <SpanningTaskSheet taskId={taskId} orderedIds={visibleOrder} onClose={close} />}

@@ -55,7 +55,7 @@ const PodCard: React.FC<{
   const lead = team.leadId ? byId.get(team.leadId) : undefined;
 
   return (
-    <article className="flex flex-col rounded-lg border border-border/70 bg-card">
+    <article className="flex flex-col surface-card">
       <header className="flex items-start justify-between gap-2 border-b border-border/60 p-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2">

@@ -37,7 +37,7 @@ import {
 import type { CustomField, CustomFieldType } from '@/types/database';
 
 const SELECT_CLASS =
-  'h-9 w-full rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
+  'focus-soft h-10 w-full rounded-control border border-input bg-background px-3 text-sm outline-none transition-shadow';
 
 const OptionsHelp = 'One choice per line, up to 30.';
 
@@ -77,7 +77,7 @@ const FieldForm: React.FC<{
   };
 
   return (
-    <form onSubmit={(e) => void submit(e)} noValidate className="space-y-3 rounded-md border border-border/70 p-3">
+    <form onSubmit={(e) => void submit(e)} noValidate className="space-y-3 rounded-control border border-border/70 bg-muted/20 p-3">
       <div className="space-y-1.5">
         <Label htmlFor={`${idBase}-name`} className="text-xs">
           Field name
@@ -212,9 +212,9 @@ const CustomFieldsManager: React.FC = () => {
   };
 
   return (
-    <section aria-label="Custom fields" className="space-y-3 rounded-lg border border-border/70 bg-card p-4">
+    <section aria-label="Custom fields" className="space-y-3 surface-card p-4">
       <div>
-        <h2 className="text-sm font-semibold">Custom fields</h2>
+        <h2 className="section-label">Custom fields</h2>
         <p className="text-xs text-muted-foreground">
           Extra information every task can carry, such as links or a video format. Owner, Admin and Production Manager manage them.
         </p>

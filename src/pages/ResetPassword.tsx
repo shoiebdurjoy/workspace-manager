@@ -40,7 +40,7 @@ const ResetPassword: React.FC = () => {
         title="Link expired"
         description="This password reset link is invalid or has expired. Reset links only work once, on the device that requested them."
       >
-        <Button asChild className="h-9 w-full text-sm">
+        <Button asChild className="press h-10 w-full rounded-full text-sm">
           <Link to="/forgot-password">Request a new link</Link>
         </Button>
       </AuthLayout>
@@ -82,7 +82,7 @@ const ResetPassword: React.FC = () => {
             onChange={(e) => setPassword(e.target.value)}
             aria-invalid={!!errors.password}
             aria-describedby="password-error"
-            className="h-9 text-sm"
+            className="focus-soft h-10 rounded-control text-sm"
           />
           <FieldError id="password-error" message={errors.password} />
         </div>
@@ -98,11 +98,11 @@ const ResetPassword: React.FC = () => {
             onChange={(e) => setConfirm(e.target.value)}
             aria-invalid={!!errors.confirm}
             aria-describedby="confirm-error"
-            className="h-9 text-sm"
+            className="focus-soft h-10 rounded-control text-sm"
           />
           <FieldError id="confirm-error" message={errors.confirm} />
         </div>
-        <Button type="submit" className="h-9 w-full text-sm" disabled={submitting}>
+        <Button type="submit" className="press h-10 w-full rounded-full text-sm" disabled={submitting}>
           {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
           Update password
         </Button>

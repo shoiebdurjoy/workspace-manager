@@ -78,7 +78,7 @@ const SpaceView: React.FC<{ space: HierarchySpace }> = ({ space }) => {
         <>
           {space.folders.length > 0 && (
             <section aria-label="Folders" className="space-y-2">
-              <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              <h2 className="section-label">
                 Folders ({space.folders.length})
               </h2>
               <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
@@ -97,7 +97,7 @@ const SpaceView: React.FC<{ space: HierarchySpace }> = ({ space }) => {
           )}
           {space.folderlessLists.length > 0 && (
             <section aria-label="Lists" className="space-y-2">
-              <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              <h2 className="section-label">
                 Lists ({space.folderlessLists.length})
               </h2>
               <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">

@@ -59,7 +59,7 @@ const FolderView: React.FC<{ space: HierarchySpace; folder: HierarchyFolder }> =
         />
       ) : (
         <section aria-label="Lists" className="space-y-2">
-          <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Lists ({folder.lists.length})</h2>
+          <h2 className="section-label">Lists ({folder.lists.length})</h2>
           <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
             {folder.lists.map((list) => (
               <NodeCard

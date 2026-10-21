@@ -12,14 +12,14 @@ interface Props {
 }
 
 const HierarchyPageHeader: React.FC<Props> = ({ icon, title, description, trail = [], actions }) => (
-  <header className="space-y-2">
+  <header className="space-y-2 pt-1">
     {trail.length > 0 && (
       <nav aria-label="Location" className="flex flex-wrap items-center gap-1 text-[11px] text-muted-foreground">
         {trail.map((item, i) => (
           <React.Fragment key={`${item.label}-${i}`}>
             {i > 0 && <ChevronRight className="h-3 w-3" aria-hidden="true" />}
             {item.href ? (
-              <Link to={item.href} className="hover:text-foreground hover:underline">
+              <Link to={item.href} className="rounded-sm transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                 {item.label}
               </Link>
             ) : (
@@ -33,8 +33,8 @@ const HierarchyPageHeader: React.FC<Props> = ({ icon, title, description, trail 
       <div className="flex min-w-0 items-center gap-3">
         {icon}
         <div className="min-w-0">
-          <h1 className="truncate text-lg font-semibold tracking-tight">{title}</h1>
-          {description && <p className="max-w-prose text-xs text-muted-foreground">{description}</p>}
+          <h1 className="page-title truncate">{title}</h1>
+          {description && <p className="page-description max-w-prose">{description}</p>}
         </div>
       </div>
       {actions && <div className="flex items-center gap-2">{actions}</div>}
