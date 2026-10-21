@@ -77,7 +77,8 @@ const CommentThread: React.FC<CommentThreadProps> = ({ taskId, focusCommentId })
   const items = comments.data ?? [];
 
   return (
-    <div className="space-y-4">
+    <div className="flex min-h-0 flex-1 flex-col gap-3">
+      <div className="min-h-0 flex-1 space-y-4 lg:overflow-y-auto lg:pr-1">
       {items.length === 0 ? (
         <div className="flex flex-col items-center gap-1.5 rounded-lg border border-dashed border-border/80 px-4 py-6 text-center">
           <MessageSquare aria-hidden className="h-5 w-5 text-muted-foreground" />
@@ -162,9 +163,10 @@ const CommentThread: React.FC<CommentThreadProps> = ({ taskId, focusCommentId })
           })}
         </ol>
       )}
+      </div>
 
       {canPost ? (
-        <div className="border-t border-border/60 pt-3">
+        <div className="shrink-0 border-t border-border/60 pt-3">
           <CommentComposer
             label="Write a comment"
             members={members}

@@ -65,7 +65,7 @@ beforeEach(() => {
 });
 
 /** The workflow section at the top of the sheet (also while a move dialog covers it). */
-const workflowOf = (dialog: HTMLElement) => within(dialog).getByRole('region', { name: 'Workflow', hidden: true });
+const workflowOf = (dialog: HTMLElement) => within(dialog).getByLabelText('Workflow', { selector: 'section' });
 
 describe('task detail sheet: what people see', () => {
   it('shows the whole deliverable: brief, status, assignees, deadlines, links and checklist', async () => {

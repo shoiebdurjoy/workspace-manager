@@ -53,25 +53,25 @@ const TaskCollaboration: React.FC<TaskCollaborationProps> = ({ taskId, isAssigne
   const count = (n: number | undefined) => (n ? <span className="ml-1.5 rounded-full bg-background/70 px-1.5 text-[10px] tabular-nums">{n}</span> : null);
 
   return (
-    <Tabs value={tab} onValueChange={setTab}>
-      <TabsList className="h-9 w-full justify-start">
-        <TabsTrigger value="comments" className="flex-1 text-xs sm:flex-none">
+    <Tabs value={tab} onValueChange={setTab} className="flex min-h-0 flex-1 flex-col">
+      <TabsList className="pill-group h-9 w-full shrink-0 justify-start rounded-full p-1">
+        <TabsTrigger value="comments" className="flex-1 rounded-full text-xs sm:flex-none">
           Comments{count(comments.data?.length)}
         </TabsTrigger>
-        <TabsTrigger value="files" className="flex-1 text-xs sm:flex-none">
+        <TabsTrigger value="files" className="flex-1 rounded-full text-xs sm:flex-none">
           Files{count(files.data?.length)}
         </TabsTrigger>
-        <TabsTrigger value="activity" className="flex-1 text-xs sm:flex-none">
+        <TabsTrigger value="activity" className="flex-1 rounded-full text-xs sm:flex-none">
           Activity
         </TabsTrigger>
       </TabsList>
-      <TabsContent value="comments" className="mt-3">
+      <TabsContent value="comments" className="mt-3 min-h-0 flex-1 data-[state=active]:flex data-[state=active]:flex-col">
         <CommentThread taskId={taskId} focusCommentId={comment} />
       </TabsContent>
-      <TabsContent value="files" className="mt-3">
+      <TabsContent value="files" className="mt-3 min-h-0 flex-1 overflow-y-auto">
         <AttachmentsSection taskId={taskId} isAssignedEditor={isAssignedEditor} />
       </TabsContent>
-      <TabsContent value="activity" className="mt-3">
+      <TabsContent value="activity" className="mt-3 min-h-0 flex-1 overflow-y-auto">
         <ActivityFeed taskId={taskId} onOpenComment={openComment} />
       </TabsContent>
     </Tabs>

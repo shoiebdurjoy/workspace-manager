@@ -89,9 +89,9 @@ const LINK_HINTS: Record<LinkField, string> = {
 };
 
 const Section: React.FC<{ title: string; aside?: React.ReactNode; children: React.ReactNode }> = ({ title, aside, children }) => (
-  <section aria-label={title} className="space-y-2.5">
-    <div className="flex items-center justify-between gap-3 border-b border-border/70 pb-1.5">
-      <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{title}</h3>
+  <section aria-label={title} className="space-y-3">
+    <div className="flex items-center justify-between gap-3">
+      <h3 className="section-label">{title}</h3>
       {aside}
     </div>
     {children}
@@ -192,8 +192,8 @@ const TaskDetailSheet: React.FC<TaskDetailSheetProps> = ({ taskId, space, folder
 
     body = (
       <>
-        <SheetHeader className="space-y-1.5 border-b border-border/70 px-5 pb-2.5 pt-4 text-left">
-          <div className="flex items-center gap-1 pr-8">
+        <SheetHeader className="surface-glass sticky top-0 z-10 shrink-0 space-y-0 border-b px-3 py-2.5 text-left sm:px-5">
+          <div className="flex items-center gap-1 pr-9">
             <IconButton
               aria-label="Previous task"
               icon={<ChevronUp className="h-4 w-4" />}
@@ -268,6 +268,11 @@ const TaskDetailSheet: React.FC<TaskDetailSheetProps> = ({ taskId, space, folder
 
           <SheetTitle className="sr-only">{task.title}</SheetTitle>
           <SheetDescription className="sr-only">Task details for {task.title}</SheetDescription>
+        </SheetHeader>
+
+        <div className="min-h-0 flex-1 overflow-y-auto lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(340px,400px)] lg:overflow-hidden">
+        <div className="space-y-7 px-4 py-5 sm:px-8 sm:py-6 lg:min-h-0 lg:overflow-y-auto">
+          <div className="space-y-1">
           <InlineText
             label="Task title"
             hideLabel
@@ -276,12 +281,10 @@ const TaskDetailSheet: React.FC<TaskDetailSheetProps> = ({ taskId, space, folder
             validate={(v) => validateTaskTitle(v)}
             onCommit={(v) => save({ title: v })}
             wrap
-            inputClassName="-mx-2 w-[calc(100%+1rem)] rounded-md border-transparent bg-transparent px-2 py-1 text-xl font-semibold leading-snug tracking-tight shadow-none hover:bg-muted/60 focus-visible:border-input focus-visible:bg-background disabled:cursor-default disabled:opacity-100 disabled:hover:bg-transparent"
+            inputClassName="-mx-2 w-[calc(100%+1rem)] rounded-control border-transparent bg-transparent px-2 py-1 text-2xl font-semibold leading-tight tracking-tight focus-soft shadow-none hover:bg-muted/60 focus-visible:border-input focus-visible:bg-background disabled:cursor-default disabled:opacity-100 disabled:hover:bg-transparent"
           />
-          <SaveIndicator state={saveState} className="-mt-0.5" />
-        </SheetHeader>
-
-        <div className="min-h-0 flex-1 space-y-7 overflow-y-auto px-5 py-5">
+          <SaveIndicator state={saveState} className="-mt-1" />
+          </div>
           {reason && (
             <p className="flex items-start gap-2 text-xs text-muted-foreground" role="note">
               <Lock aria-hidden className="mt-0.5 h-3.5 w-3.5 shrink-0" />
@@ -292,7 +295,7 @@ const TaskDetailSheet: React.FC<TaskDetailSheetProps> = ({ taskId, space, folder
           <TaskWorkflowPanel task={task} members={members} />
 
           <Section title="Overview">
-            <div className="grid gap-x-6 gap-y-0.5 sm:grid-cols-2">
+            <div className="grid gap-x-8 gap-y-1 rounded-card border bg-card p-3 shadow-soft sm:grid-cols-2 sm:p-4 lg:grid-cols-1 xl:grid-cols-2">
               <PropertyRow label="Status">
                 <WorkflowPicker variant="field" task={task} members={members} />
               </PropertyRow>
@@ -396,6 +399,18 @@ const TaskDetailSheet: React.FC<TaskDetailSheetProps> = ({ taskId, space, folder
             )}
           </Section>
 
+          <Section title="Brief">
+            <BriefEditor
+              label="Task brief"
+              value={task.description ?? ''}
+              readOnly={!access.editBrief}
+              validate={validateTaskDescription}
+              onCommit={(v) => save({ description: v })}
+            />
+          </Section>
+
+          <CustomFieldsSection taskId={task.id} isAssignedEditor={!!user && task.editorId === user.id} />
+
           <Section title="Production links">
             <div className="divide-y divide-border/50">
               {LINK_FIELDS.map(({ key, label }) => (
@@ -418,33 +433,24 @@ const TaskDetailSheet: React.FC<TaskDetailSheetProps> = ({ taskId, space, folder
             </div>
           </Section>
 
-          <BatchVideosSection task={task} taskPath={(id) => (taskPath ? taskPath(id) : hierarchyPaths.task(space.id, list.id, id))} />
-
-          <CustomFieldsSection taskId={task.id} isAssignedEditor={!!user && task.editorId === user.id} />
-
-          <Section title="Brief">
-            <BriefEditor
-              label="Task brief"
-              value={task.description ?? ''}
-              readOnly={!access.editBrief}
-              validate={validateTaskDescription}
-              onCommit={(v) => save({ description: v })}
-            />
-          </Section>
-
           <Section title="Subtasks">
             <SubtaskChecklist taskId={task.id} subtasks={task.subtasks} access={access} />
           </Section>
 
-          <Section title="Discussion">
-            <TaskCollaboration taskId={task.id} isAssignedEditor={!!user && task.editorId === user.id} />
-          </Section>
+          <BatchVideosSection task={task} taskPath={(id) => (taskPath ? taskPath(id) : hierarchyPaths.task(space.id, list.id, id))} />
 
           <footer className="border-t border-border/70 pt-4 text-[11px] text-muted-foreground">
             Created {new Date(task.createdAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}
             {creator ? ` by ${creator}` : ''}. Last updated{' '}
             {new Date(task.updatedAt).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}.
           </footer>
+        </div>
+
+        <aside aria-label="Discussion" className="flex flex-col border-t bg-[hsl(var(--surface-canvas))] lg:min-h-0 lg:border-l lg:border-t-0">
+          <div className="flex min-h-0 flex-1 flex-col px-4 py-4 sm:px-5 lg:py-4">
+            <TaskCollaboration taskId={task.id} isAssignedEditor={!!user && task.editorId === user.id} />
+          </div>
+        </aside>
         </div>
 
         {deleting && (
@@ -466,7 +472,7 @@ const TaskDetailSheet: React.FC<TaskDetailSheetProps> = ({ taskId, space, folder
     <Sheet open onOpenChange={(open) => !open && onClose()}>
       <SheetContent
         side="right"
-        className="flex w-full flex-col gap-0 p-0 sm:max-w-[640px] lg:max-w-[720px]"
+        className="flex w-full outline-none focus:outline-none data-[state=open]:duration-300 motion-reduce:data-[state=closed]:animate-none motion-reduce:data-[state=open]:animate-none flex-col gap-0 overflow-hidden border bg-background p-0 shadow-float sm:inset-y-3 sm:right-3 sm:h-[calc(100%-1.5rem)] sm:w-[min(94vw,1200px)] sm:max-w-none sm:rounded-card lg:w-[min(90vw,1200px)]"
         // Focus the panel itself (not the close button), so no stray ring appears and a screen reader starts at the title.
         onOpenAutoFocus={(e) => {
           e.preventDefault();

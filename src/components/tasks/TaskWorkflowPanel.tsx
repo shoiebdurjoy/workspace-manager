@@ -41,8 +41,8 @@ const TaskWorkflowPanel: React.FC<{ task: WorkflowTaskRef; members: readonly Wor
     <section
       aria-label="Workflow"
       className={cn(
-        'space-y-3 rounded-xl border p-3',
-        inRevision ? 'border-destructive/40 bg-destructive/5' : 'border-border/80 bg-muted/30'
+        'space-y-3 rounded-card border p-4 shadow-soft',
+        inRevision ? 'border-destructive/40 bg-destructive/5' : 'bg-card'
       )}
     >
       <div className="flex flex-wrap items-center gap-2">
