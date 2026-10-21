@@ -9,7 +9,7 @@ import {
   CommandList,
   CommandSeparator,
 } from "@/components/ui/command";
-import { CheckSquare, Home, Inbox, UserCheck, Settings, User, Users, Palette, MailPlus, UsersRound, LogOut, Folder, ListTodo, Loader2 } from "lucide-react";
+import { CalendarDays, CheckSquare, Home, Inbox, UserCheck, Settings, User, Users, Palette, MailPlus, UsersRound, LogOut, Folder, ListTodo, Loader2 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { useHierarchy } from "@/hooks/use-hierarchy";
 import { can } from "@/lib/permissions";
@@ -109,6 +109,12 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ open, onOpenChan
             <CommandItem onSelect={() => run(() => navigate("/inbox"))} className="cursor-pointer">
               <Inbox className="mr-2 h-4 w-4 text-muted-foreground" />
               <span>Inbox</span>
+            </CommandItem>
+          )}
+          {can(role, "hierarchy:view") && (
+            <CommandItem onSelect={() => run(() => navigate("/calendar"))} className="cursor-pointer">
+              <CalendarDays className="mr-2 h-4 w-4 text-muted-foreground" />
+              <span>Calendar</span>
             </CommandItem>
           )}
           {can(role, "hierarchy:view") && (

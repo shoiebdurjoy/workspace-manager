@@ -22,6 +22,8 @@ const Production = lazy(() => import('@/pages/Production'));
 const EverythingPage = lazy(() => import('@/pages/EverythingPage'));
 const MyTasksPage = lazy(() => import('@/pages/MyTasksPage'));
 const InboxPage = lazy(() => import('@/pages/InboxPage'));
+const CalendarPage = lazy(() => import('@/pages/CalendarPage'));
+const WorkloadPage = lazy(() => import('@/pages/WorkloadPage'));
 const SpacePage = lazy(() => import('@/pages/SpacePage'));
 const FolderPage = lazy(() => import('@/pages/FolderPage'));
 const ListPage = lazy(() => import('@/pages/ListPage'));
@@ -151,6 +153,26 @@ const App = () => (
                 {/* like a list: the task is a side sheet over the view, so the view stays mounted */}
                 <Route path="tasks/:taskId" element={null} />
               </Route>
+              <Route
+                path="/calendar"
+                element={
+                  <ProtectedRoute capability="hierarchy:view">
+                    <Layout>
+                      <CalendarPage />
+                    </Layout>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/workload"
+                element={
+                  <ProtectedRoute capability="production:view">
+                    <Layout>
+                      <WorkloadPage />
+                    </Layout>
+                  </ProtectedRoute>
+                }
+              />
               <Route
                 path="/inbox"
                 element={

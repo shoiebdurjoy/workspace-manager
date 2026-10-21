@@ -11,6 +11,8 @@ import {
   BarChart3,
   Settings,
   Users,
+  CalendarDays,
+  Gauge,
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -62,11 +64,13 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
     { label: "Home", icon: Home, href: "/home" },
     ...(can(role, "comments:view-internal") ? [{ label: "Inbox", icon: Inbox, href: "/inbox", badge: inboxCount }] : []),
     ...(can(role, "hierarchy:view") ? [{ label: "My Tasks", icon: UserCheck, href: "/my-tasks" }] : []),
+    ...(can(role, "hierarchy:view") ? [{ label: "Calendar", icon: CalendarDays, href: "/calendar" }] : []),
     ...(can(role, "hierarchy:view") ? [{ label: "Everything", icon: CheckSquare, href: "/everything" }] : []),
   ];
 
   const managementNavItems: NavItem[] = [
     ...(can(role, "team:view") ? [{ label: "Team", icon: Users, href: "/team" }] : []),
+    ...(can(role, "production:view") ? [{ label: "Workload", icon: Gauge, href: "/workload" }] : []),
     ...(can(role, "production:view") ? [{ label: "Production", icon: BarChart3, href: "/production" }] : []),
     { label: "Settings", icon: Settings, href: "/settings" },
   ];

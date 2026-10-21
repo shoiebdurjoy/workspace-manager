@@ -40,6 +40,8 @@ const PAGE_TITLES: Record<string, string> = {
   "/everything": "Everything",
   "/my-tasks": "My Tasks",
   "/inbox": "Inbox",
+  "/calendar": "Calendar",
+  "/workload": "Workload",
   "/production": "Production",
   "/team": "Team",
   "/profile": "Profile",
