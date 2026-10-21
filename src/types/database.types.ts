@@ -323,6 +323,8 @@ export interface Database {
           final_export_link: string | null;
           client_deadline: string | null;
           revision_count: number;
+          /** The batch this video belongs to (migration 18). Set only by create_batch_video; never written directly. */
+          parent_id: string | null;
           created_by: string | null;
           created_at: string;
           updated_at: string;
@@ -381,6 +383,12 @@ export interface Database {
             foreignKeyName: 'tasks_list_id_fkey';
             columns: ['list_id'];
             referencedRelation: 'lists';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'tasks_parent_id_fkey';
+            columns: ['parent_id'];
+            referencedRelation: 'tasks';
             referencedColumns: ['id'];
           },
           {
@@ -821,6 +829,15 @@ export interface Database {
       set_task_assignee: {
         Args: { p_task_id: string; p_role_type: string; p_user_id: string | null };
         Returns: undefined;
+      };
+      // Phase 12b (migration 18): task batches. Both SECURITY INVOKER.
+      create_batch_video: {
+        Args: { p_parent_id: string; p_title: string; p_editor_id?: string | null; p_qc_id?: string | null };
+        Returns: Database['public']['Tables']['tasks']['Row'];
+      };
+      batch_progress: {
+        Args: { p_parent_ids: string[] };
+        Returns: Array<{ parent_id: string; total: number; finished: number }>;
       };
       // Phase 7 (migration 8): the one way the app changes a task's status.
       transition_task: {

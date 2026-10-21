@@ -90,6 +90,7 @@ export function makeDetail(overrides: Partial<TaskDetail> = {}): TaskDetail {
     createdBy: PEOPLE.manager,
     createdAt: stamp,
     updatedAt: stamp,
+    parentId: null,
     editorId: PEOPLE.me,
     qcId: PEOPLE.qc,
     subtasks: [

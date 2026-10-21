@@ -13,6 +13,7 @@ export * from './lists';
 export * from './hierarchy';
 export * from './tasks';
 export * from './collaboration';
+export * from './batches';
 export * from './customFields';
 export * from './workflow';
 export * from './production';

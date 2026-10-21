@@ -1858,6 +1858,62 @@ VALUES (gen_random_uuid(), '${u.id}', '${u.id}', jsonb_build_object('sub','${u.i
     grantRefusals = grantsBefore12;
   }
 
+  console.log('\n== Phase 12b: task batches (live) ==');
+  {
+    const grantsBefore12b = grantRefusals; // refusals by design (roles, anon, direct update) are not missing grants
+    res = await clients.pm.from('lists').insert({ space_id: space, folder_id: folder, name: `P12b LIVE ${RUN}` }).select().single();
+    const lpb = res.data?.id;
+    res = await clients.pm.from('lists').insert({ space_id: space, folder_id: folder, name: `P12b OTHER ${RUN}` }).select().single();
+    const lpb2 = res.data?.id;
+    const mkb = async (title, list = lpb) => (await clients.pm.rpc('create_task', { p_list_id: list, p_title: title, p_editor_id: null, p_qc_id: null, p_review_link: null })).data?.id;
+    const batch = await mkb(`P12b batch ${RUN}`);
+    const elsewhere = await mkb(`P12b elsewhere ${RUN}`, lpb2);
+    const video = (who, parent, title, editor = null) => clients[who].rpc('create_batch_video', { p_parent_id: parent, p_title: title, p_editor_id: editor, p_qc_id: null });
+
+    res = await video('pm', batch, `P12b video 1 ${RUN}`, U.editor.id);
+    const v1 = res.data?.id;
+    rec('a manager adds a video to a batch, with its editor', !res.error && !!v1 && res.data.parent_id === batch, res.error?.message);
+    res = await video('pm', batch, `P12b video 2 ${RUN}`);
+    const v2 = res.data?.id;
+    rec('...and another', !res.error && !!v2, res.error?.message);
+    res = await video('editor', batch, 'editor video');
+    rec('an editor cannot add a video', !!res.error);
+    res = await video('qc', batch, 'qc video');
+    rec('a QC specialist cannot add a video', !!res.error);
+    res = await video('client', batch, 'client video');
+    rec('a client viewer cannot add a video', !!res.error);
+    res = await video('pm', v1, 'grandchild');
+    rec('a video cannot itself have videos (one level only)', !!res.error);
+    res = await video('pm', elsewhere, `P12b other list ${RUN}`);
+    rec('a video lands in the same list as its batch', !res.error && res.data?.list_id === lpb2, res.error?.message);
+
+    res = await clients.owner.from('tasks').update({ parent_id: batch }).eq('id', elsewhere).select('id');
+    res = await clients.pm.from('tasks').select('id, parent_id').eq('id', elsewhere).single();
+    rec('parent_id cannot be set by a direct update, even by the owner', !res.error && res.data.parent_id === null, res.error?.message);
+    res = await clients.owner.from('tasks').update({ parent_id: null }).eq('id', v1).select('id');
+    res = await clients.pm.from('tasks').select('parent_id').eq('id', v1).single();
+    rec('a video cannot be detached by a direct update either', !res.error && res.data.parent_id === batch, res.error?.message);
+    res = await clients.pm.from('tasks').update({ list_id: lpb2 }).eq('id', v1).select('id');
+    rec('a video cannot be moved to another list', !!res.error);
+
+    res = await clients.editor.rpc('batch_progress', { p_parent_ids: [batch] });
+    rec('staff read the batch progress: 2 videos, none finished',
+      !res.error && res.data?.length === 1 && res.data[0].parent_id === batch && res.data[0].total === 2 && res.data[0].finished === 0, res.error?.message ?? JSON.stringify(res.data));
+    res = await clients.client.rpc('batch_progress', { p_parent_ids: [batch] });
+    rec('a client viewer gets no progress', !res.error && (res.data ?? []).length === 0, res.error?.message);
+    res = await clients.stranger.rpc('batch_progress', { p_parent_ids: [batch] });
+    rec('a non-member gets no progress', !res.error && (res.data ?? []).length === 0, res.error?.message);
+    res = await mk().rpc('batch_progress', { p_parent_ids: [batch] });
+    rec('an anonymous caller cannot read progress', !!res.error);
+
+    // the batch can be deleted: its videos survive as ordinary tasks
+    res = await clients.pm.from('tasks').delete().eq('id', batch).select('id');
+    rec('deleting a batch succeeds', !res.error && res.data?.length === 1, res.error?.message);
+    res = await clients.pm.from('tasks').select('id, parent_id').in('id', [v1, v2]);
+    rec('...its videos survive as ordinary tasks', !res.error && res.data?.length === 2 && res.data.every((t) => t.parent_id === null), res.error?.message ?? JSON.stringify(res.data));
+    grantRefusals = grantsBefore12b;
+  }
+
   console.log('\n== Deactivation (flag flipped by the service owner) ==');
   const run = runSql;
   run(`UPDATE public.profiles SET is_active = false WHERE id = '${U.editor.id}'`);

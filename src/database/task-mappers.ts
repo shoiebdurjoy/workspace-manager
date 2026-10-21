@@ -114,6 +114,7 @@ export interface TaskDetailRow extends TaskRow {
 export function mapTaskDetailRow(row: TaskDetailRow): TaskDetail {
   return {
     ...mapTaskRow(row),
+    parentId: row.parent_id ?? null,
     editorId: slot(row.task_assignees, 'EDITOR'),
     qcId: slot(row.task_assignees, 'QC_REVIEWER'),
     subtasks: (row.subtasks ?? [])

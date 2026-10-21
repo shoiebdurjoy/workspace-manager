@@ -65,6 +65,10 @@ export function createDatabaseMock() {
     uploadAttachment: vi.fn(),
     getAttachmentUrl: vi.fn(),
     deleteAttachment: vi.fn(),
+    // task batches (Phase 12): no videos by default, so a task renders without a Videos section
+    listBatchVideos: vi.fn().mockResolvedValue([]),
+    createBatchVideo: vi.fn(),
+    getBatchProgress: vi.fn().mockResolvedValue(new Map()),
     // custom fields (Phase 12): no fields by default, so the sheet and settings render their empty states
     listCustomFields: vi.fn().mockResolvedValue([]),
     createCustomField: vi.fn(),

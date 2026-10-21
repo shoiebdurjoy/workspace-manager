@@ -2330,6 +2330,142 @@ console.log('\n== Phase 12: custom fields ==');
   record('row level security is on for both tables', r.length === 2);
 }
 
+console.log('\n== Phase 12b: task batches ==');
+{
+  const mk = async (title, w = ws, l = list) => (await svc(`INSERT INTO public.tasks (workspace_id, list_id, title) VALUES ($1,$2,$3) RETURNING id`, [w, l, title]))[0].id;
+  const video = (who, parent, title = 'Video') => as(who, `SELECT id, parent_id, list_id, title FROM public.create_batch_video($1,$2)`, [parent, title]);
+  const parentOf = async (id) => (await svc(`SELECT parent_id FROM public.tasks WHERE id = $1`, [id]))[0]?.parent_id ?? null;
+  const fails = (sql, params) => svc(sql, params).then(() => null, (e) => e);
+
+  const batch = await mk('P12b batch');
+  const batchB = await mk('P12b batch in B', wsB, listB);
+  const spareList = (await svc(`INSERT INTO public.lists (space_id, name) SELECT space_id, 'P12b other list' FROM public.lists WHERE id = $1 RETURNING id`, [list]))[0].id;
+
+  console.log('  -- creation through create_batch_video');
+  const made = [];
+  for (const [who, label] of [[owner, 'owner'], [admin, 'admin'], [pm, 'production manager']]) {
+    r = await video(who, batch, `P12b by ${label}`);
+    record(`${label} can add a video to a batch`, !r.error && r.rows[0]?.parent_id === batch && r.rows[0]?.list_id === list, r.error?.message);
+    if (r.rows[0]) made.push(r.rows[0].id);
+  }
+  for (const [who, label] of [[qc, 'QC specialist'], [editor, 'editor'], [client, 'client viewer'], [stranger, 'non-member']]) {
+    r = await video(who, batch, `P12b nope ${label}`);
+    record(`${label} cannot add a video`, !!r.error);
+  }
+  r = await as('anon', `SELECT * FROM public.create_batch_video($1,'x')`, [batch]);
+  record('anon cannot call create_batch_video', !!r.error);
+  r = await video(owner, '00000000-0000-0000-0000-000000000000');
+  record('an unknown batch is refused', !!r.error);
+  r = await video(owner, batch, '   ');
+  record('a blank title is refused', !!r.error);
+  r = await video(pm, batchB);
+  record('a manager of workspace B can add to a batch there', !r.error && r.rows[0]?.parent_id === batchB, r.error?.message);
+  r = await video(owner, batchB);
+  record('...and the owner of this workspace cannot add to a batch in workspace B', !!r.error);
+  r = await as(pm, `SELECT id, parent_id FROM public.create_batch_video($1,'P12b with people',$2,$3)`, [batch, editor, qc]);
+  const full = r.rows[0]?.id;
+  const asg = full ? await svc(`SELECT role_type, user_id FROM public.task_assignees WHERE task_id = $1 ORDER BY role_type`, [full]) : [];
+  record('editor and QC reviewer are assigned in the same call', asg.length === 2 && asg[0].user_id === editor && asg[1].user_id === qc, r.error?.message);
+  const st = (await svc(`SELECT status FROM public.tasks WHERE id = $1`, [full]))[0]?.status;
+  const first = (await svc(`SELECT s.key FROM public.workflow_statuses s JOIN public.workflows w ON w.id = s.workflow_id WHERE w.workspace_id = $1 AND w.is_default ORDER BY s.position LIMIT 1`, [ws]))[0].key;
+  record('a new video starts in the workflow first stage like any task', st === first, st);
+
+  console.log('  -- the rules');
+  const kid = made[0];
+  const stray = await mk('P12b stray');
+  r = await video(owner, kid);
+  record('a video cannot be a batch (one level)', !!r.error);
+  r = await fails(`UPDATE public.tasks SET parent_id = $2 WHERE id = $1`, [batch, stray]);
+  record('a batch cannot be given a parent (service role included)', !!r);
+  r = await fails(`UPDATE public.tasks SET parent_id = $1 WHERE id = $1`, [stray]);
+  record('a task cannot be its own parent', !!r);
+  const otherListTask = await mk('P12b other list', ws, spareList);
+  r = await fails(`UPDATE public.tasks SET parent_id = $2 WHERE id = $1`, [otherListTask, batch]);
+  record('a video must be in the same list as its batch', !!r);
+  const inB = await mk('P12b in B', wsB, listB);
+  r = await fails(`UPDATE public.tasks SET parent_id = $2 WHERE id = $1`, [inB, batch]);
+  record('a video cannot belong to a batch of another workspace', !!r);
+  r = await fails(`UPDATE public.tasks SET parent_id = $2 WHERE id = $1`, [stray, kid]);
+  record('a task cannot be put under a video', !!r);
+  r = await fails(`INSERT INTO public.tasks (workspace_id, list_id, title, parent_id) VALUES ($1,$2,'P12b child of kid',$3)`, [ws, list, kid]);
+  record('...nor created under a video', !!r);
+  r = await fails(`UPDATE public.tasks SET list_id = $2 WHERE id = $1`, [kid, spareList]);
+  record('a video cannot move to another list', !!r);
+  r = await fails(`UPDATE public.tasks SET list_id = $2 WHERE id = $1`, [batch, spareList]);
+  record('a batch with videos cannot move to another list', !!r);
+  r = await fails(`UPDATE public.tasks SET list_id = $2 WHERE id = $1`, [stray, spareList]);
+  record('an ordinary task still moves between lists', !r, r?.message);
+  await svc(`UPDATE public.tasks SET list_id = $2 WHERE id = $1`, [stray, list]);
+
+  console.log('  -- parent_id cannot be written directly');
+  for (const [who, label] of [[owner, 'owner'], [admin, 'admin'], [pm, 'production manager'], [qc, 'QC specialist'], [editor, 'editor']]) {
+    r = await as(who, `UPDATE public.tasks SET parent_id = $2 WHERE id = $1 RETURNING id`, [stray, batch]);
+    record(`${label} cannot attach a task to a batch by UPDATE`, !!r.error || r.rows.length === 0);
+    r = await as(who, `UPDATE public.tasks SET parent_id = NULL WHERE id = $1 RETURNING id`, [kid]);
+    record(`${label} cannot detach a video by UPDATE`, !!r.error || r.rows.length === 0);
+  }
+  r = await as(owner, `UPDATE public.tasks SET parent_id = $2 WHERE id = $1 RETURNING id`, [kid, made[1]]);
+  record('a video cannot be moved to another batch', !!r.error || r.rows.length === 0);
+  for (const [who, label] of [[owner, 'owner'], [pm, 'production manager']]) {
+    r = await as(who, `INSERT INTO public.tasks (workspace_id, list_id, title, parent_id) VALUES ($1,$2,'P12b sneaky',$3) RETURNING id`, [ws, list, batch]);
+    record(`${label} cannot insert a task with a parent_id directly`, !!r.error);
+  }
+  record('the video is still attached after all of that', (await parentOf(kid)) === batch && (await parentOf(stray)) === null);
+  r = await as(owner, `UPDATE public.tasks SET title = 'P12b renamed video' WHERE id = $1 RETURNING id`, [kid]);
+  record('an ordinary edit of a video is unaffected', !r.error && r.rows.length === 1, r.error?.message);
+
+  console.log('  -- progress');
+  const doneKey = (await svc(`SELECT s.key FROM public.workflow_statuses s JOIN public.workflows w ON w.id = s.workflow_id WHERE w.workspace_id = $1 AND w.is_default AND s.category = 'COMPLETED'`, [ws]))[0].key;
+  await svc(`UPDATE public.tasks SET status = $2 WHERE id = $1`, [made[0], doneKey]);
+  await svc(`UPDATE public.tasks SET status = $2 WHERE id = $1`, [made[1], doneKey]);
+  const prog = (who, ids) => as(who, `SELECT parent_id, total, finished FROM public.batch_progress($1::uuid[])`, [ids]);
+  r = await prog(owner, [batch, batchB]);
+  record('batch_progress counts videos and finished videos', r.rows.length === 1 && r.rows[0].parent_id === batch && r.rows[0].total === 4 && r.rows[0].finished === 2, JSON.stringify(r.rows) + (r.error?.message ?? ''));
+  r = await prog(editor, [batch]);
+  record('an editor sees the same counts (staff)', r.rows[0]?.total === 4, JSON.stringify(r.rows));
+  r = await prog(client, [batch]);
+  const clientSees = Number((await as(client, `SELECT count(*)::int n FROM public.tasks WHERE parent_id = $1`, [batch])).rows[0]?.n ?? 0);
+  record('a client viewer gets exactly what row security lets them see', (r.rows[0]?.total ?? 0) === clientSees, JSON.stringify(r.rows));
+  r = await prog(stranger, [batch]);
+  record('a non-member gets nothing', !r.error && r.rows.length === 0, JSON.stringify(r.rows));
+  r = await prog(owner, [batchB]);
+  record('a batch in another workspace is not counted', !r.error && r.rows.length === 0);
+  r = await as('anon', `SELECT * FROM public.batch_progress(ARRAY[$1]::uuid[])`, [batch]);
+  record('anon cannot call batch_progress', !!r.error);
+  r = await prog(pm, []);
+  record('an empty list of ids gives nothing', !r.error && r.rows.length === 0);
+  r = await as(pm, `SELECT * FROM public.batch_progress(NULL)`);
+  record('a null list of ids is refused', !!r.error);
+  r = await as(pm, `SELECT * FROM public.batch_progress(ARRAY(SELECT gen_random_uuid() FROM generate_series(1,501)))`);
+  record('more than 500 ids are refused', !!r.error);
+  r = await as(pm, `SELECT count(*)::int n FROM public.batch_progress(ARRAY(SELECT gen_random_uuid() FROM generate_series(1,500)))`);
+  record('exactly 500 ids are fine', !r.error, r.error?.message);
+  r = await svc(`SELECT proname, prosecdef FROM pg_proc WHERE proname IN ('batch_progress','create_batch_video') ORDER BY 1`);
+  record('batch_progress and create_batch_video are SECURITY INVOKER', r.length === 2 && r.every((x) => x.prosecdef === false), JSON.stringify(r));
+  r = await svc(`SELECT p.proname, has_function_privilege('anon', p.oid, 'EXECUTE') a, has_function_privilege('authenticated', p.oid, 'EXECUTE') u
+    FROM pg_proc p WHERE p.proname IN ('batch_progress','create_batch_video') ORDER BY 1`);
+  record('both are executable by signed-in people only', r.every((x) => !x.a && x.u), JSON.stringify(r));
+
+  console.log('  -- deleting');
+  await svc(`INSERT INTO public.task_production_credits (task_id, workspace_id, editor_id, first_qc_submitted_at) VALUES ($1,$2,$3,now())`, [made[2], ws, editor]);
+  r = await as(pm, `DELETE FROM public.tasks WHERE id = $1 RETURNING id`, [batch]);
+  record('a manager can delete a batch', !r.error && r.rows.length === 1, r.error?.message);
+  const left = await svc(`SELECT id, parent_id FROM public.tasks WHERE id = ANY($1::uuid[])`, [[...made, full]]);
+  record('its videos survive, as ordinary tasks', left.length === made.length + 1 && left.every((x) => x.parent_id === null), JSON.stringify(left));
+  record('a credited video keeps its credit', Number((await svc(`SELECT count(*) AS n FROM public.task_production_credits WHERE task_id = $1`, [made[2]]))[0].n) === 1);
+  const batch2 = await mk('P12b batch 2');
+  r = await video(owner, batch2, 'P12b v1');
+  const v1 = r.rows[0]?.id;
+  r = await as(pm, `DELETE FROM public.tasks WHERE id = $1 RETURNING id`, [v1]);
+  record('deleting a video leaves the batch', !r.error && (await svc(`SELECT 1 FROM public.tasks WHERE id = $1`, [batch2])).length === 1, r.error?.message);
+  r = await prog(pm, [batch2]);
+  record('...and the count drops to zero', !r.error && r.rows.length === 0);
+  r = await video(owner, batch2, 'P12b v2');
+  record('a video can be added after another was deleted', !r.error && r.rows[0]?.parent_id === batch2, r.error?.message);
+  r = await video(owner, made[0], 'P12b v3');
+  record('a former video (its batch was deleted) can be a batch again', !r.error, r.error?.message);
+}
+
 console.log('\n== Deactivation & service role ==');
 await svc(`UPDATE public.profiles SET is_active = false WHERE id = $1`, [editor]);
 r = await as(editor, `SELECT id FROM public.tasks`);

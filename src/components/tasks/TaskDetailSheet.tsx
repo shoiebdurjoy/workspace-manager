@@ -42,6 +42,7 @@ import { isFinishedStatus } from '@/lib/workflow';
 import { useWorkflow } from '@/hooks/use-workflow';
 import type { AspectRatio, AssigneeRole, HierarchyFolder, HierarchyList, HierarchySpace, TaskPriority } from '@/types/database';
 import TaskCollaboration from '@/components/collaboration/TaskCollaboration';
+import BatchVideosSection from './BatchVideosSection';
 import BriefEditor from './BriefEditor';
 import CustomFieldsSection from './CustomFieldsSection';
 import DatePicker, { DateValue } from './DatePicker';
@@ -416,6 +417,8 @@ const TaskDetailSheet: React.FC<TaskDetailSheetProps> = ({ taskId, space, folder
               ))}
             </div>
           </Section>
+
+          <BatchVideosSection task={task} taskPath={(id) => (taskPath ? taskPath(id) : hierarchyPaths.task(space.id, list.id, id))} />
 
           <CustomFieldsSection taskId={task.id} isAssignedEditor={!!user && task.editorId === user.id} />
 

@@ -143,6 +143,8 @@ export interface Subtask {
 
 /** A task with its assignees and checklist: everything the detail sheet needs, in one request. */
 export interface TaskDetail extends Task {
+  /** The batch this video belongs to; null for an ordinary task or a batch itself. */
+  parentId: string | null;
   editorId: string | null;
   qcId: string | null;
   subtasks: Subtask[];
