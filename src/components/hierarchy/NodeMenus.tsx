@@ -1,5 +1,5 @@
-import React from 'react';
-import { ArrowDown, ArrowUp, FolderPlus, ListPlus, MoreHorizontal, Pencil, Trash2 } from 'lucide-react';
+import React, { useState } from 'react';
+import { ArrowDown, ArrowUp, FolderPlus, LayoutTemplate, ListPlus, MoreHorizontal, Pencil, Trash2 } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -13,6 +13,7 @@ import { useHierarchy, useReorder } from '@/hooks/use-hierarchy';
 import { useHierarchyDialogs } from '@/hooks/use-hierarchy-dialogs';
 import { can } from '@/lib/permissions';
 import { moveWithin } from '@/lib/hierarchy';
+import SaveTemplateDialog from './SaveTemplateDialog';
 import type { HierarchyFolder, HierarchyList, HierarchySpace } from '@/types/database';
 
 interface MenuShellProps {
@@ -158,15 +159,24 @@ export const ListMenu: React.FC<{
   const canDelete = can(role, 'folder-list:delete');
   const siblings = folder ? folder.lists : space.folderlessLists;
   const move = useMoveItems('list', siblings.map((l) => l.id), list.id, canEdit);
+  const canTemplate = can(role, 'fields:manage');
+  const [savingTemplate, setSavingTemplate] = useState(false);
   if (!canEdit && !canDelete) return null;
 
   return (
+    <>
+    {savingTemplate && <SaveTemplateDialog listId={list.id} listName={list.name} onClose={() => setSavingTemplate(false)} />}
     <MenuShell label={list.name} className={className}>
       {canEdit && (
         <>
           <DropdownMenuItem onSelect={() => dialogs.open({ type: 'list', space, list })} className="text-xs">
             <Pencil className="mr-2 h-3.5 w-3.5" /> Edit list
           </DropdownMenuItem>
+          {canTemplate && (
+            <DropdownMenuItem onSelect={() => setSavingTemplate(true)} className="text-xs">
+              <LayoutTemplate className="mr-2 h-3.5 w-3.5" /> Save as template
+            </DropdownMenuItem>
+          )}
           {move}
         </>
       )}
@@ -182,5 +192,6 @@ export const ListMenu: React.FC<{
         </>
       )}
     </MenuShell>
+    </>
   );
 };

@@ -643,6 +643,13 @@ export interface Database {
           { foreignKeyName: 'task_activity_task_id_fkey'; columns: ['task_id']; referencedRelation: 'tasks'; referencedColumns: ['id'] },
         ];
       };
+      // Phase 12e (migration 21)
+      list_templates: {
+        Row: { id: string; workspace_id: string; name: string; description: string | null; items: Json; created_by: string | null; created_at: string };
+        Insert: never;
+        Update: never;
+        Relationships: [];
+      };
       // Phase 12c (migration 19): each staff member's own availability
       member_availability: {
         Row: { workspace_id: string; user_id: string; status: string; note: string | null; back_on: string | null; updated_at: string };
@@ -859,6 +866,15 @@ export interface Database {
         Returns: Database['public']['Tables']['tasks']['Row'];
       };
       // Phase 9 (migration 11): database-side search, filters, sorting and paging. SECURITY INVOKER.
+      // Phase 12e (migration 21): list templates (SECURITY INVOKER)
+      save_list_as_template: {
+        Args: { p_list_id: string; p_name: string; p_description?: string | null };
+        Returns: Json;
+      };
+      create_list_from_template: {
+        Args: { p_template_id: string; p_space_id: string; p_folder_id: string | null; p_name: string; p_description?: string | null; p_color?: string | null };
+        Returns: { id: string; workspace_id: string; space_id: string; folder_id: string | null; name: string; description: string | null; color: string; position: number; created_at: string; updated_at: string };
+      };
       search_tasks: {
         Args: {
           p_workspace_id: string;

@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { FieldError, FormError } from '@/components/auth/AuthLayout';
 import { useCreateList, useUpdateList } from '@/hooks/use-hierarchy';
+import { useCreateListFromTemplate, useTemplates } from '@/hooks/use-templates';
 import { DEFAULT_COLOR, validateDescription, validateHierarchyName } from '@/lib/hierarchy';
 import type { HierarchyList, HierarchySpace, List } from '@/types/database';
 import { ColorPicker } from './pickers';
@@ -24,10 +25,15 @@ interface ListDialogProps {
   onSaved: (list: List) => void;
 }
 
+const NO_TEMPLATE = '__none__';
+
 const ListDialog: React.FC<ListDialogProps> = ({ space, folderId, list, onClose, onSaved }) => {
   const editing = !!list;
   const create = useCreateList();
   const update = useUpdateList();
+  const fromTemplate = useCreateListFromTemplate();
+  const templates = useTemplates().data ?? [];
+  const [templateId, setTemplateId] = useState<string>(NO_TEMPLATE);
   const [name, setName] = useState(list?.name ?? '');
   const [description, setDescription] = useState(list?.description ?? '');
   const [color, setColor] = useState(list?.color ?? DEFAULT_COLOR);
@@ -35,7 +41,7 @@ const ListDialog: React.FC<ListDialogProps> = ({ space, folderId, list, onClose,
   const [nameError, setNameError] = useState<string | null>(null);
   const [descriptionError, setDescriptionError] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
-  const saving = create.isPending || update.isPending;
+  const saving = create.isPending || update.isPending || fromTemplate.isPending;
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -47,7 +53,9 @@ const ListDialog: React.FC<ListDialogProps> = ({ space, folderId, list, onClose,
     setFormError(null);
     const chosenFolder = parent === NO_FOLDER ? null : parent;
     try {
-      const saved = list
+      const saved = !list && templateId !== NO_TEMPLATE
+        ? await fromTemplate.mutateAsync({ templateId, spaceId: space.id, name, description, color, folderId: chosenFolder })
+        : list
         ? await update.mutateAsync({ listId: list.id, spaceId: space.id, name, description, color, folderId: chosenFolder })
         : await create.mutateAsync({ spaceId: space.id, name, description, color, folderId: chosenFolder });
       onSaved(saved);
@@ -67,6 +75,26 @@ const ListDialog: React.FC<ListDialogProps> = ({ space, folderId, list, onClose,
             </DialogDescription>
           </DialogHeader>
           <FormError message={formError} />
+          {!editing && templates.length > 0 && (
+            <div className="space-y-1.5">
+              <Label htmlFor="list-template" className="text-xs">
+                Start from a template
+              </Label>
+              <Select value={templateId} onValueChange={setTemplateId}>
+                <SelectTrigger id="list-template" className="h-9 text-sm" aria-label="Start from a template">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={NO_TEMPLATE}>Empty list</SelectItem>
+                  {templates.map((t) => (
+                    <SelectItem key={t.id} value={t.id}>
+                      {t.name} · {t.videoCount} {t.videoCount === 1 ? 'video' : 'videos'}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
           <div className="space-y-1.5">
             <Label htmlFor="list-name" className="text-xs">
               Name

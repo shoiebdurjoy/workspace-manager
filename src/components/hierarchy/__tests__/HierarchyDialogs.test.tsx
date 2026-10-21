@@ -184,6 +184,30 @@ describe('list dialog', () => {
     );
   });
 
+  it('offers saved templates and creates the list with its standard videos from the chosen one', async () => {
+    db.listTemplates.mockResolvedValue([{ id: 'tpl-1', name: 'Client starter', description: null, videoCount: 3, createdAt: '2026-10-22T00:00:00Z' }]);
+    db.createListFromTemplate.mockResolvedValue(makeList({ id: IDS.missing, name: 'New client', spaceId: IDS.spaceA, folderId: IDS.folderZim }));
+    renderTree('PRODUCTION_MANAGER', `/spaces/${IDS.spaceA}`);
+    await openMenu('CONTENT PIPELINE - ZIM', 'New list');
+    const dialog = await screen.findByRole('dialog');
+    await userEvent.type(within(dialog).getByLabelText('Name'), 'New client');
+    await userEvent.click(await within(dialog).findByRole('combobox', { name: 'Start from a template' }));
+    await userEvent.click(await screen.findByRole('option', { name: 'Client starter · 3 videos' }));
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Create list' }));
+    await waitFor(() =>
+      expect(db.createListFromTemplate).toHaveBeenCalledWith(expect.objectContaining({ templateId: 'tpl-1', spaceId: IDS.spaceA, folderId: IDS.folderZim, name: 'New client' }))
+    );
+    expect(db.createList).not.toHaveBeenCalled();
+  });
+
+  it('shows no template picker when the workspace has no templates', async () => {
+    db.listTemplates.mockResolvedValue([]);
+    renderTree('PRODUCTION_MANAGER', `/spaces/${IDS.spaceA}`);
+    await openMenu('CONTENT PIPELINE - ZIM', 'New list');
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).queryByRole('combobox', { name: 'Start from a template' })).not.toBeInTheDocument();
+  });
+
   it('creates a list directly in a space', async () => {
     db.createList.mockResolvedValue(makeList({ id: IDS.missing, name: 'Inbox', spaceId: IDS.spaceB }));
     renderTree();

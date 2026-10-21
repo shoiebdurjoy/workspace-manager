@@ -19,6 +19,7 @@ export * from './workflow';
 export * from './production';
 export * from './home';
 export * from './availability';
+export * from './templates';
 export * from './teams';
 export * from './invitations';
 export * from './health';

@@ -2571,6 +2571,64 @@ console.log('\n== Phase 12d: QC auto-assignment ==');
   record('the picker cannot be called by signed-in users', (await as(edQ, `SELECT private.pick_qc_reviewer($1, NULL)`, [wsQ])).error !== null);
 }
 
+console.log('\n== Phase 12e: list templates ==');
+{
+  const oT = await mkUser('t-owner@tbb.test', {}, true);
+  const pmT = await mkUser('t-pm@tbb.test', {}, true);
+  const edT = await mkUser('t-editor@tbb.test', {}, true);
+  const clT = await mkUser('t-client@tbb.test', {}, true);
+  const wsT = (await svc(`INSERT INTO public.workspaces (name, slug, owner_id) VALUES ('T','t-tpl',$1) RETURNING id`, [oT]))[0].id;
+  await svc(`INSERT INTO public.workspace_members (workspace_id, user_id, role) VALUES ($1,$2,'PRODUCTION_MANAGER'), ($1,$3,'EDITOR'), ($1,$4,'CLIENT_VIEWER') ON CONFLICT DO NOTHING`, [wsT, pmT, edT, clT]);
+  const spT = (await as(oT, `INSERT INTO public.spaces (workspace_id, name, slug) VALUES ($1,'S','s') RETURNING id`, [wsT])).rows[0]?.id;
+  const src = (await as(oT, `INSERT INTO public.lists (space_id, name) VALUES ($1,'25. EDAPTX') RETURNING id`, [spT])).rows[0]?.id;
+  const v1 = (await as(pmT, `SELECT (public.create_task($1, 'Hook video', 'Fast cuts, captions', 'HIGH', '9:16')).id AS id`, [src])).rows[0]?.id;
+  await as(pmT, `SELECT (public.create_task($1, 'Long form', NULL, 'MEDIUM', '16:9')).id`, [src]);
+  await svc(`INSERT INTO public.subtasks (task_id, title, position) VALUES ($1,'Rough cut',0), ($1,'Captions',1)`, [v1]);
+
+  r = await as(edT, `SELECT public.save_list_as_template($1, 'Std', NULL)`, [src]);
+  record('an editor cannot save a template', !!r.error);
+  r = await as(clT, `SELECT public.save_list_as_template($1, 'Std', NULL)`, [src]);
+  record('a client viewer cannot save a template', !!r.error);
+  r = await as(pmT, `SELECT (public.save_list_as_template($1, 'Client starter', 'Two standard videos')).id AS id`, [src]);
+  const tpl = r.rows[0]?.id;
+  record('a manager saves a list as a template', !r.error && !!tpl, r.error?.message);
+  r = await svc(`SELECT jsonb_array_length(items) AS n, items -> 0 ->> 'title' AS t0, items -> 0 -> 'subtasks' AS subs FROM public.list_templates WHERE id = $1`, [tpl]);
+  record('...with both videos, their order and the first video\'s subtasks', r[0].n === 2 && r[0].t0 === 'Hook video' && JSON.stringify(r[0].subs) === '["Rough cut","Captions"]', JSON.stringify(r[0]));
+  r = await as(pmT, `SELECT public.save_list_as_template($1, ' client STARTER ', NULL)`, [src]);
+  record('a duplicate name is refused (case-insensitive)', !!r.error);
+  r = await as(edT, `SELECT id FROM public.list_templates`);
+  record('staff can read templates', !r.error && r.rows.length === 1);
+  r = await as(clT, `SELECT id FROM public.list_templates`);
+  record('a client viewer sees no templates', !r.error && r.rows.length === 0);
+
+  const dest = (who, name = 'New client') => as(who, `SELECT (public.create_list_from_template($1, $2, NULL, $3)).id AS id`, [tpl, spT, name]);
+  r = await dest(edT);
+  record('an editor cannot create a list from a template', !!r.error);
+  r = await dest(pmT);
+  const newList = r.rows[0]?.id;
+  record('a manager creates a list from the template', !r.error && !!newList, r.error?.message);
+  r = await svc(`SELECT title, priority, aspect_ratio, status FROM public.tasks WHERE list_id = $1 ORDER BY position, created_at`, [newList]);
+  record('...with the standard videos, priorities and aspect ratios, all at the first stage',
+    r.length === 2 && r[0].title === 'Hook video' && r[0].priority === 'HIGH' && r[0].aspect_ratio === '9:16' && r.every((x) => x.status === 'TO_BE_EDITED'), JSON.stringify(r));
+  r = await svc(`SELECT count(*)::int AS n FROM public.subtasks st JOIN public.tasks t ON t.id = st.task_id WHERE t.list_id = $1`, [newList]);
+  record('...and the subtasks', r[0].n === 2);
+  r = await svc(`SELECT count(*)::int AS n FROM public.task_assignees a JOIN public.tasks t ON t.id = a.task_id WHERE t.list_id = $1`, [newList]);
+  record('...but no people, dates or links are copied', r[0].n === 0);
+
+  // another workspace's template cannot be used
+  const wsU = (await svc(`INSERT INTO public.workspaces (name, slug, owner_id) VALUES ('U','u-tpl',$1) RETURNING id`, [oT]))[0].id;
+  const spU = (await as(oT, `INSERT INTO public.spaces (workspace_id, name, slug) VALUES ($1,'S','s') RETURNING id`, [wsU])).rows[0]?.id;
+  r = await as(oT, `SELECT public.create_list_from_template($1, $2, NULL, 'Cross')`, [tpl, spU]);
+  record('a template cannot be used in another workspace', !!r.error);
+
+  r = await as(pmT, `DELETE FROM public.list_templates WHERE id = $1 RETURNING id`, [tpl]);
+  record('a manager deletes a template', !r.error && r.rows.length === 1);
+  r = await svc(`SELECT count(*)::int AS n FROM public.tasks WHERE list_id = $1`, [newList]);
+  record('...lists already created from it are untouched', r[0].n === 2);
+  r = await as('anon', `SELECT id FROM public.list_templates`);
+  record('anon cannot read templates', !!r.error);
+}
+
 console.log('\n== Deactivation & service role ==');
 await svc(`UPDATE public.profiles SET is_active = false WHERE id = $1`, [editor]);
 r = await as(editor, `SELECT id FROM public.tasks`);

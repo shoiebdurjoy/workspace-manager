@@ -29,6 +29,11 @@ export function createDatabaseMock() {
     getProductionMonthly: vi.fn(),
     // home (Phase 11)
     getHomeSummary: vi.fn(),
+    // list templates (migration 21)
+    listTemplates: vi.fn().mockResolvedValue([]),
+    saveListAsTemplate: vi.fn().mockResolvedValue(undefined),
+    createListFromTemplate: vi.fn(),
+    deleteTemplate: vi.fn().mockResolvedValue(undefined),
     // availability (migration 19)
     listAvailability: vi.fn().mockResolvedValue(new Map()),
     setMyAvailability: vi.fn().mockResolvedValue(undefined),
