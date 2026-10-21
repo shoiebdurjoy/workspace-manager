@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { AppSidebar } from "@/components/layout/AppSidebar";
+import { AppSidebar, SIDEBAR_DEFAULT_WIDTH, SIDEBAR_MAX_WIDTH, SIDEBAR_MIN_WIDTH } from "@/components/layout/AppSidebar";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { CommandPalette } from "@/components/layout/CommandPalette";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
@@ -14,6 +14,7 @@ export interface AppShellProps {
 }
 
 const SIDEBAR_COLLAPSED_STORAGE_KEY = "tbb_sidebar_collapsed";
+const SIDEBAR_WIDTH_STORAGE_KEY = "tbb_sidebar_width";
 
 export const AppShell: React.FC<AppShellProps> = ({
   children,
@@ -27,6 +28,23 @@ export const AppShell: React.FC<AppShellProps> = ({
       return false;
     }
   });
+
+  const [panelWidth, setPanelWidth] = useState<number>(() => {
+    try {
+      const saved = Number(localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY));
+      return saved >= SIDEBAR_MIN_WIDTH && saved <= SIDEBAR_MAX_WIDTH ? saved : SIDEBAR_DEFAULT_WIDTH;
+    } catch {
+      return SIDEBAR_DEFAULT_WIDTH;
+    }
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(panelWidth));
+    } catch {
+      // ignore localStorage errors
+    }
+  }, [panelWidth]);
 
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
@@ -58,6 +76,8 @@ export const AppShell: React.FC<AppShellProps> = ({
           isCollapsed={isCollapsed}
           onToggleCollapse={toggleCollapse}
           onOpenSearch={() => setIsSearchOpen(true)}
+          panelWidth={panelWidth}
+          onResize={setPanelWidth}
         />
       </div>
 

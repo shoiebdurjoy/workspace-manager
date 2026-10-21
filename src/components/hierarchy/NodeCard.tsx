@@ -19,7 +19,7 @@ const NodeCard: React.FC<NodeCardProps> = ({ to, icon, title, subtitle, actions 
     >
       {icon}
       <span className="min-w-0">
-        <span className="block truncate text-sm font-medium text-foreground">{title}</span>
+        <span className="line-clamp-2 break-words text-sm font-medium leading-snug text-foreground" title={typeof title === "string" ? title : undefined}>{title}</span>
         {subtitle && <span className="block truncate text-[11px] text-muted-foreground">{subtitle}</span>}
       </span>
     </Link>

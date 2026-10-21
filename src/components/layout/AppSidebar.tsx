@@ -32,7 +32,14 @@ export interface AppSidebarProps {
   onOpenSearch: () => void;
   className?: string;
   onCloseMobile?: () => void;
+  /** width of the contextual panel in px (desktop); dragging its right edge calls onResize */
+  panelWidth?: number;
+  onResize?: (width: number) => void;
 }
+
+export const SIDEBAR_MIN_WIDTH = 200;
+export const SIDEBAR_MAX_WIDTH = 520;
+export const SIDEBAR_DEFAULT_WIDTH = 264;
 
 interface NavItem {
   label: string;
@@ -50,7 +57,33 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
   onOpenSearch,
   className,
   onCloseMobile,
+  panelWidth,
+  onResize,
 }) => {
+  const [dragging, setDragging] = React.useState(false);
+  const clamp = (w: number) => Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, Math.round(w)));
+
+  /** Drag the panel's right edge, like ClickUp: the width follows the pointer and is remembered. */
+  const startResize = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!onResize || panelWidth === undefined) return;
+    e.preventDefault();
+    const startX = e.clientX;
+    const startW = panelWidth;
+    setDragging(true);
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    const move = (ev: PointerEvent) => onResize(clamp(startW + ev.clientX - startX));
+    const up = () => {
+      setDragging(false);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
+
   const { pathname } = useLocation();
   const navigate = useNavigate();
   const { profile, role, workspace } = useAuth();
@@ -156,7 +189,34 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
 
         {/* Contextual panel */}
         {!isCollapsed && (
-          <div className="flex min-w-0 flex-1 flex-col md:w-[15.5rem] md:flex-none">
+          <div
+            className={cn("relative flex min-w-0 flex-1 flex-col md:flex-none", panelWidth === undefined && "md:w-[16.5rem]")}
+            style={panelWidth !== undefined ? { width: panelWidth } : undefined}
+          >
+            {onResize && panelWidth !== undefined && (
+              <div
+                role="separator"
+                aria-orientation="vertical"
+                aria-label="Resize sidebar"
+                aria-valuemin={SIDEBAR_MIN_WIDTH}
+                aria-valuemax={SIDEBAR_MAX_WIDTH}
+                aria-valuenow={panelWidth}
+                tabIndex={0}
+                title="Drag to resize · double-click to reset"
+                onPointerDown={startResize}
+                onDoubleClick={() => onResize(SIDEBAR_DEFAULT_WIDTH)}
+                onKeyDown={(e) => {
+                  if (e.key === "ArrowLeft") onResize(clamp(panelWidth - 16));
+                  if (e.key === "ArrowRight") onResize(clamp(panelWidth + 16));
+                }}
+                className={cn(
+                  "group/resize absolute -right-[3px] top-0 z-30 h-full w-[6px] cursor-col-resize outline-none",
+                  "after:absolute after:inset-y-0 after:left-[2px] after:w-[2px] after:rounded-full after:bg-primary after:opacity-0 after:transition-opacity after:duration-200",
+                  "hover:after:opacity-60 focus-visible:after:opacity-100",
+                  dragging && "after:opacity-100"
+                )}
+              />
+            )}
             <div className="flex h-11 items-center justify-between gap-2 px-3">
               <p className="truncate text-[13px] font-semibold tracking-tight text-foreground" title={workspace?.name}>
                 {workspace?.name ?? "TBB Workspace"}

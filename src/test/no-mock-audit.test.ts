@@ -52,11 +52,11 @@ describe('no mock data or fake auth in production source', () => {
     });
   }
 
-  it('browser storage is limited to UI preferences (sidebar collapsed/expanded, theme, per-list task view, last view mode, table columns, the assistant chat on this device) and the Supabase session', () => {
+  it('browser storage is limited to UI preferences (sidebar collapsed/expanded/width, theme, per-list task view, last view mode, table columns, the assistant chat on this device) and the Supabase session', () => {
     const uses = FILES.flatMap((f) => {
       const text = fs.readFileSync(f, 'utf8');
       return [...text.matchAll(/(?:localStorage|sessionStorage)\.(?:set|get|remove)Item\(\s*([^,)]+)/g)].map((m) => `${path.relative(SRC, f)}: ${m[1].trim()}`);
     });
-    for (const use of uses) expect(use).toMatch(/SIDEBAR_COLLAPSED_STORAGE_KEY|SIDEBAR_EXPANDED_STORAGE_KEY|taskViewStorageKey|viewModeStorageKey|tableColumnsStorageKey|ASSISTANT_CHAT_STORAGE_KEY|'theme'|"theme"/);
+    for (const use of uses) expect(use).toMatch(/SIDEBAR_COLLAPSED_STORAGE_KEY|SIDEBAR_WIDTH_STORAGE_KEY|SIDEBAR_EXPANDED_STORAGE_KEY|taskViewStorageKey|viewModeStorageKey|tableColumnsStorageKey|ASSISTANT_CHAT_STORAGE_KEY|'theme'|"theme"/);
   });
 });

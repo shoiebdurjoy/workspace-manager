@@ -7,6 +7,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useAuth } from '@/hooks/use-auth';
 import { useHierarchy } from '@/hooks/use-hierarchy';
+import { useListOpenCounts } from '@/hooks/use-list-counts';
 import { useHierarchyDialogs } from '@/hooks/use-hierarchy-dialogs';
 import { useExpandedNodes } from '@/hooks/use-expanded-nodes';
 import { can } from '@/lib/permissions';
@@ -44,8 +45,9 @@ const ListRow: React.FC<{
   folder: HierarchyFolder | null;
   list: HierarchyList;
   active: boolean;
+  count?: number;
   onNavigate?: () => void;
-}> = ({ space, folder, list, active, onNavigate }) => (
+}> = ({ space, folder, list, active, count, onNavigate }) => (
   <div className={cn(rowBase, 'pl-1', active && activeRow)}>
     <Link
       to={hierarchyPaths.list(space.id, list.id)}
@@ -54,7 +56,12 @@ const ListRow: React.FC<{
       className="flex min-w-0 flex-1 items-center gap-1.5 rounded py-1 pl-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
       <ListTodo className="h-3 w-3 shrink-0" style={{ color: list.color }} />
-      <span className="truncate">{list.name}</span>
+      <span className="truncate" title={list.name}>{list.name}</span>
+      {count ? (
+        <span className="ml-auto shrink-0 pl-1 text-[11px] tabular-nums text-muted-foreground transition-opacity lg:group-hover:opacity-0" aria-label={`${count} open`}>
+          {count}
+        </span>
+      ) : null}
     </Link>
     <ListMenu space={space} folder={folder} list={list} className={MENU_REVEAL} />
   </div>
@@ -66,6 +73,7 @@ const SpacesTree: React.FC<SpacesTreeProps> = ({ collapsed, onNavigate }) => {
   const { data: tree, isLoading, isError, error, refetch } = useHierarchy();
   const dialogs = useHierarchyDialogs();
   const { expanded, toggle, reveal } = useExpandedNodes();
+  const counts = useListOpenCounts().data;
   const canCreateSpace = can(role, 'space:create');
 
   const spaceMatch = matchPath('/spaces/:spaceId/*', pathname);
@@ -187,7 +195,7 @@ const SpacesTree: React.FC<SpacesTreeProps> = ({ collapsed, onNavigate }) => {
                     className="flex min-w-0 flex-1 items-center gap-2 rounded py-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   >
                     <SpaceIcon icon={space.icon} color={space.color} size="xs" />
-                    <span className="truncate font-medium">{space.name}</span>
+                    <span className="truncate font-medium" title={space.name}>{space.name}</span>
                   </Link>
                   <SpaceMenu space={space} className={MENU_REVEAL} />
                 </div>
@@ -208,7 +216,7 @@ const SpacesTree: React.FC<SpacesTreeProps> = ({ collapsed, onNavigate }) => {
                               className="flex min-w-0 flex-1 items-center gap-1.5 rounded py-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                             >
                               {folderOpen ? <FolderOpen className="h-3 w-3 shrink-0" /> : <Folder className="h-3 w-3 shrink-0" />}
-                              <span className="truncate">{folder.name}</span>
+                              <span className="truncate" title={folder.name}>{folder.name}</span>
                             </Link>
                             <FolderMenu space={space} folder={folder} className={MENU_REVEAL} />
                           </div>
@@ -223,6 +231,7 @@ const SpacesTree: React.FC<SpacesTreeProps> = ({ collapsed, onNavigate }) => {
                                     space={space}
                                     folder={folder}
                                     list={list}
+                                    count={counts?.get(list.id)}
                                     active={activeListId === list.id}
                                     onNavigate={onNavigate}
                                   />
@@ -235,7 +244,7 @@ const SpacesTree: React.FC<SpacesTreeProps> = ({ collapsed, onNavigate }) => {
                     })}
                     {space.folderlessLists.map((list) => (
                       <li key={list.id}>
-                        <ListRow space={space} folder={null} list={list} active={activeListId === list.id} onNavigate={onNavigate} />
+                        <ListRow space={space} folder={null} list={list} count={counts?.get(list.id)} active={activeListId === list.id} onNavigate={onNavigate} />
                       </li>
                     ))}
                     {space.folders.length === 0 && space.folderlessLists.length === 0 && (
