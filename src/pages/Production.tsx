@@ -208,14 +208,14 @@ const Production: React.FC = () => {
           <Info aria-hidden className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           <span>
             Counts <strong className="font-medium text-foreground">videos first submitted for QC</strong>: a video is credited once, to the editor who first moved it to
-            QC - FIRST APPROVAL, in the month that happened. Revisions, reassignment, final approval and delivery never change it.
+            QC- FIRST APPROVAL, in the month that happened. Revisions, reassignment, final approval and delivery never change it.
           </span>
         </p>
       </header>
 
       <div className="grid gap-5 lg:grid-cols-[minmax(0,340px)_minmax(0,1fr)]">
         <div className={cn('min-w-0 space-y-3', selected && 'hidden lg:block')}>{list}</div>
-        <div className={cn('min-w-0', !detail && 'hidden lg:block')}>
+        <div className={cn('min-w-0', (!detail || employees.length === 0) && 'hidden lg:block', !detail && employees.length === 0 && 'lg:hidden')}>
           {detail ?? (
             <div className="hidden rounded-xl border border-dashed border-border p-10 text-center text-sm text-muted-foreground lg:block">
               Select an employee to see their production by month.

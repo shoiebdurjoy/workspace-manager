@@ -112,7 +112,7 @@ const InvitationsPanel: React.FC = () => {
                     <div className="min-w-0">
                       <p className="truncate font-medium">{inv.email}</p>
                       <p className="text-[11px] text-muted-foreground">
-                        Invited {new Date(inv.createdAt).toLocaleDateString()}
+                        Invited {new Date(inv.createdAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}
                       </p>
                     </div>
                     <div className="flex items-center gap-2">
@@ -153,7 +153,7 @@ const InvitationsPanel: React.FC = () => {
                 {accepted.map((inv) => (
                   <li key={inv.id} className="flex items-center justify-between gap-3 px-3 py-2 text-xs text-muted-foreground">
                     <span className="truncate">{inv.email}</span>
-                    <span>{inv.acceptedAt ? new Date(inv.acceptedAt).toLocaleDateString() : ''}</span>
+                    <span>{inv.acceptedAt ? new Date(inv.acceptedAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) : ''}</span>
                   </li>
                 ))}
               </ul>

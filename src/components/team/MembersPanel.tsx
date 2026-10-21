@@ -198,7 +198,7 @@ const MembersPanel: React.FC = () => {
                       {(podsByUser.get(m.userId) ?? []).join(', ') || '—'}
                     </td>
                     <td className="hidden px-3 py-2 text-muted-foreground sm:table-cell">
-                      {new Date(m.createdAt).toLocaleDateString()}
+                      {new Date(m.createdAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}
                     </td>
                     <td className="px-3 py-2 text-right">
                       {manageable && (

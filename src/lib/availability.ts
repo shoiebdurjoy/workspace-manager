@@ -29,7 +29,7 @@ export const AVAILABILITY_META: Record<AvailabilityStatus, AvailabilityMeta> = {
   AVAILABLE: { label: 'Available', short: 'Free', hint: 'Ready for new work', tone: '152 64% 40%', rank: 0 },
   WORKING: { label: 'Working, can take more', short: 'Working', hint: 'On a project, has capacity', tone: '217 91% 56%', rank: 1 },
   BUSY: { label: 'Busy, at capacity', short: 'Busy', hint: 'Do not assign new work', tone: '32 95% 52%', rank: 2 },
-  ON_LEAVE: { label: 'On leave', short: 'Away', hint: 'Away from work', tone: '262 70% 60%', rank: 3 },
+  ON_LEAVE: { label: 'On leave', short: 'On leave', hint: 'Away from work', tone: '262 70% 60%', rank: 3 },
 };
 export const NO_STATUS_TONE = '28 8% 60%';
 

@@ -77,8 +77,18 @@ export function moveWithin(orderedIds: readonly string[], id: string, direction:
   return next;
 }
 
-const byPositionThenName = <T extends { position: number; name: string }>(a: T, b: T) =>
-  a.position - b.position || a.name.localeCompare(b.name);
+const leadingNumber = (name: string) => {
+  const m = /^(\d+)\./.exec(name);
+  return m ? Number(m[1]) : null;
+};
+
+/** Numbered names ("3. CLIENT") sort by their number; everything else by position, then name. */
+const byPositionThenName = <T extends { position: number; name: string }>(a: T, b: T) => {
+  const na = leadingNumber(a.name);
+  const nb = leadingNumber(b.name);
+  if (na !== null && nb !== null && na !== nb) return na - nb;
+  return a.position - b.position || a.name.localeCompare(b.name, undefined, { numeric: true });
+};
 
 /** Assembles the nested tree from the three flat result sets (already workspace-scoped). */
 export function assembleHierarchy(spaces: Space[], folders: Folder[], lists: List[]): HierarchySpace[] {

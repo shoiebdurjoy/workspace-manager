@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   ChevronDown,
@@ -120,6 +120,17 @@ const TaskDetailSheet: React.FC<TaskDetailSheetProps> = ({ taskId, space, folder
   const { state: saveState, track } = useSaveIndicator();
   const workflow = useWorkflow().data;
   const [deleting, setDeleting] = useState(false);
+
+  // the browser tab names the open task, and goes back to the page's own title on close
+  const title = task?.title;
+  useEffect(() => {
+    if (!title) return;
+    const previous = document.title;
+    document.title = `${title} · TBB Workspace`;
+    return () => {
+      document.title = previous;
+    };
+  }, [title]);
 
   // A task id from the URL that belongs to a different list is treated as "not found".
   const mismatched = !!task && task.listId !== list.id;

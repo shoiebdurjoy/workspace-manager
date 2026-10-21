@@ -17,6 +17,21 @@ function timeZones(current: string): string[] {
   return zones.includes(current) ? zones : [current, ...zones];
 }
 
+// the zones TBB's team and clients actually work in, offered first
+const COMMON_ZONES = ['Asia/Dhaka', 'America/New_York', 'America/Chicago', 'America/Los_Angeles', 'Europe/London', 'Australia/Sydney', 'UTC'];
+
+/** "Asia/Dhaka (GMT+6)": the zone's current offset beside its name. */
+function zoneLabel(zone: string): string {
+  try {
+    const offset = new Intl.DateTimeFormat('en-US', { timeZone: zone, timeZoneName: 'shortOffset' })
+      .formatToParts(new Date())
+      .find((p) => p.type === 'timeZoneName')?.value;
+    return offset ? `${zone.replace(/_/g, ' ')} (${offset})` : zone;
+  } catch {
+    return zone;
+  }
+}
+
 const Profile: React.FC = () => {
   const { profile, role, workspace, refresh, updatePassword } = useAuth();
   const [fullName, setFullName] = useState(profile?.fullName ?? '');
@@ -137,11 +152,22 @@ const Profile: React.FC = () => {
               onChange={(e) => setTimezone(e.target.value)}
               className="focus-soft h-10 w-full rounded-control border border-input bg-background px-3 text-sm outline-none transition-shadow"
             >
-              {zones.map((z) => (
-                <option key={z} value={z}>
-                  {z}
-                </option>
-              ))}
+              <optgroup label="Common">
+                {COMMON_ZONES.map((z) => (
+                  <option key={`c-${z}`} value={z}>
+                    {zoneLabel(z)}
+                  </option>
+                ))}
+              </optgroup>
+              <optgroup label="All time zones">
+                {zones
+                  .filter((z) => !COMMON_ZONES.includes(z))
+                  .map((z) => (
+                    <option key={z} value={z}>
+                      {zoneLabel(z)}
+                    </option>
+                  ))}
+              </optgroup>
             </select>
           </div>
         </div>

@@ -97,7 +97,7 @@ const Settings: React.FC = () => {
           <dt>Workspace ID</dt>
           <dd className="truncate font-mono">{workspace.slug}</dd>
           <dt>Created</dt>
-          <dd>{new Date(workspace.createdAt).toLocaleDateString()}</dd>
+          <dd>{new Date(workspace.createdAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}</dd>
         </dl>
         {editable ? (
           <Button type="submit" size="sm" className="press rounded-full px-5" disabled={saving}>

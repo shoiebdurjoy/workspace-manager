@@ -113,7 +113,7 @@ const AdminInsights: React.FC = () => {
     <section aria-label="Insights" className="space-y-2">
       <div className="flex items-center justify-between">
         <h2 className="section-label">Insights</h2>
-        <span className="text-[11px] text-muted-foreground">{totalOpen} open tasks</span>
+        <span className="text-[11px] text-muted-foreground">{totalOpen} open {totalOpen === 1 ? "task" : "tasks"}</span>
       </div>
       <Stagger className="grid gap-3 lg:grid-cols-3">
         <ChartCard title="Pipeline by stage" hint="open tasks" className="lg:col-span-2">
@@ -122,13 +122,14 @@ const AdminInsights: React.FC = () => {
           ) : totalOpen === 0 ? (
             <Empty text="No open work in the pipeline." />
           ) : (
-            <div className="h-48">
+            <div className="h-72">
+              {/* horizontal bars: thirteen stage names stay readable instead of colliding on an x axis */}
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={byStage} margin={{ top: 4, right: 4, bottom: 0, left: -24 }}>
-                  <XAxis dataKey="name" tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} tickLine={false} axisLine={false} interval={0} />
-                  <YAxis allowDecimals={false} tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} tickLine={false} axisLine={false} />
+                <BarChart data={byStage} layout="vertical" margin={{ top: 0, right: 12, bottom: 0, left: 8 }}>
+                  <XAxis type="number" allowDecimals={false} hide />
+                  <YAxis type="category" dataKey="name" width={150} tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} tickLine={false} axisLine={false} interval={0} />
                   <Tooltip {...tooltipStyle} />
-                  <Bar dataKey="count" name="Tasks" radius={[6, 6, 2, 2]} animationDuration={700}>
+                  <Bar dataKey="count" name="Tasks" radius={[2, 6, 6, 2]} animationDuration={700}>
                     {byStage.map((s) => (
                       <Cell key={s.name} fill={s.color} />
                     ))}
