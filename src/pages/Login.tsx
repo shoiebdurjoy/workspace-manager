@@ -1,10 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
-import { Loader2 } from 'lucide-react';
+import { ArrowRight, Loader2, Lock, Mail } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import AuthLayout, { FieldError, FormError } from '@/components/auth/AuthLayout';
+import AuthLayout, { FieldError, FormError, IconField } from '@/components/auth/AuthLayout';
 import { useAuth } from '@/hooks/use-auth';
 import { validateEmail } from '@/lib/auth-errors';
 import { safeRedirectTarget } from '@/lib/redirect';
@@ -72,7 +71,8 @@ const Login: React.FC = () => {
           <Label htmlFor="email" className="text-xs">
             E-mail
           </Label>
-          <Input
+          <IconField
+            icon={Mail}
             id="email"
             type="email"
             autoComplete="email"
@@ -81,7 +81,8 @@ const Login: React.FC = () => {
             onChange={(e) => setEmail(e.target.value)}
             aria-invalid={!!fieldErrors.email}
             aria-describedby={fieldErrors.email ? 'email-error' : undefined}
-            className="focus-soft h-10 rounded-control text-sm"
+            placeholder="you@thinkbigbrand.com"
+            className="focus-soft"
           />
           <FieldError id="email-error" message={fieldErrors.email} />
         </div>
@@ -94,7 +95,8 @@ const Login: React.FC = () => {
               Forgot password?
             </Link>
           </div>
-          <Input
+          <IconField
+            icon={Lock}
             id="password"
             type="password"
             autoComplete="current-password"
@@ -102,13 +104,15 @@ const Login: React.FC = () => {
             onChange={(e) => setPassword(e.target.value)}
             aria-invalid={!!fieldErrors.password}
             aria-describedby={fieldErrors.password ? 'password-error' : undefined}
-            className="focus-soft h-10 rounded-control text-sm"
+            placeholder="Your password"
+            className="focus-soft"
           />
           <FieldError id="password-error" message={fieldErrors.password} />
         </div>
-        <Button type="submit" className="press h-10 w-full rounded-full text-sm" disabled={submitting || status === 'loading'}>
-          {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+        <Button type="submit" className="btn-shine press group h-11 w-full rounded-xl text-[15px] font-semibold shadow-[0_10px_24px_-10px_hsl(var(--primary)/0.7)]" disabled={submitting || status === 'loading'}>
+          {submitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
           Sign in
+          {!submitting && <ArrowRight className="ml-2 h-4 w-4 transition-transform duration-200 group-hover:translate-x-1" />}
         </Button>
       </form>
     </AuthLayout>

@@ -710,3 +710,62 @@ button, a, [role='button'], [role='tab'], [role='menuitem'], [role='option'], in
   100% { box-shadow: 0 0 0 0 hsl(var(--tone) / 0), 0 0 0 2px hsl(var(--card)); }
 }
 @media (prefers-reduced-motion: reduce) { .availability-live { animation: none; } }
+
+/* ==========================================================================================
+   Sign-in screens: a living brand side and a glass form
+   ========================================================================================== */
+.auth-shell { background: hsl(var(--surface-canvas)); }
+.auth-brand {
+  background: linear-gradient(155deg, hsl(16 30% 12%) 0%, hsl(8 45% 14%) 45%, hsl(4 60% 22%) 100%);
+  isolation: isolate;
+}
+.auth-orb { position: absolute; border-radius: 9999px; filter: blur(60px); z-index: 0; }
+.auth-orb-a { width: 34rem; height: 34rem; left: -10rem; top: -12rem; background: hsl(8 90% 55% / 0.45); animation: auth-drift-a 16s ease-in-out infinite alternate; }
+.auth-orb-b { width: 26rem; height: 26rem; right: -8rem; bottom: -8rem; background: hsl(28 95% 58% / 0.35); animation: auth-drift-b 19s ease-in-out infinite alternate; }
+.auth-grid {
+  position: absolute; inset: 0; z-index: 0; opacity: 0.18;
+  background-image: linear-gradient(hsl(0 0% 100% / 0.06) 1px, transparent 1px), linear-gradient(90deg, hsl(0 0% 100% / 0.06) 1px, transparent 1px);
+  background-size: 44px 44px;
+  mask-image: radial-gradient(ellipse at 40% 40%, black 30%, transparent 75%);
+}
+.auth-glass-card {
+  border-radius: 18px;
+  background: hsl(0 0% 100% / 0.07);
+  border: 1px solid hsl(0 0% 100% / 0.12);
+  -webkit-backdrop-filter: blur(16px) saturate(160%);
+  backdrop-filter: blur(16px) saturate(160%);
+  box-shadow: 0 24px 48px -24px hsl(0 0% 0% / 0.6), inset 0 1px 0 hsl(0 0% 100% / 0.12);
+}
+.auth-logo-glow { box-shadow: 0 0 0 1px hsl(var(--primary) / 0.15), 0 12px 40px -8px hsl(var(--primary) / 0.55); animation: auth-glow 4s ease-in-out infinite; }
+.auth-form-card {
+  border-radius: 24px;
+  background: hsl(var(--card) / 0.82);
+  border: 1px solid hsl(var(--border) / 0.7);
+  -webkit-backdrop-filter: blur(20px) saturate(160%);
+  backdrop-filter: blur(20px) saturate(160%);
+  box-shadow: 0 30px 70px -30px hsl(24 30% 10% / 0.35), 0 1px 0 hsl(0 0% 100% / 0.6) inset;
+}
+.auth-form-glow {
+  position: absolute; width: 30rem; height: 30rem; border-radius: 9999px; pointer-events: none;
+  background: radial-gradient(circle, hsl(var(--primary) / 0.14), transparent 65%);
+  top: 50%; left: 50%; transform: translate(-50%, -55%);
+}
+.auth-field input { transition: border-color 200ms, box-shadow 200ms, background-color 200ms; background: hsl(var(--background) / 0.7); }
+.auth-field input:focus-visible { box-shadow: 0 0 0 4px hsl(var(--primary) / 0.14); border-color: hsl(var(--primary) / 0.6); }
+
+/* A light sweep across the primary button on hover */
+.btn-shine { position: relative; overflow: hidden; }
+.btn-shine::after {
+  content: ''; position: absolute; inset: 0; transform: translateX(-120%) skewX(-20deg);
+  background: linear-gradient(90deg, transparent, hsl(0 0% 100% / 0.35), transparent);
+  transition: transform 700ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.btn-shine:hover::after { transform: translateX(120%) skewX(-20deg); }
+
+@keyframes auth-drift-a { to { transform: translate3d(8rem, 6rem, 0) scale(1.1); } }
+@keyframes auth-drift-b { to { transform: translate3d(-6rem, -5rem, 0) scale(1.15); } }
+@keyframes auth-glow { 50% { box-shadow: 0 0 0 1px hsl(var(--primary) / 0.2), 0 16px 50px -6px hsl(var(--primary) / 0.75); } }
+@media (prefers-reduced-motion: reduce) {
+  .auth-orb, .auth-logo-glow { animation: none; }
+  .btn-shine::after { display: none; }
+}
