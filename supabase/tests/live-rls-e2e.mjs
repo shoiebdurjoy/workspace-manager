@@ -353,7 +353,7 @@ try {
   res = await clients.editor.from('tasks').delete().eq('id', task).select();
   noRows('editor cannot delete tasks', res);
   res = await clients.qc.from('tasks').update({ status: 'QC_APPROVED_RTD' }).eq('id', task).select();
-  rec('QC approves (QC - FIRST APPROVAL -> QC - APPROVED (RTD))', !res.error && res.data?.length === 1, res.error?.message);
+  rec('QC approves (QC- FIRST APPROVAL -> QC- APPROVED (RTD))', !res.error && res.data?.length === 1, res.error?.message);
   res = await clients.qc.from('tasks').update({ status: 'SENT_TO_CLIENT' }).eq('id', task).select();
   rec('delivering without the final export is refused', code(res) === '23514' && /final export/.test(res.error?.message), JSON.stringify(res.error));
   res = await clients.qc.from('tasks').update({ status: 'SENT_TO_CLIENT', final_export_link: 'https://drive.google.com/final' }).eq('id', task).select();
@@ -882,7 +882,7 @@ VALUES (gen_random_uuid(), '${u.id}', '${u.id}', jsonb_build_object('sub','${u.i
     const grantsBefore = grantRefusals;
     const tr = (who, p_task_id, p_to, extra = {}) => clients[who].rpc('transition_task', { p_task_id, p_to, ...extra });
     const statusOf = async (id) => (await clients.pm.from('tasks').select('status,revision_count').eq('id', id).single()).data;
-    const CANONICAL = ['TO BE EDITED', 'IN EDIT', 'ASSIGNED', 'STARTED EDITING', 'QC - FIRST APPROVAL', 'QC - REVISION NEEDED', 'QC - FINAL APPROVAL', 'QC - APPROVED (RTD)', 'SENT TO CLIENT', 'CLOSED'];
+    const CANONICAL = ['TO BE EDITED', 'IN EDIT', 'ASSIGNED', 'STARTED EDITING', 'QC- FIRST APPROVAL', 'QC- REVISION NEEDED', 'QC- FINAL APPROVAL', 'QC- APPROVED (RTD)', 'SENT TO CLIENT', 'CLOSED'];
 
     // ---- configuration: seeded for the new workspace, readable by staff only, writable by nobody ----
     res = await clients.editor.from('workflows').select('id, name, workflow_statuses!workflow_id(key, name, position), workflow_transitions!workflow_id(from_key, to_key)').eq('workspace_id', ws).eq('is_default', true).maybeSingle();
@@ -989,7 +989,7 @@ VALUES (gen_random_uuid(), '${u.id}', '${u.id}', jsonb_build_object('sub','${u.i
     res = await tr('owner', o, 'SENT_TO_CLIENT');
     rec('even an override needs what the stage needs (final export)', res.error?.code === '23514', JSON.stringify(res.error));
     res = await tr('owner', o, 'QC_APPROVED_RTD', { p_note: 'Approved in the client call' });
-    rec('owner overrides TO BE EDITED -> QC - APPROVED (RTD)', !res.error && res.data?.status === 'QC_APPROVED_RTD', res.error?.message);
+    rec('owner overrides TO BE EDITED -> QC- APPROVED (RTD)', !res.error && res.data?.status === 'QC_APPROVED_RTD', res.error?.message);
     res = await tr('admin', o, 'TO_BE_EDITED');
     rec('admin overrides back to TO BE EDITED', !res.error && res.data?.status === 'TO_BE_EDITED', res.error?.message);
     res = await clients.pm.from('task_status_events').select('to_status,is_override,actor_id,note').eq('task_id', o).order('created_at');

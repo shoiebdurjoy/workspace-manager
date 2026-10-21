@@ -264,7 +264,7 @@ record('submitting to QC needs the review link of the cut', /review link/.test(r
 r = await as(editor, `UPDATE public.tasks SET status = 'QC_FIRST_APPROVAL', review_link = 'https://app.frame.io/r/1' WHERE id = $1 RETURNING id`, [task]);
 ok('editor submits to QC with the review link', r);
 r = await as(editor, `UPDATE public.tasks SET status = 'QC_APPROVED_RTD' WHERE id = $1 RETURNING id`, [task]);
-record('EDITOR CANNOT SELF-APPROVE (-> QC - APPROVED (RTD))', /your role cannot move/.test(r.error?.message ?? ''), r.error?.message);
+record('EDITOR CANNOT SELF-APPROVE (-> QC- APPROVED (RTD))', /your role cannot move/.test(r.error?.message ?? ''), r.error?.message);
 r = await as(editor, `UPDATE public.tasks SET status = 'CLOSED' WHERE id = $1 RETURNING id`, [task]);
 record('editor cannot close tasks', !!r.error);
 r = await as(editor, `UPDATE public.tasks SET title = 'Renamed' WHERE id = $1 RETURNING id`, [task]);
@@ -277,7 +277,7 @@ r = await as(editor, `DELETE FROM public.tasks WHERE id = $1 RETURNING id`, [tas
 blocked('editor cannot delete tasks', r);
 
 r = await as(qc, `UPDATE public.tasks SET status = 'QC_APPROVED_RTD' WHERE id = $1 RETURNING id`, [task]);
-ok('QC approves (QC - FIRST APPROVAL -> QC - APPROVED (RTD))', r);
+ok('QC approves (QC- FIRST APPROVAL -> QC- APPROVED (RTD))', r);
 r = await as(qc, `UPDATE public.tasks SET status = 'SENT_TO_CLIENT' WHERE id = $1 RETURNING id`, [task]);
 record('sending to the client needs the final export link', /final export/.test(r.error?.message ?? ''), r.error?.message);
 r = await as(qc, `UPDATE public.tasks SET status = 'SENT_TO_CLIENT', final_export_link = 'https://drive.google.com/final' WHERE id = $1 RETURNING id`, [task]);
@@ -836,22 +836,22 @@ console.log('\n== Phase 6: task engine ==');
 
 console.log('\n== Phase 7: workflow engine ==');
 {
-  const NAMES = ['TO BE EDITED', 'IN EDIT', 'ASSIGNED', 'STARTED EDITING', 'QC - FIRST APPROVAL', 'QC - REVISION NEEDED', 'QC - FINAL APPROVAL', 'QC - APPROVED (RTD)', 'SENT TO CLIENT', 'CLOSED'];
+  const NAMES = ['TO BE EDITED', 'IN EDIT', 'ASSIGNED', 'STARTED EDITING', 'QC- FIRST APPROVAL', 'QC- REVISION NEEDED', 'QC- FINAL APPROVAL', 'QC- APPROVED (RTD)', 'SENT TO CLIENT', 'CLIENT REVISION NEEDED', 'CLIENT APPROVED', 'PAUSED', 'CLOSED'];
   // ---- configuration ----------------------------------------------------------------------
   const wfRows = await svc(`SELECT id FROM public.workflows WHERE workspace_id = $1 AND is_default`, [ws]);
   record('the workspace has exactly one default workflow', wfRows.length === 1);
   const wf = wfRows[0]?.id;
   const st = await svc(`SELECT key, name, category FROM public.workflow_statuses WHERE workflow_id = $1 ORDER BY position`, [wf]);
-  record('the TBB workflow has the 10 canonical stages, in order, with their exact names', JSON.stringify(st.map((x) => x.name)) === JSON.stringify(NAMES), st.map((x) => x.name).join(' | '));
-  record('stages map to the reporting categories', st.map((x) => x.category).join(',') === 'NOT_STARTED,IN_PROGRESS,IN_PROGRESS,IN_PROGRESS,IN_REVIEW,IN_REVIEW,IN_REVIEW,READY,CLIENT,COMPLETED');
+  record('the TBB workflow has the 13 canonical stages, in order, with their exact names', JSON.stringify(st.map((x) => x.name)) === JSON.stringify(NAMES), st.map((x) => x.name).join(' | '));
+  record('stages map to the reporting categories', st.map((x) => x.category).join(',') === 'NOT_STARTED,IN_PROGRESS,IN_PROGRESS,IN_PROGRESS,IN_REVIEW,IN_REVIEW,IN_REVIEW,READY,CLIENT,CLIENT,CLIENT,NOT_STARTED,COMPLETED');
   const tr = await svc(`SELECT count(*)::int n FROM public.workflow_transitions WHERE workflow_id = $1`, [wf]);
-  record('20 transitions are defined', tr[0].n === 20, String(tr[0].n));
+  record('34 transitions are defined', tr[0].n === 34, String(tr[0].n));
   const wfB = await svc(`SELECT count(*)::int n FROM public.workflows WHERE workspace_id = $1 AND is_default`, [wsB]);
   record('a workspace created later gets the TBB workflow automatically', wfB[0].n === 1);
   const cons = await svc(`SELECT count(*)::int n FROM pg_constraint WHERE conrelid = 'public.tasks'::regclass AND conname = 'tasks_status_check'`);
   record('status is no longer a CHECK constraint (statuses live in the workflow)', cons[0].n === 0);
 
-  for (const [name, who, want] of [['editor', editor, 10], ['QC', qc, 10], ['client viewer', client, 0], ['stranger', stranger, 0]]) {
+  for (const [name, who, want] of [['editor', editor, 13], ['QC', qc, 13], ['client viewer', client, 0], ['stranger', stranger, 0]]) {
     r = await as(who, `SELECT key FROM public.workflow_statuses WHERE workflow_id = $1`, [wf]);
     record(`${name} ${want ? 'can' : 'cannot'} read the workflow`, !r.error && r.rows.length === want, `${r.rows.length}`);
   }
@@ -886,7 +886,7 @@ console.log('\n== Phase 7: workflow engine ==');
   r = await go(qc, 'IN_EDIT');
   record('QC cannot queue work', !!r.error);
   r = await go(pm, 'QC_APPROVED_RTD');
-  record('a manager cannot jump TO BE EDITED -> QC - APPROVED (RTD) (not an edge)', /a task cannot move from TO BE EDITED to QC - APPROVED \(RTD\)/.test(r.error?.message ?? ''), r.error?.message);
+  record('a manager cannot jump TO BE EDITED -> QC- APPROVED (RTD) (not an edge)', /a task cannot move from TO BE EDITED to QC- APPROVED \(RTD\)/.test(r.error?.message ?? ''), r.error?.message);
   r = await go(pm, 'IN_EDIT');
   record('manager: TO BE EDITED -> IN EDIT', !r.error && r.rows[0]?.status === 'IN_EDIT', r.error?.message);
   r = await go(pm, 'TO_BE_EDITED');
@@ -912,7 +912,7 @@ console.log('\n== Phase 7: workflow engine ==');
   r = await go(editor, 'QC_FIRST_APPROVAL', ', NULL, $3', ['https://app.frame.io/reviews/p7']);
   record('assigned editor submits for QC, attaching the review link in the same call', !r.error && r.rows[0]?.status === 'QC_FIRST_APPROVAL', r.error?.message);
   r = await go(editor, 'STARTED_EDITING');
-  record('assigned editor: QC - FIRST APPROVAL -> STARTED EDITING (withdraw)', !r.error, r.error?.message);
+  record('assigned editor: QC- FIRST APPROVAL -> STARTED EDITING (withdraw)', !r.error, r.error?.message);
   r = await go(editor, 'QC_FIRST_APPROVAL');
   ok('assigned editor resubmits (link already there)', r);
 
@@ -946,18 +946,18 @@ console.log('\n== Phase 7: workflow engine ==');
   r = await go(qc, 'QC_FINAL_APPROVAL');
   record('QC cannot submit the editor\'s revision for them', /your role cannot move/.test(r.error?.message ?? ''), r.error?.message);
   r = await go(editor, 'QC_FINAL_APPROVAL', ', NULL, $3', ['https://app.frame.io/reviews/p7-v2']);
-  record('assigned editor: QC - REVISION NEEDED -> QC - FINAL APPROVAL with the new cut', !r.error, r.error?.message);
+  record('assigned editor: QC- REVISION NEEDED -> QC- FINAL APPROVAL with the new cut', !r.error, r.error?.message);
   ev = await svc(`SELECT note FROM public.task_status_events WHERE task_id = $1 ORDER BY created_at DESC, id DESC LIMIT 1`, [t]);
   record('a note never carries over to the next change', ev[0]?.note === null);
   r = await go(qc, 'QC_REVISION_NEEDED', ', $3', ['colour still off']);
-  record('QC: QC - FINAL APPROVAL -> QC - REVISION NEEDED (another round)', !r.error, r.error?.message);
+  record('QC: QC- FINAL APPROVAL -> QC- REVISION NEEDED (another round)', !r.error, r.error?.message);
   record('revision count went to 2', (await statusNow()).revision_count === 2);
   r = await go(editor, 'QC_FINAL_APPROVAL');
   ok('editor resubmits', r);
   r = await go(qc, 'QC_APPROVED_RTD');
-  record('QC: QC - FINAL APPROVAL -> QC - APPROVED (RTD)', !r.error, r.error?.message);
+  record('QC: QC- FINAL APPROVAL -> QC- APPROVED (RTD)', !r.error, r.error?.message);
   r = await go(qc, 'QC_FINAL_APPROVAL');
-  record('QC: QC - APPROVED (RTD) -> QC - FINAL APPROVAL (reopen)', !r.error, r.error?.message);
+  record('QC: QC- APPROVED (RTD) -> QC- FINAL APPROVAL (reopen)', !r.error, r.error?.message);
   r = await go(qc, 'QC_APPROVED_RTD');
   ok('QC approves again', r);
 
@@ -970,13 +970,13 @@ console.log('\n== Phase 7: workflow engine ==');
   r = await go(qc, 'SENT_TO_CLIENT');
   record('sending to the client without the final export is refused', /final export/.test(r.error?.message ?? ''), r.error?.message);
   r = await go(qc, 'SENT_TO_CLIENT', ', NULL, NULL, $3', ['https://drive.google.com/final-p7']);
-  record('QC: QC - APPROVED (RTD) -> SENT TO CLIENT, attaching the final export', !r.error, r.error?.message);
+  record('QC: QC- APPROVED (RTD) -> SENT TO CLIENT, attaching the final export', !r.error, r.error?.message);
   r = await go(qc, 'CLOSED');
   record('QC cannot close', /your role cannot move/.test(r.error?.message ?? ''), r.error?.message);
   r = await go(editor, 'CLOSED');
   record('the editor cannot close', !!r.error);
   r = await go(qc, 'QC_REVISION_NEEDED', ', $3', ['client: swap the music']);
-  record('client feedback: SENT TO CLIENT -> QC - REVISION NEEDED (with note)', !r.error, r.error?.message);
+  record('client feedback: SENT TO CLIENT -> QC- REVISION NEEDED (with note)', !r.error, r.error?.message);
   record('revision count went to 3', (await statusNow()).revision_count === 3);
   await go(editor, 'QC_FINAL_APPROVAL');
   await go(qc, 'QC_APPROVED_RTD');
@@ -1060,7 +1060,7 @@ console.log('\n== Phase 7b: first-QC production credits ==');
 
   const prod = await svc(`SELECT count(*)::int n FROM public.workflow_statuses WHERE key = 'QC_FIRST_APPROVAL' AND credits_production`);
   const prodAll = await svc(`SELECT count(*)::int n FROM public.workflow_statuses WHERE credits_production`);
-  record('QC - FIRST APPROVAL is the one production stage of every workflow', prod[0].n === prodAll[0].n && prodAll[0].n >= 2, JSON.stringify([prod[0], prodAll[0]]));
+  record('QC- FIRST APPROVAL is the one production stage of every workflow', prod[0].n === prodAll[0].n && prodAll[0].n >= 2, JSON.stringify([prod[0], prodAll[0]]));
 
   // 1. first submission credits the editor who made it
   const t1 = await mkTask('Video X', editor);
@@ -1110,7 +1110,7 @@ console.log('\n== Phase 7b: first-QC production credits ==');
   r = await mv(editor2, t3, 'QC_FIRST_APPROVAL', { review: 'https://app.frame.io/r/z2' });
   ok('another editor submits it for first QC AGAIN', r);
   const c3b = await credit(t3);
-  record('6. repeating QC - FIRST APPROVAL: still one credit, same editor, same time', (await nCredits(t3)) === 1 && c3b.editor_id === editor && +new Date(c3b.at) === +new Date(c3.at));
+  record('6. repeating QC- FIRST APPROVAL: still one credit, same editor, same time', (await nCredits(t3)) === 1 && c3b.editor_id === editor && +new Date(c3b.at) === +new Date(c3.at));
   await mv(editor2, t3, 'STARTED_EDITING');
   await mv(editor2, t3, 'QC_FIRST_APPROVAL');
   record('...also after "withdraw from QC" and a third submission', (await nCredits(t3)) === 1);
