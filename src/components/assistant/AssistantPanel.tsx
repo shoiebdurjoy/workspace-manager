@@ -84,8 +84,15 @@ export const AssistantButton: React.FC = () => {
         body: { workspaceId: workspace?.id, messages: next.filter((m) => !m.error).map(({ role: r, content }) => ({ role: r, content })) },
       });
       if (error) {
-        const detail = await (error as { context?: Response }).context?.json?.().catch(() => null);
-        throw new Error(detail?.error ?? 'The assistant could not be reached.');
+        // the function answers {error} with a readable reason (not set up, no permission, ...): show it
+        const ctx = (error as { context?: Response }).context;
+        let reason: string | undefined;
+        try {
+          reason = ctx ? (JSON.parse(await ctx.clone().text()) as { error?: string }).error : undefined;
+        } catch {
+          reason = undefined;
+        }
+        throw new Error(reason ?? 'The assistant could not be reached.');
       }
       setMessages((m) => [...m, { role: 'assistant', content: data.reply, actions: data.actions }]);
       if (data.actions?.length) void queryClient.invalidateQueries();
