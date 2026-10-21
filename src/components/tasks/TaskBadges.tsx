@@ -20,7 +20,7 @@ export const TaskStatusPill: React.FC<{ status: TaskStatus; className?: string; 
       data-status={status}
       title={statusName(workflow, status)}
       className={cn(
-        'inline-flex h-6 max-w-full shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 text-[11px] font-semibold uppercase tracking-wide',
+        'inline-flex h-[22px] max-w-full shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 text-[10.5px] font-semibold uppercase tracking-[0.04em]',
         revision && !plain ? 'border-transparent text-white' : 'text-foreground',
         plain && 'border-0 bg-transparent px-0',
         className
@@ -30,7 +30,7 @@ export const TaskStatusPill: React.FC<{ status: TaskStatus; className?: string; 
           ? undefined
           : revision
             ? { backgroundColor: color }
-            : { backgroundColor: `${color}1f`, borderColor: `${color}66` }
+            : { backgroundColor: `${color}1a`, borderColor: `${color}40` }
       }
     >
       <span aria-hidden className={cn('h-2 w-2 shrink-0 rounded-full', revision && !plain && 'bg-white')} style={revision && !plain ? undefined : { backgroundColor: color }} />
@@ -45,7 +45,7 @@ export const RevisionTag: React.FC<{ count: number; className?: string }> = ({ c
     <span
       title={`Sent back for changes ${count} ${count === 1 ? 'time' : 'times'}`}
       className={cn(
-        'inline-flex h-5 shrink-0 items-center rounded border border-destructive/40 bg-destructive/10 px-1.5 text-[10px] font-semibold tabular-nums text-destructive',
+        'inline-flex h-5 shrink-0 items-center rounded-full border border-destructive/30 bg-destructive/10 px-2 text-[10px] font-semibold tabular-nums text-destructive',
         className
       )}
     >
@@ -109,7 +109,7 @@ export const AssigneeStack: React.FC<{
 };
 
 const DUE_TONE: Record<string, string> = {
-  overdue: 'font-semibold text-destructive',
+  overdue: 'font-medium text-destructive',
   today: 'font-semibold text-foreground',
   soon: 'font-medium text-foreground',
   later: 'text-muted-foreground',

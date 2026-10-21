@@ -104,12 +104,12 @@ const CardBody: React.FC<CardProps & { dragging?: boolean }> = ({
       data-task-row={overlay ? undefined : task.id}
       onMouseDown={() => onFocusCard(task.id)}
       className={cn(
-        'group relative rounded-lg border border-border/80 bg-card p-2.5 text-sm shadow-soft transition-shadow hover:shadow-medium',
+        'group relative rounded-[0.75rem] border border-border/60 bg-card p-3 text-sm shadow-soft transition-[box-shadow,transform,border-color] duration-200 ease-out hover:border-border hover:shadow-medium',
         revision && 'border-l-[3px] border-l-destructive',
         open && 'ring-2 ring-primary/40',
         active && 'ring-2 ring-ring',
-        dragging && 'opacity-40',
-        overlay && 'rotate-1 shadow-lg ring-2 ring-primary/50'
+        dragging && 'scale-[0.98] opacity-40',
+        overlay && 'rotate-[1.5deg] scale-[1.03] shadow-float ring-2 ring-primary/40'
       )}
     >
       <div className="flex items-start gap-1.5">
@@ -131,7 +131,7 @@ const CardBody: React.FC<CardProps & { dragging?: boolean }> = ({
       <div className="mt-2 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs text-muted-foreground">
         <PriorityFlag priority={task.priority} />
         <DueLabel iso={task.dueDate} finished={finished} label="Internal QC due" />
-        {task.aspectRatio && <span className="rounded border border-border px-1 text-[10px] font-medium tabular-nums">{task.aspectRatio}</span>}
+        {task.aspectRatio && <span className="rounded-full bg-muted px-1.5 text-[10px] font-medium tabular-nums">{task.aspectRatio}</span>}
         {progress.total > 0 && (
           <span className="inline-flex items-center gap-0.5 tabular-nums" title={`${progress.done} of ${progress.total} subtasks done`}>
             <ListChecks aria-hidden className="h-3 w-3" />
@@ -215,28 +215,28 @@ const BoardColumn: React.FC<ColumnProps> = ({ group, collapsed, onToggleCollapse
       role="group"
       aria-label={`${group.label}, ${group.tasks.length}`}
       className={cn(
-        'flex max-h-[calc(100vh-15rem)] min-h-[12rem] shrink-0 snap-start flex-col rounded-xl border border-border/70 bg-muted/40 transition-colors',
-        collapsed ? 'w-12' : 'w-[85vw] max-w-[20rem] md:w-64',
+        'flex max-h-[calc(100vh-15rem)] min-h-[12rem] shrink-0 snap-start flex-col rounded-card border border-border/40 bg-muted/50 transition-colors duration-200',
+        collapsed ? 'w-12' : 'w-[82vw] max-w-[20rem] md:w-72',
         !!dragging && allowed && 'border-primary/50 bg-primary/5',
         isOver && allowed && 'bg-primary/10 ring-2 ring-primary/50',
         blocked && 'opacity-50',
         isOver && blocked && 'opacity-100 ring-2 ring-destructive/40'
       )}
     >
-      <header className={cn('flex items-center gap-2 px-2.5 py-2', collapsed && 'flex-col py-3')}>
+      <header className={cn('flex items-center gap-2 px-3 py-2.5', collapsed && 'flex-col py-3')}>
         <button
           type="button"
           onClick={() => onToggleCollapsed(group.key)}
           aria-expanded={!collapsed}
           aria-label={`${collapsed ? 'Expand' : 'Collapse'} ${group.label}`}
-          className={cn('flex min-w-0 items-center gap-2 rounded outline-none focus-visible:ring-2 focus-visible:ring-ring', collapsed && 'flex-col')}
+          className={cn('flex min-w-0 items-center gap-2 rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring', collapsed && 'flex-col')}
         >
           {collapsed ? (
             <span className="text-[11px] font-semibold uppercase tracking-wide [writing-mode:vertical-rl]">{group.label}</span>
           ) : (
             <TaskStatusPill status={group.value ?? ''} />
           )}
-          <span className="text-xs tabular-nums text-muted-foreground">{group.tasks.length}</span>
+          <span className="rounded-full bg-muted px-1.5 text-[11px] font-medium tabular-nums text-muted-foreground">{group.tasks.length}</span>
         </button>
         {!collapsed && showAdd && listId && (
           <Button variant="ghost" size="sm" className="ml-auto h-7 w-7 p-0" onClick={() => setAdding(true)} aria-label={`Add a task to ${group.label}`}>
@@ -258,7 +258,7 @@ const BoardColumn: React.FC<ColumnProps> = ({ group, collapsed, onToggleCollapse
               {verdict.needs.length > 0 ? '...' : ''}
             </p>
           )}
-          <ul aria-label={`Tasks: ${group.label}`} className="flex min-h-[3rem] flex-1 flex-col gap-2 overflow-y-auto px-2 pb-2">
+          <ul aria-label={`Tasks: ${group.label}`} className="flex min-h-[3rem] flex-1 flex-col gap-2 overflow-y-auto px-2.5 pb-2.5">
             {group.tasks.slice(0, limit).map((t) => renderCard(t))}
             {group.tasks.length === 0 && !adding && (
               <li className="px-1 py-3 text-center text-xs text-muted-foreground/70">{dragging ? 'Drop here' : 'No tasks'}</li>

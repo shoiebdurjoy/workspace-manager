@@ -25,7 +25,7 @@ const ViewSwitcher: React.FC<{ mode: ViewMode; onChange: (mode: ViewMode) => voi
     requestAnimationFrame(() => document.getElementById(`view-tab-${next}`)?.focus());
   };
   return (
-    <div role="tablist" aria-label="View" onKeyDown={onKey} className="inline-flex h-8 items-center rounded-lg border border-border bg-muted/50 p-0.5">
+    <div role="tablist" aria-label="View" onKeyDown={onKey} className="pill-group h-8 shrink-0">
       {VIEW_MODES.map((m) => {
         const on = m.value === mode;
         return (
@@ -37,10 +37,7 @@ const ViewSwitcher: React.FC<{ mode: ViewMode; onChange: (mode: ViewMode) => voi
             aria-selected={on}
             tabIndex={on ? 0 : -1}
             onClick={() => onChange(m.value)}
-            className={cn(
-              'inline-flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring',
-              on ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
-            )}
+            className={cn('pill-item gap-1.5 outline-none focus-visible:ring-2 focus-visible:ring-ring', on && 'text-foreground')}
           >
             {ICONS[m.value]}
             {m.label}

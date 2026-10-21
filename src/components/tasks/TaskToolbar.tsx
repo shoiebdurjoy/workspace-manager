@@ -55,10 +55,10 @@ const MultiFilter: React.FC<{
           variant="outline"
           size="sm"
           aria-label={selected.length ? `${label} filter: ${selected.length} selected` : `${label} filter`}
-          className={cn('h-8 shrink-0 gap-1 px-2.5 text-xs font-normal', selected.length > 0 && 'border-brand/50 bg-brand-subtle text-brand-subtle-foreground')}
+          className={cn('h-8 shrink-0 gap-1 rounded-full border-transparent bg-muted/60 px-3 text-xs font-medium text-muted-foreground shadow-none press hover:bg-muted hover:text-foreground', selected.length > 0 && 'border-brand/30 bg-brand-subtle text-brand-subtle-foreground hover:bg-brand-subtle')}
         >
           {label}
-          {selected.length > 0 && <span className="rounded bg-brand px-1 text-[10px] font-semibold text-white">{selected.length}</span>}
+          {selected.length > 0 && <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-brand px-1 text-[10px] font-semibold tabular-nums text-white">{selected.length}</span>}
           <ChevronDown aria-hidden className="h-3 w-3 opacity-60" />
         </Button>
       </PopoverTrigger>
@@ -113,7 +113,7 @@ const DateFilterMenu: React.FC<{
           variant="outline"
           size="sm"
           aria-label={active ? `${label} filter: ${dateCodeLabel(code as string)}` : `${label} filter`}
-          className={cn('h-8 shrink-0 gap-1 px-2.5 text-xs font-normal', active && 'border-brand/50 bg-brand-subtle text-brand-subtle-foreground')}
+          className={cn('h-8 shrink-0 gap-1 rounded-full border-transparent bg-muted/60 px-3 text-xs font-medium text-muted-foreground shadow-none press hover:bg-muted hover:text-foreground', active && 'border-brand/30 bg-brand-subtle text-brand-subtle-foreground hover:bg-brand-subtle')}
         >
           <CalendarDays aria-hidden className="h-3 w-3 opacity-70" />
           {label}
@@ -175,7 +175,7 @@ const Toggle: React.FC<{ pressed: boolean; onChange: (v: boolean) => void; child
     size="sm"
     aria-pressed={pressed}
     onClick={() => onChange(!pressed)}
-    className={cn('h-8 shrink-0 px-2.5 text-xs font-normal', pressed && 'border-brand/50 bg-brand-subtle text-brand-subtle-foreground')}
+    className={cn('h-8 shrink-0 gap-1 rounded-full border-transparent bg-muted/60 px-3 text-xs font-medium text-muted-foreground shadow-none press hover:bg-muted hover:text-foreground', pressed && 'border-brand/30 bg-brand-subtle text-brand-subtle-foreground hover:bg-brand-subtle')}
   >
     {children}
   </Button>
@@ -194,10 +194,10 @@ const MenuChoice: React.FC<{
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button variant="ghost" size="sm" aria-label={`${label}: ${current}`} className="h-8 gap-1.5 px-2 text-xs font-normal">
+        <Button variant="ghost" size="sm" aria-label={`${label}: ${current}`} className="h-8 shrink-0 gap-1.5 rounded-full px-3 text-xs font-normal text-muted-foreground press hover:bg-muted hover:text-foreground">
           {icon}
           <span className="hidden text-muted-foreground lg:inline">{label}:</span>
-          <span className="font-medium">{current}</span>
+          <span className="font-medium text-foreground">{current}</span>
         </Button>
       </PopoverTrigger>
       <PopoverContent align="end" className="w-48 p-1">
@@ -271,7 +271,7 @@ const SearchBox = forwardRef<HTMLInputElement, { value: string; onCommit: (text:
         placeholder="Search tasks, lists, people"
         aria-label="Search tasks"
         aria-busy={loading || undefined}
-        className="h-8 w-full rounded-md border border-input bg-background pl-8 pr-8 text-sm outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-search-cancel-button]:hidden"
+        className="focus-soft h-8 w-full rounded-full border border-transparent bg-muted/60 pl-8 pr-8 text-sm outline-none transition-colors placeholder:text-muted-foreground hover:bg-muted focus-visible:bg-background [&::-webkit-search-cancel-button]:hidden"
       />
       {loading ? (
         <Loader2 aria-label="Searching" className="absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 animate-spin text-muted-foreground" />
@@ -374,7 +374,7 @@ const TaskToolbar = forwardRef<HTMLInputElement, TaskToolbarProps>(
     if (f.hideFinished) chips.push({ key: 'hide', text: 'Finished hidden', remove: () => onFilters({ hideFinished: false }) });
 
     return (
-      <div className="flex flex-col gap-2" role="toolbar" aria-label="Task view">
+      <div className="flex flex-col gap-2.5" role="toolbar" aria-label="Task view">
         <div className="flex flex-wrap items-center gap-2">
           {lead}
           <SearchBox ref={searchRef} value={f.search} onCommit={(text) => onFilters({ search: text })} loading={loading} />
@@ -387,7 +387,7 @@ const TaskToolbar = forwardRef<HTMLInputElement, TaskToolbarProps>(
           <Toggle pressed={f.overdue} onChange={(v) => onFilters({ overdue: v })}>
             Overdue
           </Toggle>
-          <div className="ml-auto flex items-center gap-1">
+          <div className="ml-auto flex items-center gap-0.5">
             {!hideGroup && (
               <MenuChoice
                 icon={<Layers aria-hidden className="h-3.5 w-3.5" />}
@@ -407,7 +407,7 @@ const TaskToolbar = forwardRef<HTMLInputElement, TaskToolbarProps>(
             <Button
               variant="ghost"
               size="sm"
-              className="h-8 w-8 p-0"
+              className="h-8 w-8 rounded-full p-0 text-muted-foreground"
               aria-label={view.dir === 'asc' ? 'Sort ascending (switch to descending)' : 'Sort descending (switch to ascending)'}
               onClick={() => onView({ dir: view.dir === 'asc' ? 'desc' : 'asc' })}
             >
@@ -416,7 +416,7 @@ const TaskToolbar = forwardRef<HTMLInputElement, TaskToolbarProps>(
             {trail}
             <ShortcutsHint />
             {onNewTask && (
-              <Button size="sm" className="h-8" onClick={onNewTask} aria-label="New task">
+              <Button size="sm" className="press h-8 rounded-full px-3.5 shadow-soft" onClick={onNewTask} aria-label="New task">
                 <Plus aria-hidden className="h-4 w-4 sm:mr-1" />
                 <span aria-hidden className="hidden sm:inline">
                   New task
@@ -426,7 +426,7 @@ const TaskToolbar = forwardRef<HTMLInputElement, TaskToolbarProps>(
           </div>
         </div>
 
-        <div className="-mx-1 flex items-center gap-2 overflow-x-auto px-1 pb-1 sm:flex-wrap sm:overflow-visible sm:pb-0">
+        <div className="-mx-1 flex items-center gap-1.5 overflow-x-auto px-1 pb-1 sm:flex-wrap sm:overflow-visible sm:pb-0">
           <MultiFilter label="Status" selected={f.statuses} onChange={(v) => onFilters({ statuses: v as TaskFilters['statuses'] })} options={statusOptions} />
           <MultiFilter label="Editor" selected={f.editors} onChange={(v) => onFilters({ editors: v })} options={editorOptions} />
           <MultiFilter label="QC reviewer" selected={f.qcs} onChange={(v) => onFilters({ qcs: v })} options={qcOptions} />
@@ -458,7 +458,7 @@ const TaskToolbar = forwardRef<HTMLInputElement, TaskToolbarProps>(
                   type="button"
                   onClick={c.remove}
                   aria-label={`Remove filter: ${c.text}`}
-                  className="inline-flex max-w-[18rem] items-center gap-1 rounded-full border border-brand/40 bg-brand-subtle px-2.5 py-0.5 text-xs text-brand-subtle-foreground outline-none hover:bg-brand-subtle/70 focus-visible:ring-2 focus-visible:ring-ring"
+                  className="press inline-flex max-w-[18rem] items-center gap-1 rounded-full border border-brand/25 bg-brand-subtle px-2.5 py-0.5 text-xs text-brand-subtle-foreground outline-none hover:bg-brand-subtle/70 focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   <span className="truncate">{c.text}</span>
                   <X aria-hidden className="h-3 w-3 shrink-0" />

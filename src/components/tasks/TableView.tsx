@@ -145,7 +145,7 @@ const Row = memo(function Row({ task, columns, href, open, checked, active, memb
   const finished = isFinishedStatus(workflow, task.status);
   const [renaming, setRenaming] = useState(false);
   const progress = progressOf(task.subtaskDone, task.subtaskTotal);
-  const stick = checked ? 'bg-brand-subtle' : open ? 'bg-muted' : 'bg-card group-hover/row:bg-muted';
+  const stick = checked ? 'bg-brand-subtle' : open ? 'bg-brand-subtle' : 'bg-card group-hover/row:bg-muted';
 
   const person = (slot: AssigneeRole) => {
     const value = slot === 'EDITOR' ? task.editorId : task.qcId;
@@ -226,7 +226,7 @@ const Row = memo(function Row({ task, columns, href, open, checked, active, memb
     <tr
       data-task-row={task.id}
       onMouseDown={() => onFocusRow(task.id)}
-      className={cn('group/row border-b border-border/60 last:border-b-0 hover:bg-muted/40', checked && 'bg-brand-subtle/60', open && 'bg-muted', active && 'outline outline-2 -outline-offset-2 outline-ring')}
+      className={cn('group/row border-b border-border/40 transition-colors last:border-b-0 hover:bg-foreground/[0.035]', checked && 'bg-brand-subtle/60', open && 'bg-brand-subtle/50', active && 'outline outline-2 -outline-offset-2 outline-ring')}
     >
       <td className={cn('sticky left-0 z-10 w-8 px-2', stick)}>
         <Checkbox checked={checked} aria-label={`Select ${task.title}`} onClick={(e) => { e.stopPropagation(); onCheck(task.id, e.shiftKey); }} />
@@ -348,12 +348,12 @@ const TableView: React.FC<TableViewProps> = ({
 
   let budget = limit;
   return (
-    <div className="overflow-hidden rounded-xl border border-border/80 bg-card shadow-soft">
+    <div className="surface-card overflow-hidden !shadow-soft">
       <div className="max-h-[calc(100vh-14rem)] overflow-auto">
         <table className="w-full min-w-max border-separate border-spacing-0 text-sm" aria-label="Tasks table">
           <thead className="sticky top-0 z-20">
-            <tr className="bg-muted/80 backdrop-blur">
-              <th scope="col" className="sticky left-0 z-30 w-8 border-b border-border/70 bg-muted px-2 py-2 text-left">
+            <tr className="bg-muted/70 backdrop-blur-md">
+              <th scope="col" className="sticky left-0 z-30 w-8 border-b border-border/50 bg-muted px-2 py-2 text-left">
                 <Checkbox
                   checked={allChecked ? true : someChecked ? 'indeterminate' : false}
                   onCheckedChange={(v) => onToggleAll(allIds, v === true)}
@@ -363,7 +363,7 @@ const TableView: React.FC<TableViewProps> = ({
               <th
                 scope="col"
                 aria-sort={sort === 'title' ? (dir === 'asc' ? 'ascending' : 'descending') : 'none'}
-                className="sticky left-8 z-30 min-w-[16rem] border-b border-r border-border/70 bg-muted px-2 py-2 text-left"
+                className="sticky left-8 z-30 min-w-[16rem] border-b border-r border-border/50 bg-muted px-2 py-2 text-left"
               >
                 <HeaderButton label="Task" active={sort === 'title'} dir={dir} onClick={() => onSort('title')} />
               </th>
@@ -374,7 +374,7 @@ const TableView: React.FC<TableViewProps> = ({
                   aria-sort={c.sort && sort === c.sort ? (dir === 'asc' ? 'ascending' : 'descending') : 'none'}
                   className={cn('border-b border-border/70 px-2 py-2 text-left', c.width)}
                 >
-                  {c.sort ? <HeaderButton label={c.label} active={sort === c.sort} dir={dir} onClick={() => onSort(c.sort as SortKey)} /> : <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{c.label}</span>}
+                  {c.sort ? <HeaderButton label={c.label} active={sort === c.sort} dir={dir} onClick={() => onSort(c.sort as SortKey)} /> : <span className="section-label">{c.label}</span>}
                 </th>
               ))}
             </tr>
@@ -386,7 +386,7 @@ const TableView: React.FC<TableViewProps> = ({
             return (
               <tbody key={group.key} aria-label={showGroups ? `${group.label}, ${group.tasks.length}` : 'Tasks'}>
                 {showGroups && (
-                  <tr className="bg-muted/30">
+                  <tr className="bg-muted/25">
                     <td colSpan={shownColumns.length + 2} className="border-b border-border/60 px-2 py-1.5">
                       <button
                         type="button"

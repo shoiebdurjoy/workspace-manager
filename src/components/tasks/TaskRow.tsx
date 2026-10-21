@@ -214,11 +214,11 @@ const TaskRow: React.FC<TaskRowProps> = ({
     <li
       data-task-row={task.id}
       className={cn(
-        'group relative border-b border-border/60 px-2 py-1.5 transition-colors last:border-b-0 hover:bg-muted/40 md:py-1',
+        'group relative border-b border-border/40 px-2 py-2.5 transition-colors duration-150 last:border-b-0 hover:bg-foreground/[0.035] md:py-1',
         checked && 'bg-brand-subtle/60 hover:bg-brand-subtle/80',
         // a cut sent back for changes stands out in any list
         inRevision && !open && 'shadow-[inset_3px_0_0_hsl(var(--destructive))]',
-        open && 'bg-muted shadow-[inset_2px_0_0_hsl(var(--brand-accent))]',
+        open && 'bg-brand-subtle/50 shadow-[inset_3px_0_0_hsl(var(--brand-accent))] hover:bg-brand-subtle/60',
         active && 'ring-2 ring-inset ring-ring'
       )}
       onMouseDown={() => onFocusRow(task.id)}
@@ -273,7 +273,7 @@ const TaskRow: React.FC<TaskRowProps> = ({
                 to={href}
                 aria-current={open ? 'true' : undefined}
                 className={cn(
-                  'min-w-0 break-words text-sm font-medium text-foreground outline-none line-clamp-2 xl:truncate',
+                  'min-w-0 break-words text-[13.5px] font-medium text-foreground outline-none line-clamp-2 xl:truncate',
                   // the whole row opens the task: stretch the title link over it
                   'after:absolute after:inset-0 after:content-[""] focus-visible:after:ring-2 focus-visible:after:ring-inset focus-visible:after:ring-ring',
                   finished && 'text-muted-foreground line-through decoration-muted-foreground/50'
@@ -284,7 +284,7 @@ const TaskRow: React.FC<TaskRowProps> = ({
               <RevisionTag count={task.revisionCount} className="relative z-10" />
               {progress.total > 0 && (
                 <span
-                  className="relative z-10 inline-flex shrink-0 items-center gap-0.5 rounded px-1 text-[11px] tabular-nums text-muted-foreground"
+                  className="relative z-10 inline-flex shrink-0 items-center gap-0.5 rounded-full bg-muted/70 px-1.5 text-[11px] tabular-nums text-muted-foreground"
                   title={`${progress.done} of ${progress.total} subtasks done`}
                 >
                   <ListChecks aria-hidden className="h-3 w-3" />
@@ -297,7 +297,7 @@ const TaskRow: React.FC<TaskRowProps> = ({
                 <RowLinks task={task} compact />
               </span>
               {task.aspectRatio && (
-                <span className="hidden shrink-0 rounded border border-border px-1 text-[10px] font-medium tabular-nums text-muted-foreground lg:inline">
+                <span className="hidden shrink-0 rounded-full bg-muted/70 px-1.5 text-[10px] font-medium tabular-nums text-muted-foreground lg:inline">
                   {task.aspectRatio}
                 </span>
               )}
