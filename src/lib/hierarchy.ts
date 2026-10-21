@@ -87,6 +87,8 @@ const byPositionThenName = <T extends { position: number; name: string }>(a: T, 
   const na = leadingNumber(a.name);
   const nb = leadingNumber(b.name);
   if (na !== null && nb !== null && na !== nb) return na - nb;
+  // numbered clients first, then the unnumbered lists (ONE TIME PROJECTS, ...) in their own order
+  if ((na === null) !== (nb === null)) return na === null ? 1 : -1;
   return a.position - b.position || a.name.localeCompare(b.name, undefined, { numeric: true });
 };
 

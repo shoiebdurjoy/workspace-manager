@@ -24,6 +24,7 @@ import ThemeToggle from "@/components/theme/ThemeToggle";
 import NotificationBell from "@/components/collaboration/NotificationBell";
 import RoleBadge from "@/components/team/RoleBadge";
 import { AvailabilityRing, MyStatusButton } from "@/components/team/Availability";
+import AssistantButton from "@/components/assistant/AssistantPanel";
 import { useAvailability } from "@/hooks/use-availability";
 import { useAuth } from "@/hooks/use-auth";
 import { can } from "@/lib/permissions";
@@ -140,6 +141,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({ onToggleMobileSidebar, onO
           className="md:hidden"
         />
 
+        <AssistantButton />
         {can(role, "comments:view-internal") && <MyStatusButton />}
 
         <NotificationBell />

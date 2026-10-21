@@ -2571,6 +2571,51 @@ console.log('\n== Phase 12d: QC auto-assignment ==');
   record('the picker cannot be called by signed-in users', (await as(edQ, `SELECT private.pick_qc_reviewer($1, NULL)`, [wsQ])).error !== null);
 }
 
+console.log('\n== Phase 12f: default QC reviewer per folder / list ==');
+{
+  const oD = await mkUser('d-owner@tbb.test', {}, true);
+  const edD = await mkUser('d-editor@tbb.test', {}, true);
+  const zim = await mkUser('d-zim@tbb.test', {}, true);
+  const myla = await mkUser('d-myla@tbb.test', {}, true);
+  const other = await mkUser('d-other@tbb.test', {}, true);
+  const wsD = (await svc(`INSERT INTO public.workspaces (name, slug, owner_id) VALUES ('D','d-defqc',$1) RETURNING id`, [oD]))[0].id;
+  await svc(`INSERT INTO public.workspace_members (workspace_id, user_id, role) VALUES ($1,$2,'EDITOR'), ($1,$3,'QC_SPECIALIST'), ($1,$4,'QC_SPECIALIST'), ($1,$5,'QC_SPECIALIST') ON CONFLICT DO NOTHING`, [wsD, edD, zim, myla, other]);
+  // "other" is the least loaded and available: without defaults the picker would choose them
+  await svc(`INSERT INTO public.member_availability (workspace_id, user_id, status) VALUES ($1,$2,'AVAILABLE'), ($1,$3,'BUSY'), ($1,$4,'BUSY')`, [wsD, other, zim, myla]);
+  const spD = (await as(oD, `INSERT INTO public.spaces (workspace_id, name, slug) VALUES ($1,'S','s') RETURNING id`, [wsD])).rows[0]?.id;
+  const fZim = (await as(oD, `INSERT INTO public.folders (space_id, name) VALUES ($1,'CONTENT PIPELINE - ZIM') RETURNING id`, [spD])).rows[0]?.id;
+  const fMyla = (await as(oD, `INSERT INTO public.folders (space_id, name) VALUES ($1,'CONTENT PIPELINE - MYLA') RETURNING id`, [spD])).rows[0]?.id;
+  r = await as(oD, `UPDATE public.folders SET default_qc_id = $2 WHERE id = $1`, [fZim, zim]);
+  record('a manager sets a folder\'s default QC reviewer', !r.error, r.error?.message);
+  await as(oD, `UPDATE public.folders SET default_qc_id = $2 WHERE id = $1`, [fMyla, myla]);
+  r = await as(oD, `UPDATE public.folders SET default_qc_id = $2 WHERE id = $1`, [fZim, edD]);
+  record('an editor cannot be a default QC reviewer', r.error?.code === '23514', r.error?.message ?? 'was allowed');
+  r = await as(edD, `UPDATE public.folders SET default_qc_id = $2 WHERE id = $1 RETURNING id`, [fZim, other]);
+  record('an editor cannot change it', !!r.error || r.rows.length === 0);
+  const lConn = (await as(oD, `INSERT INTO public.lists (space_id, folder_id, name) VALUES ($1,$2,'1. THE CONNECTORS') RETURNING id`, [spD, fZim])).rows[0]?.id;
+  const mk = async (list) => {
+    const t = (await as(oD, `INSERT INTO public.tasks (list_id, title) VALUES ($1,'v') RETURNING id`, [list])).rows[0]?.id;
+    await svc(`INSERT INTO public.task_assignees (task_id, role_type, user_id) VALUES ($1,'EDITOR',$2)`, [t, edD]);
+    for (const step of ['IN_EDIT', 'ASSIGNED', 'STARTED_EDITING']) await as(oD, `SELECT public.transition_task($1, $2)`, [t, step]);
+    await as(oD, `SELECT public.transition_task($1, 'QC_FIRST_APPROVAL', NULL, 'https://frame.io/r/d')`, [t]);
+    return t;
+  };
+  const qcOf = async (t) => (await svc(`SELECT user_id FROM public.task_assignees WHERE task_id = $1 AND role_type = 'QC_REVIEWER'`, [t]))[0]?.user_id ?? null;
+  const t1 = await mk(lConn);
+  record('a cut in Zim\'s folder goes to Zim even though another QC is freer', (await qcOf(t1)) === zim, String(await qcOf(t1)));
+  await as(oD, `UPDATE public.lists SET folder_id = $2 WHERE id = $1`, [lConn, fMyla]);
+  const t2 = await mk(lConn);
+  record('after the list moves to Myla\'s folder, its next cut goes to Myla', (await qcOf(t2)) === myla, String(await qcOf(t2)));
+  await as(oD, `UPDATE public.lists SET default_qc_id = $2 WHERE id = $1`, [lConn, zim]);
+  const t3 = await mk(lConn);
+  record('a list\'s own default beats its folder\'s', (await qcOf(t3)) === zim, String(await qcOf(t3)));
+  await svc(`UPDATE public.member_availability SET status = 'ON_LEAVE' WHERE workspace_id = $1 AND user_id = $2`, [wsD, zim]);
+  const t4 = await mk(lConn);
+  record('with the list\'s reviewer on leave, the folder\'s reviewer is used', (await qcOf(t4)) === myla, String(await qcOf(t4)));
+  r = await as(edD, `SELECT private.default_qc_for_task($1)`, [t4]);
+  record('the default lookup cannot be called by signed-in users', !!r.error);
+}
+
 console.log('\n== Phase 12e: list templates ==');
 {
   const oT = await mkUser('t-owner@tbb.test', {}, true);
