@@ -104,7 +104,7 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
     <TooltipProvider delayDuration={150}>
       <aside
         className={cn(
-          "surface-glass relative z-20 flex shrink-0 select-none border-r text-sidebar-foreground",
+          "theme-nav nav-surface relative z-20 flex shrink-0 select-none border-r text-sidebar-foreground",
           className
         )}
         aria-label="Main navigation"

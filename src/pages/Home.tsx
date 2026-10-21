@@ -34,7 +34,7 @@ const Stat: React.FC<{ label: string; value: number | undefined; icon: React.Rea
     <div className="lift group/stat relative flex items-center gap-3 overflow-hidden surface-card p-4">
       {/* a soft brand glow that follows the hover */}
       <span aria-hidden className="pointer-events-none absolute -right-8 -top-10 h-24 w-24 rounded-full bg-primary/10 blur-2xl opacity-0 transition-opacity duration-300 group-hover/stat:opacity-100" />
-      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-control bg-gradient-to-br from-primary/15 to-primary/5 text-primary ring-1 ring-inset ring-primary/10 transition-transform duration-300 group-hover/stat:scale-110">
+      <div className="stat-icon flex h-10 w-10 shrink-0 items-center justify-center rounded-control transition-transform duration-300 group-hover/stat:scale-110">
         {icon}
       </div>
       <div className="min-w-0">
@@ -192,7 +192,7 @@ const Home: React.FC = () => {
                 </button>
               </p>
             ) : (
-              <Stagger className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <Stagger className="stat-grid grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                 <Stat label="Needs my action" value={myTasks.isLoading || !workflow ? undefined : needsMe} icon={<CircleDot className="h-4 w-4" />} to="/my-tasks" />
                 <Stat label="Overdue" value={s?.mine.overdue} icon={<AlertTriangle className="h-4 w-4" />} to="/my-tasks" />
                 <Stat label="Due today" value={s?.mine.dueToday} icon={<CalendarClock className="h-4 w-4" />} to="/my-tasks" />
@@ -284,7 +284,7 @@ const Home: React.FC = () => {
           {isManager && s?.manager && (
             <section aria-label="Across the workspace" className="space-y-2">
               <h2 className="section-label">Across the workspace</h2>
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <div className="stat-grid grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                 <Stat label="Open tasks" value={s.manager.open} icon={<ListTodo className="h-4 w-4" />} to="/everything?hide=1" />
                 <Stat label="Overdue" value={s.manager.overdue} icon={<AlertTriangle className="h-4 w-4" />} to="/everything?overdue=1&hide=1" />
                 <Stat label="No editor" value={s.manager.noEditor} icon={<UserX className="h-4 w-4" />} to="/everything?editor=none&hide=1" />
@@ -296,7 +296,7 @@ const Home: React.FC = () => {
       )}
 
       {canSeeTeam && (
-        <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3" aria-label="Workspace summary">
+        <section className="stat-grid grid gap-3 sm:grid-cols-2 lg:grid-cols-3" aria-label="Workspace summary">
           <Stat label="Spaces" value={totals?.spaces} icon={<Layers className="h-4 w-4" />} />
           <Stat label="Lists" value={totals?.lists} icon={<ListTodo className="h-4 w-4" />} />
           <Stat label="Members" value={members.data?.length} icon={<Users className="h-4 w-4" />} to="/team" />

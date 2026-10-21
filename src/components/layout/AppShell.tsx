@@ -63,7 +63,7 @@ export const AppShell: React.FC<AppShellProps> = ({
 
       {/* Mobile Drawer Sidebar */}
       <Sheet open={isMobileOpen} onOpenChange={setIsMobileOpen}>
-        <SheetContent side="left" className="surface-glass !bg-sidebar p-0 w-[19.5rem] max-w-[88vw] border-r">
+        <SheetContent side="left" className="theme-nav nav-surface p-0 w-[19.5rem] max-w-[88vw] border-r">
           <AppSidebar
             isCollapsed={false}
             onToggleCollapse={() => setIsMobileOpen(false)}

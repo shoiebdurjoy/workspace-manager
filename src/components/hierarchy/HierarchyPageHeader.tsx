@@ -31,7 +31,9 @@ const HierarchyPageHeader: React.FC<Props> = ({ icon, title, description, trail 
     )}
     <div className="flex flex-wrap items-start justify-between gap-3">
       <div className="flex min-w-0 items-center gap-3">
-        {icon}
+        {icon && (
+          <span className="stat-icon flex h-11 w-11 shrink-0 items-center justify-center rounded-[14px] [&_svg]:h-6 [&_svg]:w-6">{icon}</span>
+        )}
         <div className="min-w-0">
           <h1 className="page-title truncate">{title}</h1>
           {description && <p className="page-description max-w-prose">{description}</p>}

@@ -554,3 +554,75 @@
 .spotlight [cmdk-item] { border-radius: 10px; padding-top: 0.55rem; padding-bottom: 0.55rem; transition: background-color 120ms ease; }
 .spotlight [cmdk-item][data-selected='true'] { background: hsl(var(--primary) / 0.1); color: hsl(var(--foreground)); }
 .spotlight [cmdk-group-heading] { font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; }
+
+/* ==========================================================================================
+   Bold layer (v3): a dark navigation frame, a warm canvas, a vivid hero, colorful tiles
+   ========================================================================================== */
+
+/* The navigation is always a deep, warm charcoal (in light mode too), like a pro tool's frame.
+   Tokens are redefined for everything inside it, so its text, hovers and borders just work. */
+.theme-nav {
+  --background: 24 14% 9%;
+  --foreground: 30 20% 96%;
+  --card: 24 12% 12%;
+  --card-foreground: 30 20% 96%;
+  --muted: 24 10% 15%;
+  --muted-foreground: 28 10% 64%;
+  --accent: 24 10% 16%;
+  --accent-foreground: 30 20% 96%;
+  --border: 24 9% 18%;
+  --input: 24 9% 20%;
+  --sidebar-background: 24 14% 9%;
+  --sidebar-foreground: 30 20% 96%;
+  --sidebar-accent: 24 10% 16%;
+  --sidebar-accent-foreground: 30 20% 98%;
+  --sidebar-border: 24 9% 16%;
+  --brand-subtle: 6 55% 18%;
+  --brand-subtle-foreground: 6 95% 78%;
+  --surface-glass-border: 24 9% 18%;
+  color: hsl(var(--foreground));
+}
+.nav-surface {
+  background:
+    radial-gradient(120% 60% at 0% 0%, hsl(6 70% 45% / 0.16), transparent 55%),
+    linear-gradient(180deg, hsl(24 14% 10%), hsl(24 14% 7%));
+  border-color: hsl(24 9% 16%);
+}
+
+/* A warm canvas with a faint brand bloom at the top instead of flat gray */
+.surface-canvas {
+  background:
+    radial-gradient(70rem 28rem at 70% -12rem, hsl(var(--primary) / 0.07), transparent 70%),
+    hsl(var(--surface-canvas));
+}
+
+/* Stronger hierarchy */
+.page-title { font-size: 1.5rem; font-weight: 650; letter-spacing: -0.028em; }
+.section-label { font-size: 11.5px; font-weight: 600; color: hsl(var(--foreground) / 0.62); }
+.surface-card { border-radius: 16px; }
+
+/* The Home hero: a vivid brand gradient with white type and a soft moving light */
+.hero-surface {
+  background: linear-gradient(125deg, hsl(6 78% 46%) 0%, hsl(10 86% 54%) 45%, hsl(24 94% 58%) 100%) !important;
+  border: 0 !important;
+  color: #fff;
+  box-shadow: 0 20px 50px -24px hsl(6 80% 40% / 0.6), inset 0 1px 0 hsl(0 0% 100% / 0.18) !important;
+}
+.hero-surface .page-title { color: #fff; font-size: 2.25rem; }
+.hero-surface .section-label,
+.hero-surface p { color: hsl(0 0% 100% / 0.86) !important; }
+.hero-glow {
+  background: radial-gradient(circle, hsl(0 0% 100% / 0.28), transparent 62%) !important;
+}
+
+/* Colorful stat tiles: each tile in a row gets its own accent */
+.stat-grid > :nth-child(5n + 1) .stat-icon { --tone: 217 91% 56%; }
+.stat-grid > :nth-child(5n + 2) .stat-icon { --tone: 0 78% 55%; }
+.stat-grid > :nth-child(5n + 3) .stat-icon { --tone: 36 92% 50%; }
+.stat-grid > :nth-child(5n + 4) .stat-icon { --tone: 262 75% 60%; }
+.stat-grid > :nth-child(5n + 5) .stat-icon { --tone: 152 60% 40%; }
+.stat-icon {
+  background: linear-gradient(135deg, hsl(var(--tone, var(--primary)) / 0.18), hsl(var(--tone, var(--primary)) / 0.06)) !important;
+  color: hsl(var(--tone, var(--primary))) !important;
+  box-shadow: inset 0 0 0 1px hsl(var(--tone, var(--primary)) / 0.16) !important;
+}

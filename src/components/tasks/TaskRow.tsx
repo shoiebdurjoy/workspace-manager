@@ -229,7 +229,7 @@ const TaskRow: React.FC<TaskRowProps> = ({
     <li
       data-task-row={task.id}
       className={cn(
-        'group relative border-b border-border/40 px-2 py-2.5 transition-colors duration-150 last:border-b-0 hover:bg-foreground/[0.035] md:py-1',
+        'group relative border-b border-border/40 px-2 py-2.5 transition-colors duration-150 last:border-b-0 hover:bg-primary/[0.04] md:py-1.5',
         isNew && 'enter-row',
         checked && 'bg-brand-subtle/60 hover:bg-brand-subtle/80',
         // a cut sent back for changes stands out in any list
@@ -289,7 +289,7 @@ const TaskRow: React.FC<TaskRowProps> = ({
                 to={href}
                 aria-current={open ? 'true' : undefined}
                 className={cn(
-                  'min-w-0 break-words text-[13.5px] font-medium text-foreground outline-none line-clamp-2 xl:truncate',
+                  'min-w-0 break-words text-[14px] font-medium tracking-[-0.01em] text-foreground outline-none line-clamp-2 xl:truncate',
                   // the whole row opens the task: stretch the title link over it
                   'after:absolute after:inset-0 after:content-[""] focus-visible:after:ring-2 focus-visible:after:ring-inset focus-visible:after:ring-ring',
                   finished && 'text-muted-foreground line-through decoration-muted-foreground/50'
@@ -336,12 +336,12 @@ const TaskRow: React.FC<TaskRowProps> = ({
 
         {/* desktop columns */}
         <div className="relative z-10 hidden md:block">{statusControl}</div>
-        <div className="relative z-10 hidden md:block">{people}</div>
+        <div className={cn('relative z-10 hidden md:block', !task.editorId && !task.qcId && 'transition-opacity duration-150 md:opacity-0 md:group-hover:opacity-100 md:focus-within:opacity-100')}>{people}</div>
         <div className={cn('relative z-10', LINKS_COLUMN)}>
           <RowLinks task={task} />
         </div>
-        <div className="relative z-10 hidden md:block">{date('dueDate', 'Internal QC due')}</div>
-        <div className="relative z-10 hidden md:block">{date('clientDeadline', 'Client deadline')}</div>
+        <div className={cn('relative z-10 hidden md:block', !task.dueDate && 'transition-opacity duration-150 md:opacity-0 md:group-hover:opacity-100 md:focus-within:opacity-100')}>{date('dueDate', 'Internal QC due')}</div>
+        <div className={cn('relative z-10 hidden md:block', !task.clientDeadline && 'transition-opacity duration-150 md:opacity-0 md:group-hover:opacity-100 md:focus-within:opacity-100')}>{date('clientDeadline', 'Client deadline')}</div>
         <div className="relative z-10 hidden md:flex md:justify-center">{priority}</div>
 
         {/* actions */}
