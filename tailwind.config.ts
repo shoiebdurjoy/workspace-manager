@@ -90,10 +90,14 @@ export default {
 				},
 			},
 			borderRadius: {
+				card: 'var(--radius-card)',
+				control: 'var(--radius-control)',
 				lg: 'var(--radius)',
 				md: 'calc(var(--radius) - 2px)',
 				sm: 'calc(var(--radius) - 4px)'
 			},
+			boxShadow: { float: 'var(--shadow-float)' },
+			transitionTimingFunction: { 'out-soft': 'var(--ease-out)', spring: 'var(--ease-spring)' },
 			keyframes: {
 				'accordion-down': {
 					from: {

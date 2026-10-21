@@ -6,16 +6,17 @@ import {
   Inbox,
   UserCheck,
   Search,
-  ChevronRight,
-  ChevronLeft,
+  PanelLeftClose,
+  PanelLeftOpen,
   BarChart3,
   Settings,
   Users,
+  type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import Logo from "@/components/brand/Logo";
+import { BrandMark } from "@/components/brand/Logo";
 import { IconButton } from "@/components/ui/icon-button";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { UserAvatar } from "@/components/ui/user-avatar";
 import { useAuth } from "@/hooks/use-auth";
 import { useInboxCount } from "@/hooks/use-inbox";
@@ -32,7 +33,7 @@ export interface AppSidebarProps {
 
 interface NavItem {
   label: string;
-  icon: React.ComponentType<{ className?: string }>;
+  icon: LucideIcon;
   href?: string;
   /** Roadmap phase that delivers this area; rendered disabled until then. */
   comingInPhase?: number;
@@ -70,160 +71,132 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
     { label: "Settings", icon: Settings, href: "/settings" },
   ];
 
-  const renderItem = (item: NavItem) => {
+  const renderRailItem = (item: NavItem) => {
     const active = !!item.href && (pathname === item.href || pathname.startsWith(`${item.href}/`));
-    const disabled = !item.href;
-    const btn = (
+    return (
       <button
         key={item.label}
         type="button"
-        disabled={disabled}
         aria-current={active ? "page" : undefined}
         onClick={() => item.href && handleNavClick(item.href)}
         className={cn(
-          "flex items-center rounded-lg text-xs font-medium transition-all group w-full",
-          isCollapsed ? "h-9 w-9 justify-center mx-auto" : "h-8 px-2.5 justify-between",
+          "press group relative flex w-[52px] flex-col items-center gap-0.5 rounded-control px-0 py-1.5 text-[9.5px] tracking-tight font-medium leading-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
           active
-            ? "nav-active"
-            : disabled
-              ? "text-muted-foreground/60 cursor-default"
-              : "text-muted-foreground hover:text-foreground hover:bg-sidebar-accent"
+            ? "bg-brand-subtle text-brand-subtle-foreground"
+            : "text-muted-foreground hover:bg-sidebar-accent hover:text-foreground"
         )}
       >
-        <span className="flex items-center gap-2.5">
-          <item.icon
-            className={cn(
-              "h-4 w-4 shrink-0 transition-colors",
-              active ? "text-brand" : "text-muted-foreground group-hover:text-foreground"
-            )}
-          />
-          {!isCollapsed && <span className="truncate">{item.label}</span>}
-        </span>
-        {!isCollapsed && !!item.badge && (
+        <item.icon className="h-[18px] w-[18px] shrink-0" strokeWidth={active ? 2.25 : 1.75} />
+        <span className="whitespace-nowrap">{item.label}</span>
+        {!!item.badge && (
           <span
             aria-label={`${item.badge} unread`}
-            className="rounded-full bg-primary px-1.5 text-[10px] font-semibold leading-4 tabular-nums text-primary-foreground"
+            className="absolute right-0.5 top-0.5 min-w-4 rounded-full bg-primary px-1 text-center text-[9px] font-semibold leading-4 tabular-nums text-primary-foreground"
           >
-            {item.badge > 99 ? '99+' : item.badge}
+            {item.badge > 99 ? "99+" : item.badge}
           </span>
-        )}
-        {!isCollapsed && item.comingInPhase && (
-          <span className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/60">Soon</span>
         )}
       </button>
     );
-
-    if (isCollapsed || item.comingInPhase) {
-      return (
-        <Tooltip key={item.label}>
-          <TooltipTrigger asChild>
-            <span className="block">{btn}</span>
-          </TooltipTrigger>
-          <TooltipContent side="right" className="font-semibold text-xs">
-            {item.label}
-            {item.comingInPhase ? ` · arrives in Phase ${item.comingInPhase}` : ""}
-          </TooltipContent>
-        </Tooltip>
-      );
-    }
-    return btn;
   };
 
   return (
     <TooltipProvider delayDuration={150}>
       <aside
         className={cn(
-          "flex flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground transition-all duration-300 ease-in-out select-none relative z-20 shrink-0",
-          isCollapsed ? "w-16" : "w-64",
+          "surface-glass relative z-20 flex shrink-0 select-none border-r text-sidebar-foreground",
           className
         )}
         aria-label="Main navigation"
       >
-        {/* Brand */}
-        <div className="flex h-13 items-center justify-between px-3 border-b border-sidebar-border">
-          {!isCollapsed ? (
-            <Link
-              to="/home"
-              aria-label="TBB Workspace home"
-              className="flex min-w-0 items-center overflow-hidden rounded-md hover:opacity-90"
-              onClick={onCloseMobile}
-            >
-              <Logo size="sm" />
-            </Link>
-          ) : (
-            <div className="mx-auto">
-              <Link to="/home" onClick={onCloseMobile} aria-label="Home">
-                <Logo size="sm" showText={false} />
-              </Link>
-            </div>
+        {/* Icon rail */}
+        <div className="flex w-[60px] shrink-0 flex-col items-center gap-1 border-r border-[hsl(var(--surface-glass-border))] py-2.5">
+          <Link
+            to="/home"
+            aria-label="TBB Workspace home"
+            onClick={onCloseMobile}
+            className="press mb-1.5 rounded-control p-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <BrandMark size="sm" />
+          </Link>
+          <nav aria-label="Primary" className="flex flex-col items-center gap-1">
+            {primaryNavItems.map(renderRailItem)}
+          </nav>
+          <div className="flex-1" />
+          {isCollapsed && (
+            <IconButton
+              aria-label="Expand sidebar"
+              tooltip="Expand sidebar"
+              tooltipSide="right"
+              icon={<PanelLeftOpen className="h-4 w-4" />}
+              variant="ghost"
+              size="xs"
+              onClick={onToggleCollapse}
+              className="mb-1 text-muted-foreground hover:text-foreground"
+            />
           )}
-          <IconButton
-            aria-label={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-            tooltip={isCollapsed ? "Expand sidebar" : undefined}
-            tooltipSide="right"
-            icon={isCollapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
-            variant="ghost"
-            size="xs"
-            onClick={onToggleCollapse}
-            className="text-muted-foreground hover:text-foreground"
-          />
+          <div className="flex flex-col items-center gap-1">{managementNavItems.map(renderRailItem)}</div>
+          {profile && (
+            <Link
+              to="/profile"
+              aria-label="Your profile"
+              onClick={onCloseMobile}
+              className="press mt-1.5 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <UserAvatar name={profile.fullName} src={profile.avatarUrl ?? undefined} size="sm" />
+            </Link>
+          )}
         </div>
 
-        {!isCollapsed && workspace && (
-          <div className="px-3 pt-3">
-            <p className="truncate px-1 text-xs font-semibold text-foreground" title={workspace.name}>
-              {workspace.name}
-            </p>
-          </div>
-        )}
-
+        {/* Contextual panel */}
         {!isCollapsed && (
-          <div className="px-3 pt-2">
-            <button
-              type="button"
-              onClick={onOpenSearch}
-              className="w-full flex items-center justify-between h-8 px-2.5 rounded-lg border border-border bg-background hover:bg-sidebar-accent text-xs text-muted-foreground hover:text-foreground transition-colors group"
-            >
-              <span className="flex items-center gap-2">
-                <Search className="h-3.5 w-3.5 text-muted-foreground group-hover:text-foreground transition-colors" />
-                <span>Search</span>
-              </span>
-              <kbd className="inline-flex items-center gap-0.5 rounded border border-border bg-muted px-1 text-[10px] font-mono text-muted-foreground">
-                ⌘K
-              </kbd>
-            </button>
-          </div>
-        )}
-
-        <nav className="flex-1 overflow-y-auto px-2 py-3 space-y-4">
-          <div className="space-y-0.5">{primaryNavItems.map(renderItem)}</div>
-
-          {can(role, "hierarchy:view") && (
-            <div className="pt-2 border-t border-border/50">
-              <SpacesTree collapsed={isCollapsed} onNavigate={onCloseMobile} />
+          <div className="flex min-w-0 flex-1 flex-col md:w-[15.5rem] md:flex-none">
+            <div className="flex h-11 items-center justify-between gap-2 px-3">
+              <p className="truncate text-[13px] font-semibold tracking-tight text-foreground" title={workspace?.name}>
+                {workspace?.name ?? "TBB Workspace"}
+              </p>
+              <IconButton
+                aria-label="Collapse sidebar"
+                icon={<PanelLeftClose className="h-4 w-4" />}
+                variant="ghost"
+                size="xs"
+                onClick={onToggleCollapse}
+                className="text-muted-foreground hover:text-foreground"
+              />
             </div>
-          )}
 
-          <div className="pt-2 border-t border-border/50 space-y-0.5">
-            {!isCollapsed && (
-              <p className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Management</p>
+            <div className="px-3 pb-2">
+              <button
+                type="button"
+                onClick={onOpenSearch}
+                className="press group flex h-8 w-full items-center justify-between rounded-control border border-[hsl(var(--surface-glass-border))] bg-background/60 px-2.5 text-[13px] text-muted-foreground hover:bg-background hover:text-foreground"
+              >
+                <span className="flex items-center gap-2">
+                  <Search className="h-3.5 w-3.5" />
+                  <span>Search</span>
+                </span>
+                <kbd className="rounded bg-muted px-1 font-mono text-[10px] text-muted-foreground">Ctrl K</kbd>
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto px-2 pb-3">
+              {can(role, "hierarchy:view") && <SpacesTree collapsed={false} onNavigate={onCloseMobile} />}
+            </div>
+
+            {profile && (
+              <Link
+                to="/profile"
+                onClick={onCloseMobile}
+                className="flex items-center gap-2 border-t border-[hsl(var(--surface-glass-border))] p-2.5 hover:bg-sidebar-accent"
+              >
+                <UserAvatar name={profile.fullName} src={profile.avatarUrl ?? undefined} size="xs" />
+                <span className="min-w-0">
+                  <span className="block truncate text-[13px] font-medium text-foreground">{profile.fullName}</span>
+                  <span className="block truncate text-[11px] text-muted-foreground">{role ? ROLE_LABELS[role] : ""}</span>
+                </span>
+              </Link>
             )}
-            {managementNavItems.map(renderItem)}
           </div>
-        </nav>
-
-        {!isCollapsed && profile && (
-          <Link
-            to="/profile"
-            onClick={onCloseMobile}
-            className="flex items-center gap-2 border-t border-sidebar-border p-2.5 hover:bg-sidebar-accent"
-          >
-            <UserAvatar name={profile.fullName} src={profile.avatarUrl ?? undefined} size="xs" />
-            <span className="min-w-0">
-              <span className="block truncate text-xs font-semibold text-foreground">{profile.fullName}</span>
-              <span className="block truncate text-[10px] text-muted-foreground">{role ? ROLE_LABELS[role] : ""}</span>
-            </span>
-          </Link>
         )}
       </aside>
     </TooltipProvider>

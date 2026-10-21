@@ -61,7 +61,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({ onToggleMobileSidebar, onO
   };
 
   return (
-    <header className="sticky top-0 z-30 flex h-13 w-full items-center justify-between border-b border-border/70 bg-background/95 px-4 backdrop-blur-md supports-[backdrop-filter]:bg-background/80 select-none">
+    <header className="sticky top-0 z-30 flex h-12 w-full items-center justify-between border-b surface-glass px-3 sm:px-4 select-none">
       <div className="flex min-w-0 flex-1 items-center gap-3">
         <IconButton
           aria-label="Toggle navigation menu"
@@ -69,7 +69,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({ onToggleMobileSidebar, onO
           variant="ghost"
           size="sm"
           onClick={onToggleMobileSidebar}
-          className="lg:hidden"
+          className="lg:hidden h-9 w-9"
         />
         <Link to="/home" aria-label="TBB Workspace home" className="rounded-md sm:hidden">
           <BrandMark size="sm" />
@@ -107,23 +107,23 @@ export const AppHeader: React.FC<AppHeaderProps> = ({ onToggleMobileSidebar, onO
         </Breadcrumb>
       </div>
 
-      <div className="mx-4 hidden w-64 shrink-0 md:block lg:w-80">
+      <div className="mx-4 hidden w-full max-w-md shrink md:block">
         <button
           type="button"
           onClick={onOpenSearch}
-          className="w-full flex items-center justify-between h-8 px-3 rounded-lg border border-border/80 bg-muted/40 hover:bg-muted/70 text-xs text-muted-foreground hover:text-foreground transition-all group"
+          className="press group flex h-8 w-full items-center justify-between rounded-full border border-[hsl(var(--surface-glass-border))] bg-muted/60 px-3.5 text-[13px] text-muted-foreground hover:bg-muted hover:text-foreground"
         >
           <span className="flex items-center gap-2">
-            <Search className="h-3.5 w-3.5 text-muted-foreground group-hover:text-foreground transition-colors" />
-            <span className="truncate">Search pages and commands...</span>
+            <Search className="h-3.5 w-3.5" />
+            <span className="truncate">Search or run a command</span>
           </span>
-          <kbd className="hidden sm:inline-flex items-center gap-0.5 pointer-events-none rounded border border-border/70 bg-background px-1.5 py-0.5 text-[10px] font-mono text-muted-foreground">
-            <span className="text-xs">⌘</span>K
+          <kbd className="pointer-events-none hidden rounded-md bg-background/80 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground sm:inline-flex">
+            Ctrl K
           </kbd>
         </button>
       </div>
 
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-1.5">
         <IconButton
           aria-label="Search"
           tooltip="Search (⌘K)"

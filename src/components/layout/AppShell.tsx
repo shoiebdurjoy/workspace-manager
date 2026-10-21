@@ -45,7 +45,7 @@ export const AppShell: React.FC<AppShellProps> = ({
   };
 
   return (
-    <div className="flex h-screen w-full overflow-hidden bg-background text-foreground antialiased">
+    <div className="flex h-screen w-full overflow-hidden surface-canvas text-foreground antialiased">
       {/* Desktop Persistent Sidebar */}
       <div className="hidden lg:flex shrink-0">
         <AppSidebar
@@ -57,7 +57,7 @@ export const AppShell: React.FC<AppShellProps> = ({
 
       {/* Mobile Drawer Sidebar */}
       <Sheet open={isMobileOpen} onOpenChange={setIsMobileOpen}>
-        <SheetContent side="left" className="p-0 w-72 max-w-[85vw] border-r">
+        <SheetContent side="left" className="surface-glass !bg-sidebar p-0 w-[19.5rem] max-w-[88vw] border-r">
           <AppSidebar
             isCollapsed={false}
             onToggleCollapse={() => setIsMobileOpen(false)}
@@ -82,8 +82,8 @@ export const AppShell: React.FC<AppShellProps> = ({
         {/* Scrollable Content Container */}
         <main
           className={cn(
-            "flex-1 overflow-y-auto bg-muted/20 focus:outline-none",
-            noPadding ? "p-0" : "p-4 sm:p-6 lg:p-8",
+            "flex-1 overflow-y-auto surface-canvas focus:outline-none",
+            noPadding ? "p-0" : "p-4 sm:p-6 lg:px-10 lg:py-8",
             className
           )}
         >

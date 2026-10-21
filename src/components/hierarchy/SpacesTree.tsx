@@ -24,7 +24,7 @@ interface SpacesTreeProps {
 const MENU_REVEAL = 'opacity-100 lg:opacity-0 lg:group-hover:opacity-100 lg:focus-visible:opacity-100 data-[state=open]:opacity-100';
 
 const rowBase =
-  'group relative flex items-center gap-1 rounded-md pr-1 text-[11px] transition-colors hover:bg-sidebar-accent';
+  'group relative flex items-center gap-1 rounded-md pr-1 text-[13px] transition-colors hover:bg-sidebar-accent';
 const activeRow = 'nav-active';
 
 const Chevron: React.FC<{ open: boolean; label: string; onClick: () => void }> = ({ open, label, onClick }) => (

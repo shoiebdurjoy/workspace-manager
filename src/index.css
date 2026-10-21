@@ -165,7 +165,8 @@
 
   body {
     @apply bg-background text-foreground antialiased;
-    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display', 'Inter', 'Segoe UI', system-ui, sans-serif;
+    font-size: 13.5px;
     font-feature-settings: "rlig" 1, "calt" 1;
   }
 
@@ -249,5 +250,139 @@
   to {
     opacity: 1;
     transform: translateY(0);
+  }
+}
+
+/*
+ * SHELL / "CALM PREMIUM" DESIGN TOKENS (additive: no brand colour token above is changed).
+ * Surfaces are translucent "vibrancy" layers; depth comes from very soft layered shadows.
+ */
+@layer base {
+  :root {
+    --surface-glass: 0 0% 100% / 0.72;
+    --surface-glass-border: 24 14% 6% / 0.07;
+    --surface-canvas: 30 14% 97%;
+    --shadow-float: 0 1px 2px hsl(24 14% 6% / 0.04), 0 4px 12px -2px hsl(24 14% 6% / 0.06), 0 12px 32px -8px hsl(24 14% 6% / 0.08);
+    --radius-card: 0.875rem;
+    --radius-control: 0.625rem;
+    --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+    --ease-spring: cubic-bezier(0.34, 1.4, 0.64, 1);
+    --dur-fast: 150ms;
+    --dur-base: 220ms;
+  }
+
+  .dark {
+    --surface-glass: 24 12% 7% / 0.72;
+    --surface-glass-border: 0 0% 100% / 0.07;
+    --surface-canvas: 24 12% 4%;
+    --shadow-float: 0 1px 2px hsl(0 0% 0% / 0.4), 0 6px 16px -4px hsl(0 0% 0% / 0.5), 0 16px 40px -10px hsl(0 0% 0% / 0.6);
+  }
+}
+
+@layer components {
+  /* Translucent surface for the sidebar and top bar. */
+  .surface-glass {
+    background-color: hsl(var(--surface-glass));
+    -webkit-backdrop-filter: saturate(180%) blur(20px);
+    backdrop-filter: saturate(180%) blur(20px);
+    border-color: hsl(var(--surface-glass-border));
+  }
+
+  .surface-canvas {
+    background-color: hsl(var(--surface-canvas));
+  }
+
+  /* Content card: generous radius, hairline edge, soft depth. */
+  .surface-card {
+    @apply bg-card text-card-foreground;
+    border: 1px solid hsl(var(--surface-glass-border));
+    border-radius: var(--radius-card);
+    box-shadow: var(--shadow-float);
+  }
+
+  /* Page heading rhythm: tight tracking, optical weight, muted description. */
+  .page-title {
+    @apply text-xl font-semibold text-foreground;
+    letter-spacing: -0.022em;
+    line-height: 1.25;
+  }
+
+  .page-description {
+    @apply text-[13px] text-muted-foreground;
+  }
+
+  .section-label {
+    @apply text-[11px] font-medium uppercase text-muted-foreground;
+    letter-spacing: 0.06em;
+  }
+
+  /* Tiny press / hover feedback for buttons and tiles. */
+  .press {
+    transition: transform var(--dur-fast) var(--ease-out), background-color var(--dur-fast) var(--ease-out),
+      filter var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+  }
+  .press:hover {
+    filter: brightness(1.03);
+  }
+  .press:active {
+    transform: scale(0.97);
+  }
+
+  /* Pill / segmented controls. */
+  .pill-group {
+    @apply inline-flex items-center gap-0.5 rounded-full bg-muted p-0.5;
+  }
+  .pill-item {
+    @apply press inline-flex h-7 items-center rounded-full px-3 text-xs font-medium text-muted-foreground hover:text-foreground;
+  }
+  .pill-item[aria-pressed='true'],
+  .pill-item[aria-selected='true'],
+  .pill-item[data-state='active'] {
+    @apply bg-background text-foreground;
+    box-shadow: var(--shadow-soft);
+  }
+
+  /* Soft brand focus ring for inputs. */
+  .focus-soft:focus-visible {
+    outline: none;
+    border-color: hsl(var(--ring));
+    box-shadow: 0 0 0 3px hsl(var(--ring) / 0.2);
+  }
+
+  /* Comfortable touch hit area on coarse pointers, dense on desktop. */
+  .hit-area {
+    min-height: 28px;
+  }
+  @media (pointer: coarse) {
+    .hit-area {
+      min-height: 40px;
+    }
+  }
+
+  /* Spring-ish entrance for sheets and menus. */
+  .motion-pop {
+    animation: motion-pop var(--dur-base) var(--ease-spring);
+  }
+}
+
+@keyframes motion-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.97) translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .motion-pop,
+  .press {
+    animation: none !important;
+    transition: none !important;
+  }
+  .press:active {
+    transform: none;
   }
 }
