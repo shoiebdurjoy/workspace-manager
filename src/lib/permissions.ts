@@ -93,7 +93,7 @@ const MATRIX: Record<Capability, readonly TbbRole[]> = {
   'finance:view': MANAGERS, // View Editor Pay Rates (editors: own rate, later phase)
   'payments:approve': MANAGERS, // Approve Editor Payments
   'comments:view-internal': STAFF, // View Internal Comments
-  'comments:post': ROLES, // Post Comments & Revisions
+  'comments:post': STAFF, // Post Comments & Revisions (client viewers have no task access yet: the database fails closed, so the interface does too)
   'team:view': STAFF, // Members and pods (client viewers fail closed)
   'team:manage-pods': ADMINS, // Create / edit / delete pods
   'team:manage-pod-members': MANAGERS, // Add / remove people in a pod

@@ -42,7 +42,7 @@ const MATRIX: Array<[Capability, string, [boolean, boolean, boolean, boolean, bo
   ['finance:view', 'View Editor Pay Rates / Financials', [true, true, true, false, false, false]],
   ['payments:approve', 'Approve Editor Payments', [true, true, true, false, false, false]],
   ['comments:view-internal', 'View Internal Comments', [true, true, true, true, true, false]],
-  ['comments:post', 'Post Comments & Revisions', [true, true, true, true, true, true]],
+  ['comments:post', 'Post Comments & Revisions (staff; the database gives clients no task access yet)', [true, true, true, true, true, false]],
 ];
 
 describe('permission matrix (docs/TBB_PERMISSION_MODEL.md)', () => {
@@ -63,7 +63,7 @@ describe('permission matrix (docs/TBB_PERMISSION_MODEL.md)', () => {
   it('client viewers fail closed on everything internal', () => {
     expect(can(CLIENT, 'team:view')).toBe(false);
     expect(can(CLIENT, 'comments:view-internal')).toBe(false);
-    expect(capabilitiesOf(CLIENT)).toEqual(['comments:post']);
+    expect(capabilitiesOf(CLIENT)).toEqual([]);
   });
 
   it('employee production analytics: Owner and Admin only', () => {

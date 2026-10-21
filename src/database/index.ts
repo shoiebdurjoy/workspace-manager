@@ -12,6 +12,7 @@ export * from './folders';
 export * from './lists';
 export * from './hierarchy';
 export * from './tasks';
+export * from './collaboration';
 export * from './workflow';
 export * from './production';
 export * from './teams';

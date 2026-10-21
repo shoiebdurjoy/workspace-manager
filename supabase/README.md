@@ -22,6 +22,11 @@
 | `…000007_task_engine.sql` | Phase 6: deliverable columns + URL / aspect-ratio `CHECK`s on `tasks`, `task_assignees` (one editor + one QC reviewer per task, eligibility trigger), editors limited to tasks assigned to them, atomic `create_task()` / `set_task_assignee()` / `move_task()` (SECURITY INVOKER) |
 | `…000008_workflow_engine.sql` | Phase 7: data-driven TBB workflow (`workflows`, `workflow_statuses`, `workflow_transitions`, seeded per workspace), existing statuses mapped to the ten TBB stages, `revision_count`, append-only `task_status_events`, trigger-enforced moves / roles / requirements on every write path, atomic `transition_task()` (SECURITY INVOKER) |
 | `…000009_production_credits.sql` | Phase 7b: immutable first-QC production credits (`task_production_credits`, one per task, written by trigger, readable by Owner/Admin only, undeletable), `credits_production` stage flag, SECURITY INVOKER `production_monthly()` / `production_videos()` |
+| `…000010_transition_stale_code.sql` | Phase 7 fix: a stale move raises the custom `TB409` (the standard `40001` hangs the hosted API instead of returning) |
+| `…000011_task_search.sql` | Phase 9: SECURITY INVOKER `search_tasks()` (database-side free text, multi-criteria filters, whitelisted sort, paging with total), `pg_trgm` indexes on title / brief |
+| `…000012_task_comments.sql` | Phase 10: `task_comments` with server-derived author / workspace / **verified @mentions**; author-only edit, author-or-admin delete |
+| `…000013_task_attachments.sql` | Phase 10: private `task-attachments` bucket (25 MB, MIME allow-list), `storage.objects` policies parsed from the path, `task_attachments` records that read size / type back from the stored object |
+| `…000014_activity_and_notifications.sql` | Phase 10: `task_activity` and `notifications` written by triggers (nobody writes them by API), per-person dedupe, recipient-only read, `read_at` the only editable column, realtime publication (guarded) |
 
 ## Rules that must not be broken
 

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Link, Navigate, useParams } from 'react-router-dom';
+import { Link, Navigate, useLocation, useParams } from 'react-router-dom';
 import { SearchX } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { LoadingState } from '@/components/ui/loading-state';
@@ -11,11 +11,12 @@ import { findListById, hierarchyPaths, isUuid } from '@/lib/hierarchy';
 /**
  * /tasks/:taskId: a stable link that needs only a task id (notifications, search results and
  * My Tasks in later phases). It resolves the task's list and space and forwards to the canonical
- * URL, so the sidebar and breadcrumbs light up exactly as if the person had navigated there.
+ * URL (keeping ?tab= and ?comment=, which is how a notification lands on a comment), so the sidebar and breadcrumbs light up exactly as if the person had navigated there.
  * Missing, deleted and "not yours" all look the same.
  */
 const TaskRedirect: React.FC = () => {
   const { taskId } = useParams();
+  const { search } = useLocation();
   const valid = isUuid(taskId);
   const task = useTask(valid ? taskId : undefined);
   const tree = useHierarchy();
@@ -46,7 +47,7 @@ const TaskRedirect: React.FC = () => {
 
   const hit = findListById(tree.data, task.data.listId);
   if (!hit) return notFound;
-  return <Navigate to={hierarchyPaths.task(hit.space.id, hit.list.id, task.data.id)} replace />;
+  return <Navigate to={`${hierarchyPaths.task(hit.space.id, hit.list.id, task.data.id)}${search}`} replace />;
 };
 
 export default TaskRedirect;

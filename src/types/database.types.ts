@@ -545,6 +545,80 @@ export interface Database {
           { foreignKeyName: 'task_status_events_task_id_fkey'; columns: ['task_id']; referencedRelation: 'tasks'; referencedColumns: ['id'] },
         ];
       };
+      task_comments: {
+        Row: {
+          id: string;
+          task_id: string;
+          workspace_id: string;
+          author_id: string | null;
+          body: string;
+          mentions: string[];
+          created_at: string;
+          updated_at: string;
+          edited_at: string | null;
+        };
+        // workspace, author, mentions and the timestamps are set by the database (guard_task_comment)
+        Insert: { id?: string; task_id: string; body: string };
+        Update: { body?: string };
+        Relationships: [
+          { foreignKeyName: 'task_comments_task_id_fkey'; columns: ['task_id']; referencedRelation: 'tasks'; referencedColumns: ['id'] },
+        ];
+      };
+      task_attachments: {
+        Row: {
+          id: string;
+          task_id: string;
+          workspace_id: string;
+          uploaded_by: string | null;
+          file_name: string;
+          storage_path: string;
+          mime_type: string;
+          size_bytes: number;
+          created_at: string;
+        };
+        // the database reads size and type back from the stored object (guard_task_attachment)
+        Insert: { id: string; task_id: string; file_name: string; storage_path: string; mime_type: string; size_bytes: number };
+        Update: never;
+        Relationships: [
+          { foreignKeyName: 'task_attachments_task_id_fkey'; columns: ['task_id']; referencedRelation: 'tasks'; referencedColumns: ['id'] },
+        ];
+      };
+      task_activity: {
+        Row: {
+          id: string;
+          task_id: string;
+          workspace_id: string;
+          actor_id: string | null;
+          kind: string;
+          data: Json;
+          created_at: string;
+        };
+        Insert: never;
+        Update: never;
+        Relationships: [
+          { foreignKeyName: 'task_activity_task_id_fkey'; columns: ['task_id']; referencedRelation: 'tasks'; referencedColumns: ['id'] },
+        ];
+      };
+      notifications: {
+        Row: {
+          id: string;
+          user_id: string;
+          workspace_id: string;
+          task_id: string;
+          actor_id: string | null;
+          kind: string;
+          data: Json;
+          dedupe_key: string;
+          read_at: string | null;
+          created_at: string;
+        };
+        Insert: never;
+        // the recipient can change one thing: whether it has been read
+        Update: { read_at?: string | null };
+        Relationships: [
+          { foreignKeyName: 'notifications_task_id_fkey'; columns: ['task_id']; referencedRelation: 'tasks'; referencedColumns: ['id'] },
+        ];
+      };
       teams: {
         Row: {
           id: string;

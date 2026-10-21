@@ -102,11 +102,13 @@ describe('AppHeader', () => {
     expect(screen.queryByText(/local mode|offline/i)).not.toBeInTheDocument();
   });
 
-  it('notifications are an honest empty state, not fake entries', async () => {
+  it('notifications are the real centre: an honest empty state, never fake entries', async () => {
     header();
-    await userEvent.click(screen.getByRole('button', { name: 'Notifications' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Notifications' }));
     expect(await screen.findByText(/all caught up/i)).toBeInTheDocument();
     expect(screen.queryByText(/QC Approval Required|New Assignment/)).not.toBeInTheDocument();
+    expect(screen.queryByTestId('unread-badge')).not.toBeInTheDocument();
+    expect(db.listNotifications).toHaveBeenCalled();
   });
 
   it('account menu shows the real person and role and signs out to /login', async () => {

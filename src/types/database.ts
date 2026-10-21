@@ -291,3 +291,56 @@ export interface ProductionVideo {
   finalExportLink: string | null;
   projectFileLink: string | null;
 }
+
+// ==============================================================================
+// PHASE 10: COMMENTS, ATTACHMENTS, ACTIVITY, NOTIFICATIONS
+// ==============================================================================
+
+export interface TaskComment {
+  id: string;
+  taskId: string;
+  workspaceId: string;
+  /** null once the author's account was removed ("a former member"). */
+  authorId: string | null;
+  /** The text as written; mentions are @[Name](user-id) tokens (see lib/collaboration.ts). */
+  body: string;
+  /** The people the database verified as mentioned (active staff of the workspace). */
+  mentions: string[];
+  createdAt: string;
+  updatedAt: string;
+  /** Set when the text was changed after posting. */
+  editedAt: string | null;
+}
+
+export interface TaskAttachment {
+  id: string;
+  taskId: string;
+  workspaceId: string;
+  uploadedBy: string | null;
+  fileName: string;
+  storagePath: string;
+  mimeType: string;
+  sizeBytes: number;
+  createdAt: string;
+}
+
+export type ActivityKind = 'created' | 'updated' | 'assigned' | 'unassigned' | 'commented' | 'attachment_added' | 'attachment_removed';
+
+/** One row of a task's feed: a task_activity row, or a status change (task_status_events). */
+export type ActivityEntry =
+  | { source: 'activity'; id: string; taskId: string; actorId: string | null; createdAt: string; kind: ActivityKind; data: Record<string, unknown> }
+  | { source: 'status'; id: string; taskId: string; actorId: string | null; createdAt: string; event: StatusEvent };
+
+export type NotificationKind = 'mention' | 'comment' | 'assigned' | 'status';
+
+export interface AppNotification {
+  id: string;
+  userId: string;
+  workspaceId: string;
+  taskId: string;
+  actorId: string | null;
+  kind: NotificationKind;
+  data: Record<string, unknown>;
+  readAt: string | null;
+  createdAt: string;
+}

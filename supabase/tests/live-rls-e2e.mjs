@@ -11,6 +11,8 @@
 //         PowerShell:  $env:TBB_E2E_CONFIRM_PROJECT_REF = "<project-ref>"; node supabase/tests/live-rls-e2e.mjs
 //         bash:        TBB_E2E_CONFIRM_PROJECT_REF=<project-ref> node supabase/tests/live-rls-e2e.mjs
 //     (the ref is the first label of VITE_SUPABASE_URL in .env; it is not a secret).
+//   * It stores real files in the private task-attachments bucket; it removes them through the Storage API
+//     (and verifies none are left, and that production's own counts are unchanged).
 //   * It only touches rows it creates itself: users with the e-mail suffix
 //     @tbb-e2e.invalid (never deliverable, no e-mail is ever sent) and workspaces owned by
 //     those users. Everything is deleted again in a `finally` block, and the script prints
@@ -68,9 +70,13 @@ const TASK_TABLE_COUNTS_SQL =
   'SELECT (SELECT count(*) FROM public.tasks) AS tasks, (SELECT count(*) FROM public.task_assignees) AS task_assignees, (SELECT count(*) FROM public.subtasks) AS subtasks, ' +
   '(SELECT count(*) FROM public.task_status_events) AS task_status_events, (SELECT count(*) FROM public.workflows) AS workflows, ' +
   '(SELECT count(*) FROM public.workflow_statuses) AS workflow_statuses, (SELECT count(*) FROM public.workflow_transitions) AS workflow_transitions, ' +
-  '(SELECT count(*) FROM public.task_production_credits) AS task_production_credits;';
+  '(SELECT count(*) FROM public.task_production_credits) AS task_production_credits, ' +
+  '(SELECT count(*) FROM public.task_comments) AS task_comments, (SELECT count(*) FROM public.task_attachments) AS task_attachments, ' +
+  '(SELECT count(*) FROM public.task_activity) AS task_activity, (SELECT count(*) FROM public.notifications) AS notifications, ' +
+  "(SELECT count(*) FROM storage.objects WHERE bucket_id = 'task-attachments') AS stored_files;";
 
 const CLEANUP_SQL = `
+-- (stored files are removed through the Storage API by the run itself: Supabase refuses direct deletes from storage.objects)
 DELETE FROM public.workspaces
   WHERE owner_id IN (SELECT id FROM auth.users WHERE email LIKE '%${TEST_EMAIL_SUFFIX}');
 DELETE FROM auth.users WHERE email LIKE '%${TEST_EMAIL_SUFFIX}';
@@ -92,6 +98,17 @@ function cleanup() {
 
 if (process.argv.includes('--cleanup-only')) {
   process.exit(cleanup() ? 0 : 1);
+}
+
+// Every file this run stores in the private bucket, so it can be removed again through the Storage API.
+const trackedObjects = [];
+async function removeTrackedObjects() {
+  const paths = [...new Set(trackedObjects.map((o) => o.path))];
+  if (!paths.length || !clients.pm) return;
+  for (let i = 0; i < paths.length; i += 50) {
+    const r = await clients.pm.storage.from('task-attachments').remove(paths.slice(i, i + 50));
+    if (r.error) console.log('could not remove test files through the API:', r.error.message);
+  }
 }
 
 const roles = ['owner', 'admin', 'pm', 'qc', 'editor', 'client', 'stranger', 'editor2'];
@@ -144,13 +161,17 @@ const rec = (name, ok, detail = '') => {
   console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${ok ? '' : '  -> ' + detail}`);
 };
 let grantRefusals = 0;
+const refusalLog = [];
 const trackingFetch = async (input, init) => {
   const resp = await fetch(input, init);
   const auth = new Headers(init?.headers).get('authorization') || '';
   const signedIn = auth.startsWith('Bearer ') && auth.slice(7) !== KEY;
   if (signedIn && resp.status === 403) {
     const body = await resp.clone().text();
-    if (/permission denied for (table|schema|sequence)/.test(body)) grantRefusals++;
+    if (/permission denied for (table|schema|sequence)/.test(body)) {
+      grantRefusals++;
+      refusalLog.push(`${init?.method ?? 'GET'} ${String(input).replace(URL_, '').split('?')[0]}`);
+    }
   }
   return resp;
 };
@@ -1235,8 +1256,432 @@ VALUES (gen_random_uuid(), '${u.id}', '${u.id}', jsonb_build_object('sub','${u.i
     res = await clients.editor.rpc('search_tasks', { p_workspace_id: ws, p_query: null, p_filters: { lists: [lp], priorities: ['MEDIUM'] }, p_sort: 'priority', p_limit: 500 });
     const ms2 = Date.now() - t1;
     rec('a filtered, sorted first page of a big list comes back as one page of 500', !res.error && res.data?.length === 500 && Number(res.data[0].total_count) >= 3000, res.error?.message);
+    if (res.error || ms2 >= 3000) {
+      for (let k = 0; k < 3; k++) {
+        const t = Date.now();
+        const r = await clients.editor.rpc('search_tasks', { p_workspace_id: ws, p_query: null, p_filters: { lists: [lp], priorities: ['MEDIUM'] }, p_sort: 'priority', p_limit: 500 });
+        console.log(`DIAG api repeat ${k}: ${Date.now() - t} ms ${r.error?.message ?? ''}`);
+      }
+      {
+        const t = Date.now();
+        const r = await clients.editor.from('tasks').select('id', { count: 'exact', head: true }).eq('list_id', lp);
+        console.log(`DIAG plain REST head count: ${Date.now() - t} ms count=${r.count} ${r.error?.message ?? ''}`);
+      }
+      console.log('DIAG role config: ' + runSql("SELECT rolname, rolconfig FROM pg_roles WHERE rolname IN ('authenticator','authenticated')").replace(/\s+/g, ' ').slice(0, 600));
+      const claims = JSON.stringify({ sub: U.editor.id, role: 'authenticated' });
+      const explain = (what) => { try { return runSql(`BEGIN; SET LOCAL ROLE authenticated; SELECT set_config('request.jwt.claims', '${claims}', true); EXPLAIN (ANALYZE, BUFFERS) ${what}; COMMIT;`).slice(0, 3500); } catch (e) { return 'explain failed: ' + e.message.slice(0, 300); } };
+      console.log('DIAG plain count under RLS:' + String.fromCharCode(10) + explain(`SELECT count(*) FROM public.tasks WHERE list_id = '${lp}'`));
+      console.log('DIAG search_tasks under RLS:' + String.fromCharCode(10) + explain(`SELECT count(*) FROM public.search_tasks('${ws}', NULL, '{"lists":["${lp}"],"priorities":["MEDIUM"]}'::jsonb, 'priority', 'asc', 500, 0)`));
+    }
     console.log(`      (first page, filtered + sorted: ${ms2} ms)`);
     rec('...also quickly', ms2 < 3000, `${ms2}ms`);
+  }
+
+  console.log('\n== Phase 10: comments, mentions, activity, notifications, private attachments (live) ==');
+  {
+    // many checks below are refusals at the GRANT level on purpose (nobody has INSERT on activity / notifications,
+    // only some columns are updatable); the positive checks fail on their own if a needed grant is missing
+    const grantsBefore10 = grantRefusals;
+    // fixtures: one list, tasks made through the real create_task RPC (so the real triggers write real activity)
+    res = await clients.pm.from('lists').insert({ space_id: space, folder_id: folder, name: `P10 LIVE ${RUN}` }).select().single();
+    const lp10 = res.data?.id;
+    const mkTask = async (title, o = {}) => {
+      const r = await clients.pm.rpc('create_task', { p_list_id: lp10, p_title: title, p_editor_id: o.editor ?? null, p_qc_id: o.qc ?? null, p_review_link: o.review ?? null });
+      return r.data?.id;
+    };
+    const t10 = await mkTask(`P10 task ${RUN}`, { editor: U.editor.id, qc: U.qc.id });
+    const tB10 = (await clients.pm.rpc('create_task', { p_list_id: lp10, p_title: `P10 second ${RUN}`, p_editor_id: null, p_qc_id: null })).data?.id;
+    // a task in ANOTHER workspace: nothing here may reach it
+    res = await clients.pm.from('spaces').select('id').eq('workspace_id', wsB).limit(1);
+    const foreignList = await (async () => {
+      const sp = res.data?.[0]?.id ?? (await clients.pm.from('spaces').insert({ workspace_id: wsB, name: 'B10', slug: `b10-${RUN}` }).select().single()).data?.id;
+      const l = await clients.pm.from('lists').insert({ space_id: sp, name: `B10 list ${RUN}` }).select().single();
+      return l.data?.id;
+    })();
+    const foreignTask = (await clients.pm.rpc('create_task', { p_list_id: foreignList, p_title: `P10 foreign ${RUN}` })).data?.id;
+    rec('(fixtures exist: a list, two tasks, and a task in another workspace)', !!lp10 && !!t10 && !!tB10 && !!foreignTask);
+
+    // ---- activity written by the real triggers -------------------------------------------------------
+    console.log('  -- activity (written by the database)');
+    const feed = async (who, task) => (await clients[who].from('task_activity').select('kind,actor_id,data').eq('task_id', task).order('created_at')).data ?? [];
+    let a = await feed('editor', t10);
+    rec('creating the task wrote a "created" entry by the manager', a.some((x) => x.kind === 'created' && x.actor_id === U.pm.id));
+    rec('assigning an editor and a QC reviewer wrote two "assigned" entries', a.filter((x) => x.kind === 'assigned').length === 2);
+    res = await clients.pm.from('tasks').update({ title: `P10 task ${RUN} v2`, priority: 'HIGH', description: 'a private brief' }).eq('id', t10).select();
+    a = await feed('editor', t10);
+    const upd = a.find((x) => x.kind === 'updated');
+    rec('editing the task wrote ONE "updated" entry listing the changes', a.filter((x) => x.kind === 'updated').length === 1 && upd?.data.changes?.some((c) => c.field === 'priority' && c.to === 'HIGH'));
+    rec('...and never the text of long fields', JSON.stringify(upd?.data ?? {}).indexOf('private brief') === -1);
+    for (const who of ['client', 'stranger']) {
+      res = await clients[who].from('task_activity').select('id').eq('task_id', t10);
+      noRows(`${who} sees no activity`, res);
+    }
+    res = await anon.from('task_activity').select('id');
+    rec('anon cannot read activity', !!res.error);
+    for (const who of ['owner', 'admin', 'pm', 'editor']) {
+      res = await clients[who].from('task_activity').insert({ task_id: t10, workspace_id: ws, kind: 'created' });
+      rec(`${who} cannot write a fake activity entry`, !!res.error, JSON.stringify(res.error));
+    }
+    res = await clients.owner.from('task_activity').update({ kind: 'created' }).eq('task_id', t10).select();
+    rec('nobody can rewrite history', !!res.error || (res.data ?? []).length === 0);
+    res = await clients.owner.from('task_activity').delete().eq('task_id', t10).select();
+    rec('nobody can erase history', !!res.error || (res.data ?? []).length === 0);
+    for (const fn of ['log_activity', 'notify', 'log_task_activity', 'notify_status_change', 'guard_notification', 'guard_task_comment', 'guard_task_attachment', 'comment_mentions']) {
+      res = await clients.owner.rpc(fn, {});
+      rec(`${fn} is not reachable through the API`, !!res.error);
+    }
+
+    // ---- comments --------------------------------------------------------------------------------
+    console.log('  -- comments and mentions');
+    const tokenFor = (name, id) => `@[${name}](${id})`;
+    const body1 = `Hi ${tokenFor('E2E qc', U.qc.id)}, ${tokenFor('E2E client', U.client.id)}, ${tokenFor('Nobody', crypto.randomUUID())} and ${tokenFor('E2E admin', U.admin.id)}`;
+    res = await clients.editor.from('task_comments').insert({ task_id: t10, body: body1, author_id: U.owner.id, workspace_id: wsB, mentions: [U.owner.id] }).select().single();
+    const c1 = res.data;
+    rec('a staff member comments through the API', !res.error && !!c1?.id, JSON.stringify(res.error));
+    rec('a forged author, workspace and mentions list were ignored', c1?.author_id === U.editor.id && c1?.workspace_id === ws);
+    rec('the database verified the mentions: staff of this workspace only (qc, admin), not the client or a stranger id', c1?.mentions?.length === 2 && c1.mentions.includes(U.qc.id) && c1.mentions.includes(U.admin.id), JSON.stringify(c1?.mentions));
+    for (const who of ['owner', 'admin', 'pm', 'qc', 'editor2']) {
+      res = await clients[who].from('task_comments').insert({ task_id: t10, body: `hello from ${who}` }).select().single();
+      rec(`${who} can comment`, !res.error && res.data?.author_id === U[who].id, JSON.stringify(res.error));
+    }
+    for (const who of ['client', 'stranger']) {
+      res = await clients[who].from('task_comments').insert({ task_id: t10, body: 'let me in' });
+      rec(`${who} cannot comment`, !!res.error, JSON.stringify(res.error));
+      res = await clients[who].from('task_comments').select('id').eq('task_id', t10);
+      noRows(`${who} cannot read comments`, res);
+    }
+    res = await anon.from('task_comments').insert({ task_id: t10, body: 'x' });
+    rec('anon cannot comment', !!res.error);
+    res = await clients.editor.from('task_comments').insert({ task_id: foreignTask, body: 'cross-workspace' });
+    rec("cannot comment on another workspace's task", !!res.error);
+    res = await clients.editor.from('task_comments').insert({ task_id: t10, body: '   ' });
+    rec('an empty comment is refused', !!res.error);
+    res = await clients.editor.from('task_comments').insert({ task_id: t10, body: 'x'.repeat(10001) });
+    rec('a comment over 10,000 characters is refused', !!res.error);
+    res = await clients.editor.from('task_comments').select('id,author_id').eq('task_id', t10);
+    rec('staff read the conversation', !res.error && res.data.length >= 6, String(res.data?.length));
+    res = await clients.stranger.from('task_comments').select('id').eq('task_id', foreignTask);
+    noRows("an outsider cannot read another workspace's comments", res);
+
+    res = await clients.editor.from('task_comments').update({ body: `${body1} ${tokenFor('E2E pm', U.pm.id)}` }).eq('id', c1.id).select().single();
+    rec('the author edits; mentions are recomputed and edited_at is set', !res.error && res.data.mentions.length === 3 && !!res.data.edited_at, JSON.stringify(res.error));
+    for (const who of ['owner', 'admin', 'pm', 'qc', 'editor2']) {
+      res = await clients[who].from('task_comments').update({ body: 'hijack' }).eq('id', c1.id).select();
+      rec(`${who} cannot edit someone else's comment`, !!res.error || (res.data ?? []).length === 0);
+    }
+    for (const col of [{ author_id: U.owner.id }, { task_id: tB10 }, { workspace_id: wsB }, { mentions: [U.owner.id] }, { created_at: new Date().toISOString() }]) {
+      res = await clients.editor.from('task_comments').update(col).eq('id', c1.id).select();
+      rec(`the author cannot change ${Object.keys(col)[0]}`, !!res.error, JSON.stringify(res.error));
+    }
+    res = await clients.editor.from('task_comments').insert({ task_id: t10, body: 'to be moderated' }).select().single();
+    const cMod = res.data?.id;
+    for (const who of ['pm', 'qc', 'editor2', 'client', 'stranger']) {
+      res = await clients[who].from('task_comments').delete().eq('id', cMod).select();
+      rec(`${who} cannot delete someone else's comment`, !!res.error || (res.data ?? []).length === 0);
+    }
+    res = await clients.admin.from('task_comments').delete().eq('id', cMod).select();
+    rec('an admin can delete a comment (moderation)', !res.error && res.data?.length === 1);
+    res = await clients.editor.from('task_comments').insert({ task_id: t10, body: 'mine, to delete' }).select().single();
+    res = await clients.editor.from('task_comments').delete().eq('id', res.data?.id).select();
+    rec('the author deletes their own comment', !res.error && res.data?.length === 1);
+
+    // ---- notifications: real rows, the right people, once -------------------------------------------
+    console.log('  -- notifications');
+    const mine = async (who, extra = (q) => q) => (await extra(clients[who].from('notifications').select('*').order('created_at', { ascending: false }).order('id', { ascending: false }))).data ?? [];
+    let nq = (await mine('qc')).filter((n) => n.task_id === t10);
+    rec('the mentioned QC specialist has a "mention" notification with the comment text', nq.some((n) => n.kind === 'mention' && n.data.comment_id === c1.id && n.data.snippet?.startsWith('Hi @E2E qc')), JSON.stringify(nq.map((n) => n.kind)));
+    rec('...exactly one for that comment even after the edit', nq.filter((n) => n.kind === 'mention' && n.data.comment_id === c1.id).length === 1);
+    rec('the admin and (through the edit) the production manager were notified once each',
+      (await mine('admin')).filter((n) => n.kind === 'mention' && n.data.comment_id === c1.id).length === 1
+      && (await mine('pm')).filter((n) => n.kind === 'mention' && n.data.comment_id === c1.id).length === 1);
+    rec('the assigned editor and QC reviewer were told about the assignment', (await mine('editor')).some((n) => n.kind === 'assigned' && n.task_id === t10) && nq.some((n) => n.kind === 'assigned'));
+    rec('the author was not notified of their own comment', !(await mine('editor')).some((n) => n.data.comment_id === c1.id));
+    rec('the client viewer has no notifications at all', (await mine('client')).length === 0);
+    rec('the outsider has no notifications at all', (await mine('stranger')).length === 0);
+    rec('someone who is not in the conversation has none for it', !(await mine('editor2')).some((n) => n.task_id === t10 && n.kind !== 'mention'));
+    res = await clients.qc.from('notifications').select('id').eq('user_id', U.editor.id);
+    noRows("a person cannot read a colleague's notifications by asking for them", res);
+    res = await clients.owner.from('notifications').select('id').eq('user_id', U.editor.id);
+    noRows('...not even an owner can', res);
+    res = await anon.from('notifications').select('id');
+    rec('anon cannot read notifications', !!res.error);
+    res = await clients.qc.from('notifications').insert({ user_id: U.editor.id, workspace_id: ws, task_id: t10, kind: 'mention', dedupe_key: 'forged' });
+    rec('nobody can create a notification through the API', !!res.error);
+    res = await clients.qc.from('notifications').delete().eq('user_id', U.qc.id).select();
+    rec('...or delete one', !!res.error || (res.data ?? []).length === 0);
+    const qn = nq.find((n) => n.kind === 'mention');
+    for (const col of [{ kind: 'comment' }, { user_id: U.editor.id }, { task_id: tB10 }, { data: {} }, { dedupe_key: 'x' }, { actor_id: null }]) {
+      res = await clients.qc.from('notifications').update(col).eq('id', qn.id).select();
+      rec(`the recipient cannot change ${Object.keys(col)[0]} of a notification`, !!res.error, JSON.stringify(res.error));
+    }
+    res = await clients.editor.from('notifications').update({ read_at: new Date().toISOString() }).eq('id', qn.id).select();
+    rec("a colleague cannot mark someone else's notification read", !res.error && (res.data ?? []).length === 0);
+    const head = await clients.qc.from('notifications').select('id', { count: 'exact', head: true }).is('read_at', null);
+    rec('the unread count works as a cheap head query', !head.error && head.count >= 2, JSON.stringify(head.error ?? head.count));
+    res = await clients.qc.from('notifications').update({ read_at: '2001-01-01T00:00:00Z' }).eq('id', qn.id).select().single();
+    rec('the recipient marks one read; the time is the server\'s', !res.error && new Date(res.data.read_at).getFullYear() >= 2026, res.error?.message ?? String(res.data?.read_at));
+    res = await clients.qc.from('notifications').update({ read_at: null }).eq('id', qn.id).select().single();
+    rec('...and can mark it unread again', !res.error && res.data.read_at === null);
+    // keyset paging against the real PostgREST (the .or() filter on a microsecond timestamp)
+    const all = await mine('qc');
+    const first = all.slice(0, 2);
+    const cur = first[first.length - 1];
+    res = await clients.qc.from('notifications').select('id').order('created_at', { ascending: false }).order('id', { ascending: false })
+      .or(`created_at.lt.${cur.created_at},and(created_at.eq.${cur.created_at},id.lt.${cur.id})`).limit(500);
+    const expectedRest = all.slice(2).map((n) => n.id);
+    rec('keyset paging returns exactly the rows after the cursor, none repeated, none skipped', !res.error && JSON.stringify((res.data ?? []).map((n) => n.id)) === JSON.stringify(expectedRest), res.error?.message ?? `${(res.data ?? []).length} vs ${expectedRest.length}`);
+    res = await clients.qc.from('notifications').update({ read_at: new Date().toISOString() }).is('read_at', null).select('id');
+    rec('mark-all-read touches only the recipient\'s rows', !res.error && (res.data ?? []).length >= 1);
+    rec('...and the editor\'s unread notifications are untouched', (await mine('editor')).some((n) => n.read_at === null));
+
+    // a stage change notifies the people working on the task, never the person who made it
+    res = await clients.pm.from('tasks').update({ review_link: 'https://app.frame.io/r/p10' }).eq('id', t10);
+    res = await clients.pm.rpc('transition_task', { p_task_id: t10, p_to: 'ASSIGNED' });
+    res = await clients.editor.rpc('transition_task', { p_task_id: t10, p_to: 'STARTED_EDITING' });
+    rec('the editor starts editing', !res.error, JSON.stringify(res.error));
+    nq = (await mine('qc')).filter((n) => n.task_id === t10 && n.kind === 'status');
+    rec('the QC reviewer was told, naming the new stage and who moved it', nq.some((n) => n.data.to === 'STARTED_EDITING' && n.actor_id === U.editor.id));
+    { const own = (await mine('editor')).filter((n) => n.kind === 'status' && n.task_id === t10); rec('the editor was not notified of their own move', !own.some((n) => n.data.to === 'STARTED_EDITING'), JSON.stringify(own.map((n) => ({ to: n.data.to, actor: n.actor_id === U.editor.id ? 'editor' : n.actor_id === U.pm.id ? 'pm' : n.actor_id, task: n.task_id === t10 ? 't10' : 'other' })))); }
+    a = await feed('editor', t10);
+    rec('the stage move is NOT copied into the activity log (the status history is its record)', !a.some((x) => JSON.stringify(x.data).includes('STARTED_EDITING')));
+    res = await clients.editor.from('task_status_events').select('to_status').eq('task_id', t10).order('created_at', { ascending: false }).limit(1);
+    rec('...the status history has it', res.data?.[0]?.to_status === 'STARTED_EDITING');
+
+    // ---- realtime: the bell updates live -----------------------------------------------------------
+    console.log('  -- realtime');
+    {
+      const got = [];
+      const sys = [];
+      const chan = clients.editor.channel(`e2e-notif-${RUN}`).on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'notifications', filter: `user_id=eq.${U.editor.id}` }, (p) => got.push(p.new)).on('system', {}, (m) => sys.push(`${m.status}:${m.message}`));
+      const subscribed = await new Promise((resolve) => {
+        const t = setTimeout(() => resolve('TIMEOUT'), 15000);
+        chan.subscribe((status) => { if (['SUBSCRIBED', 'CHANNEL_ERROR', 'TIMED_OUT', 'CLOSED'].includes(status)) { clearTimeout(t); resolve(status); } });
+      });
+      rec('the realtime channel subscribes', subscribed === 'SUBSCRIBED', String(subscribed));
+      if (subscribed === 'SUBSCRIBED') {
+        await new Promise((r) => setTimeout(r, 1500));
+        res = await clients.pm.from('task_comments').insert({ task_id: t10, body: `Live check ${tokenFor('E2E editor', U.editor.id)} ${RUN}` }).select().single();
+        const liveId = res.data?.id;
+        const arrived = await new Promise((resolve) => {
+          const started = Date.now();
+          const tick = setInterval(() => {
+            if (got.some((n) => n.data?.comment_id === liveId) || Date.now() - started > 15000) { clearInterval(tick); resolve(got.some((n) => n.data?.comment_id === liveId)); }
+          }, 200);
+        });
+        rec('a new mention reaches the recipient\'s open page live (Realtime, RLS applied)', arrived, `${got.length} events; row stored: ${(await clients.editor.from('notifications').select('id').eq('task_id', t10).filter('data->>comment_id', 'eq', liveId)).data?.length}; system: ${sys.join(' | ')}`);
+        rec('...and only rows addressed to them', got.every((n) => n.user_id === U.editor.id));
+      }
+      await clients.editor.removeChannel(chan);
+      const gotOther = [];
+      const chan2 = clients.stranger.channel(`e2e-notif-s-${RUN}`).on('postgres_changes', { event: '*', schema: 'public', table: 'notifications' }, (p) => gotOther.push(p));
+      await new Promise((resolve) => { chan2.subscribe((s) => { if (['SUBSCRIBED', 'CHANNEL_ERROR', 'TIMED_OUT', 'CLOSED'].includes(s)) resolve(s); }); setTimeout(resolve, 8000); });
+      await clients.pm.from('task_comments').insert({ task_id: t10, body: `Another live check ${tokenFor('E2E qc', U.qc.id)} ${RUN}` });
+      await new Promise((r) => setTimeout(r, 4000));
+      rec('an outsider listening to the whole table receives nothing', gotOther.length === 0, `${gotOther.length} events`);
+      await clients.stranger.removeChannel(chan2);
+    }
+
+    // ---- private attachments through the real Storage API ----------------------------------------------
+    console.log('  -- attachments (real private bucket)');
+    const tokenOf = async (who) => (who === 'anon' ? KEY : (await clients[who].auth.getSession()).data.session.access_token);
+    // the same request the app builds (src/database/collaboration.ts buildUploadRequest)
+    const put = async (who, objPath, bytes, type = 'application/pdf', upsert = false) => {
+      const r = await fetch(`${URL_}/storage/v1/object/task-attachments/${objPath}`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${await tokenOf(who)}`, apikey: KEY, 'Content-Type': type, 'Cache-Control': 'max-age=3600', 'x-upsert': String(upsert) },
+        body: bytes,
+      });
+      const text = await r.text();
+      if (r.ok) trackedObjects.push({ who, path: objPath });
+      return { status: r.status, ok: r.ok, text };
+    };
+    const pdfBytes = new TextEncoder().encode(`%PDF-1.4\n% e2e ${RUN} ${'x'.repeat(2000)}\n%%EOF`);
+    const newPath = (task = t10, wsId = ws, file = 'cut-notes.pdf') => { const id = crypto.randomUUID(); return { id, path: `${wsId}/${task}/${id}/${file}` }; };
+
+    let p = newPath();
+    res = await put('editor', p.path, pdfBytes);
+    rec('the assigned editor uploads a PDF into the task\'s folder', res.ok, `${res.status} ${res.text}`);
+    const mainFile = p;
+    for (const who of ['owner', 'admin', 'pm', 'qc']) {
+      p = newPath();
+      res = await put(who, p.path, pdfBytes);
+      rec(`${who} can upload to any task`, res.ok, `${res.status} ${res.text}`);
+    }
+    p = newPath();
+    res = await put('editor2', p.path, pdfBytes);
+    rec('an editor NOT assigned to the task cannot upload to it', !res.ok, `${res.status}`);
+    for (const who of ['client', 'stranger', 'anon']) {
+      p = newPath();
+      res = await put(who, p.path, pdfBytes);
+      rec(`${who} cannot upload`, !res.ok, `${res.status}`);
+    }
+    p = newPath(foreignTask, wsB);
+    res = await put('editor', p.path, pdfBytes);
+    rec("cannot upload into another workspace's task folder", !res.ok, `${res.status}`);
+    p = newPath(foreignTask, ws);
+    res = await put('pm', p.path, pdfBytes);
+    rec("cannot claim this workspace's folder for another workspace's task", !res.ok, `${res.status}`);
+    for (const [label, bad] of [['a path without the structure', `loose/${crypto.randomUUID()}.pdf`], ['a traversal path', `${ws}/${t10}/${crypto.randomUUID()}/../x.pdf`], ['an upper-case id', `${ws.toUpperCase()}/${t10}/${crypto.randomUUID()}/f.pdf`]]) {
+      res = await put('pm', bad, pdfBytes);
+      rec(`${label} is refused`, !res.ok, `${res.status}`);
+    }
+    p = newPath();
+    res = await put('pm', p.path, new TextEncoder().encode('<script>alert(1)</script>'), 'text/html');
+    rec('HTML is refused by the bucket (type allow-list)', !res.ok, `${res.status} ${res.text}`);
+    p = newPath(t10, ws, 'logo.svg');
+    res = await put('pm', p.path, new TextEncoder().encode('<svg onload="alert(1)"/>'), 'image/svg+xml');
+    rec('SVG is refused (it can carry script)', !res.ok, `${res.status}`);
+    p = newPath(t10, ws, 'run.exe');
+    res = await put('pm', p.path, new Uint8Array(100), 'application/x-msdownload');
+    rec('an executable is refused', !res.ok, `${res.status}`);
+    p = newPath(t10, ws, 'big.zip');
+    res = await put('pm', p.path, new Uint8Array(26 * 1024 * 1024 + 1), 'application/zip');
+    rec('a file over 25 MB is refused by the bucket', !res.ok, `${res.status} ${res.text.slice(0, 120)}`);
+    res = await put('editor', mainFile.path, pdfBytes);
+    rec('uploading to the same path again is refused (no overwrite)', !res.ok, `${res.status}`);
+    res = await put('editor', mainFile.path, new TextEncoder().encode('%PDF-evil'), 'application/pdf', true);
+    rec('...even with upsert (there is no update policy)', !res.ok, `${res.status}`);
+
+    // the record
+    const addRow = (who, file, o = {}) => clients[who].from('task_attachments').insert({
+      id: file.id, task_id: o.task ?? t10, file_name: o.name ?? 'Cut notes.pdf', storage_path: file.path, mime_type: o.mime ?? 'application/zip', size_bytes: o.size ?? 1,
+      ...(o.by ? { uploaded_by: o.by } : {}),
+    }).select().single();
+    res = await addRow('editor', mainFile, { by: U.owner.id });
+    const row1 = res.data;
+    rec('the uploader records the attachment', !res.error && !!row1, JSON.stringify(res.error));
+    rec('...size and type were read back from the stored object, not taken from the client (claimed 1 byte, zip)', row1?.mime_type === 'application/pdf' && Number(row1?.size_bytes) === pdfBytes.length, JSON.stringify([row1?.mime_type, row1?.size_bytes, pdfBytes.length]));
+    rec('...a forged uploader was replaced', row1?.uploaded_by === U.editor.id && row1?.workspace_id === ws);
+    p = newPath();
+    res = await addRow('pm', p);
+    rec('a record for a file that was never uploaded is refused', !!res.error, JSON.stringify(res.error));
+    p = newPath();
+    await put('pm', p.path, pdfBytes);
+    res = await addRow('pm', { id: crypto.randomUUID(), path: p.path });
+    rec('the record id must match the id in the path', !!res.error);
+    res = await addRow('pm', p, { task: tB10 });
+    rec('a record cannot point a file at a different task', !!res.error);
+    res = await addRow('editor2', p);
+    rec('an editor not assigned to the task cannot record one', !!res.error);
+    for (const who of ['client', 'stranger']) {
+      res = await addRow(who, p);
+      rec(`${who} cannot record one`, !!res.error);
+    }
+    res = await anon.from('task_attachments').insert({ task_id: t10, file_name: 'a.pdf', storage_path: 'x', mime_type: 'application/pdf', size_bytes: 1 });
+    rec('anon cannot record one', !!res.error);
+    for (const bad of ['a/b.pdf', 'a\\b.pdf', 'x'.repeat(181)]) {
+      const q2 = newPath();
+      await put('pm', q2.path, pdfBytes);
+      res = await addRow('pm', q2, { name: bad });
+      rec(`a file name like ${JSON.stringify(bad.length > 12 ? bad.slice(0, 6) + '…' : bad)} is refused`, !!res.error);
+    }
+    res = await addRow('pm', p, { name: 'Résumé of the cut — v2.pdf' });
+    const row2 = res.data;
+    const row2File = p;
+    rec('a normal display name with spaces and accents is fine', !res.error && !!row2, JSON.stringify(res.error));
+    res = await clients.editor.from('task_attachments').update({ file_name: 'renamed.pdf' }).eq('id', row1.id).select();
+    rec('a record cannot be edited, even by its uploader', !!res.error || (res.data ?? []).length === 0);
+    a = await feed('pm', t10);
+    rec('attaching wrote "attachment_added" entries naming the files', a.filter((x) => x.kind === 'attachment_added').length >= 2 && a.some((x) => x.data.file_name === 'Cut notes.pdf'));
+
+    // reading: signed links, only for people the database lets read
+    const fetchSigned = async (who, file) => {
+      const r = await clients[who].storage.from('task-attachments').createSignedUrl(file.path, 60);
+      if (r.error || !r.data?.signedUrl) return { error: r.error };
+      const f = await fetch(r.data.signedUrl);
+      return { status: f.status, bytes: new Uint8Array(await f.arrayBuffer()), type: f.headers.get('content-type') };
+    };
+    for (const who of ['owner', 'admin', 'pm', 'qc', 'editor', 'editor2']) {
+      const got1 = await fetchSigned(who, mainFile);
+      rec(`${who} opens the file through a signed link and gets the exact bytes`, got1.status === 200 && got1.bytes?.length === pdfBytes.length && Buffer.compare(Buffer.from(got1.bytes), Buffer.from(pdfBytes)) === 0, JSON.stringify(got1.error ?? got1.status));
+    }
+    for (const who of ['client', 'stranger']) {
+      const g = await fetchSigned(who, mainFile);
+      rec(`${who} cannot get a signed link to it`, !!g.error, `${g.status}`);
+    }
+    {
+      const r = await clients.editor.storage.from('task-attachments').createSignedUrl(mainFile.path, 60, { download: 'Cut notes.pdf' });
+      const f = await fetch(r.data.signedUrl);
+      rec('a download link asks the browser to save it under the file\'s own name', /attachment/i.test(f.headers.get('content-disposition') ?? ''), f.headers.get('content-disposition') ?? 'no header');
+    }
+    for (const [label, url, headers] of [
+      ['the public URL', `${URL_}/storage/v1/object/public/task-attachments/${mainFile.path}`, {}],
+      ['the authenticated URL without a token', `${URL_}/storage/v1/object/authenticated/task-attachments/${mainFile.path}`, { apikey: KEY }],
+      ['the object URL with only the anon key', `${URL_}/storage/v1/object/task-attachments/${mainFile.path}`, { apikey: KEY, Authorization: `Bearer ${KEY}` }],
+    ]) {
+      const f = await fetch(url, { headers });
+      rec(`${label} does not serve the file (the bucket is private)`, f.status >= 400, `${f.status}`);
+    }
+    {
+      const f = await fetch(`${URL_}/storage/v1/object/authenticated/task-attachments/${mainFile.path}`, { headers: { apikey: KEY, Authorization: `Bearer ${await tokenOf('stranger')}` } });
+      rec('an outsider\'s own token does not serve it either', f.status >= 400, `${f.status}`);
+    }
+    for (const who of ['client', 'stranger']) {
+      const l = await clients[who].storage.from('task-attachments').list(`${ws}/${t10}`);
+      rec(`${who} cannot list the folder`, !!l.error || (l.data ?? []).length === 0, JSON.stringify(l.data?.length));
+    }
+    // an upload nobody recorded is not a leak
+    p = newPath();
+    await put('editor', p.path, pdfBytes);
+    const orphan = p;
+    const og = await fetchSigned('editor2', orphan);
+    rec('a file that was uploaded but never recorded cannot be opened by other staff', !!og.error, `${og.status}`);
+    const oo = await fetchSigned('editor', orphan);
+    rec('...but its uploader can still reach it (to finish or clean up)', oo.status === 200);
+    const om = await fetchSigned('pm', orphan);
+    rec('...and so can a manager', om.status === 200);
+
+    // deleting
+    res = await clients.editor2.from('task_attachments').delete().eq('id', row1.id).select();
+    rec("an unassigned editor cannot delete someone else's attachment record", !!res.error || (res.data ?? []).length === 0);
+    let rm = await clients.editor2.storage.from('task-attachments').remove([mainFile.path]);
+    rec('...nor the stored file', !rm.error ? (rm.data ?? []).length === 0 : true);
+    res = await clients.qc.from('task_attachments').delete().eq('id', row1.id).select();
+    rec("QC cannot delete someone else's attachment either", !!res.error || (res.data ?? []).length === 0);
+    for (const who of ['client', 'stranger']) {
+      res = await clients[who].from('task_attachments').delete().eq('id', row1.id).select();
+      rec(`${who} cannot delete it`, !!res.error || (res.data ?? []).length === 0);
+    }
+    rec('...it and its file are still there', (await fetchSigned('pm', mainFile)).status === 200
+      && ((await clients.pm.from('task_attachments').select('id').eq('id', row1.id)).data ?? []).length === 1);
+    res = await clients.editor.from('task_attachments').delete().eq('id', row1.id).select();
+    rm = await clients.editor.storage.from('task-attachments').remove([mainFile.path]);
+    rec('the uploader deletes their own attachment (record, then the file)', !res.error && res.data?.length === 1 && !rm.error && (rm.data ?? []).length === 1, JSON.stringify([res.error, rm.error]));
+    rec('...the file is really gone', !!(await fetchSigned('pm', mainFile)).error || (await fetchSigned('pm', mainFile)).status >= 400);
+    a = await feed('pm', t10);
+    rec('...and "attachment_removed" was recorded', a.some((x) => x.kind === 'attachment_removed' && x.data.file_name === 'Cut notes.pdf'));
+    res = await clients.admin.from('task_attachments').delete().eq('id', row2.id).select();
+    rm = await clients.admin.storage.from('task-attachments').remove([row2File.path]);
+    rec('a manager can delete anyone\'s attachment', !res.error && res.data?.length === 1 && !rm.error && (rm.data ?? []).length === 1, JSON.stringify([res.error, rm.error]));
+    rm = await clients.editor.storage.from('task-attachments').remove([orphan.path]);
+    rec('the abandoned upload is cleaned up by its uploader', !rm.error && (rm.data ?? []).length === 1);
+    // an editor who is no longer assigned loses the right to attach
+    await clients.pm.rpc('set_task_assignee', { p_task_id: t10, p_role_type: 'EDITOR', p_user_id: null });
+    p = newPath();
+    res = await put('editor', p.path, pdfBytes);
+    rec('an editor who is un-assigned can no longer upload', !res.ok, `${res.status}`);
+    a = await feed('pm', t10);
+    rec('...un-assigning is on the record', a.some((x) => x.kind === 'unassigned' && x.data.user_id === U.editor.id));
+    await clients.pm.rpc('set_task_assignee', { p_task_id: t10, p_role_type: 'EDITOR', p_user_id: U.editor.id });
+    rec('re-assigning the same person is a NEW notification, not a duplicate',
+      (await mine('editor')).filter((n) => n.kind === 'assigned' && n.task_id === t10).length === 2);
+
+    // ---- cascade: deleting a task with everything attached ---------------------------------------
+    console.log('  -- cascade');
+    const t11 = await mkTask(`P10 doomed ${RUN}`, { editor: U.editor.id, qc: U.qc.id });
+    await clients.pm.from('task_comments').insert({ task_id: t11, body: `bye ${tokenFor('E2E qc', U.qc.id)}` });
+    p = newPath(t11);
+    await put('pm', p.path, pdfBytes);
+    await addRow('pm', p, { task: t11, name: 'doomed.pdf' });
+    res = await clients.pm.from('tasks').delete().eq('id', t11).select();
+    rec('deleting a task with comments, a file, activity and notifications succeeds', !res.error && res.data?.length === 1, JSON.stringify(res.error));
+    const leftover = await Promise.all(['task_comments', 'task_attachments', 'task_activity', 'notifications'].map(async (t) => (await clients.pm.from(t).select('id').eq('task_id', t11)).data?.length ?? -1));
+    rec('...and all four are gone with it', leftover.every((n) => n === 0), leftover.join());
+    // the app removes the file itself after the task is gone
+    rm = await clients.pm.storage.from('task-attachments').remove([p.path]);
+    rec('...and the stored file can be removed afterwards by the manager', !rm.error && (rm.data ?? []).length === 1);
+    grantRefusals = grantsBefore10;
+
   }
 
   console.log('\n== Deactivation (flag flipped by the service owner) ==');
@@ -1250,6 +1695,7 @@ VALUES (gen_random_uuid(), '${u.id}', '${u.id}', jsonb_build_object('sub','${u.i
   res = await clients.editor.from('tasks').select('id');
   rec('re-activated user regains access', res.data?.length >= 1);
 
+  await removeTrackedObjects(); // while the managers are still members of the workspace
   console.log('\n== Deletes ==');
   res = await clients.admin.from('workspaces').delete().eq('id', ws).select();
   noRows('admin cannot delete the workspace', res);
@@ -1257,21 +1703,28 @@ VALUES (gen_random_uuid(), '${u.id}', '${u.id}', jsonb_build_object('sub','${u.i
   rec('owner deletes workspace (cascade passes last-owner guard)', !res.error && res.data?.length === 1, res.error?.message);
   res = await clients.owner.from('tasks').select('id').eq('workspace_id', ws);
   noRows('cascade removed the tasks', res);
+  {
+    const left = runSqlJson(`SELECT (SELECT count(*) FROM public.task_comments WHERE workspace_id = '${ws}') AS c, (SELECT count(*) FROM public.task_attachments WHERE workspace_id = '${ws}') AS a,
+      (SELECT count(*) FROM public.task_activity WHERE workspace_id = '${ws}') AS h, (SELECT count(*) FROM public.notifications WHERE workspace_id = '${ws}') AS n;`);
+    rec('deleting the workspace cascaded through comments, attachment records, activity and notifications', left.c === 0 && left.a === 0 && left.h === 0 && left.n === 0, JSON.stringify(left));
+  }
 } catch (e) {
   fail++; failures.push('SCRIPT ERROR ' + e.message);
   console.log('SCRIPT ERROR:', e.message);
 }
+try { await removeTrackedObjects(); } catch (e) { console.log('FILE CLEANUP ERROR:', e.message); }
 let clean = false;
 try { clean = cleanup(); } catch (e) { console.log('CLEANUP ERROR:', e.message, '\nRun again with --cleanup-only.'); }
 if (!clean) { fail++; failures.push('cleanup could not be verified'); }
 try {
   const after = runSqlJson(TASK_TABLE_COUNTS_SQL);
-  const same = ['tasks', 'task_assignees', 'subtasks', 'task_status_events', 'workflows', 'workflow_statuses', 'workflow_transitions', 'task_production_credits'].every((k) => after[k] === BASELINE[k]);
-  console.log(`Task tables before the run: ${JSON.stringify(BASELINE)}; after cleanup: ${JSON.stringify(after)}`);
+  const same = ['tasks', 'task_assignees', 'subtasks', 'task_status_events', 'workflows', 'workflow_statuses', 'workflow_transitions', 'task_production_credits', 'task_comments', 'task_attachments', 'task_activity', 'notifications', 'stored_files'].every((k) => after[k] === BASELINE[k]);
+  console.log(`Task, collaboration and file counts before the run: ${JSON.stringify(BASELINE)}; after cleanup: ${JSON.stringify(after)}`);
   if (!same) { fail++; failures.push(`task tables changed: before ${JSON.stringify(BASELINE)}, after ${JSON.stringify(after)}`); }
 } catch (e) { fail++; failures.push('could not verify the task tables after cleanup: ' + e.message); }
 if (grantRefusals > 0) { fail++; failures.push(`${grantRefusals} signed-in request(s) were refused for missing table GRANTs (not RLS)`); }
 console.log(`\ngrant-level refusals for signed-in users: ${grantRefusals}`);
+if (grantRefusals) console.log('  ' + [...new Set(refusalLog)].join('\n  '));
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail) console.log('FAILURES:\n' + failures.join('\n'));
 process.exit(fail ? 1 : 0);

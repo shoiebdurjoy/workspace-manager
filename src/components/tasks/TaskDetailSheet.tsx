@@ -41,6 +41,7 @@ import {
 import { isFinishedStatus } from '@/lib/workflow';
 import { useWorkflow } from '@/hooks/use-workflow';
 import type { AspectRatio, AssigneeRole, HierarchyFolder, HierarchyList, HierarchySpace, TaskPriority } from '@/types/database';
+import TaskCollaboration from '@/components/collaboration/TaskCollaboration';
 import BriefEditor from './BriefEditor';
 import DatePicker, { DateValue } from './DatePicker';
 import DeleteTaskDialog from './DeleteTaskDialog';
@@ -101,9 +102,8 @@ const Section: React.FC<{ title: string; aside?: React.ReactNode; children: Reac
  * go; everything they may not change is plain text, never a control that looks editable and then
  * fails. The database (RLS + guard triggers) is still the only real enforcement.
  *
- * Extension point: comments, attachments, activity and QC history (later phases) are added as
- * further <Section>s below the checklist, or as tabs around the body, without touching the fields
- * above them. Nothing is simulated for them here.
+ * Below the checklist, "Discussion" holds the task's comments, files and activity (Phase 10), all real
+ * rows the database owns; the open tab and a linked comment live in the address (?tab=, ?comment=).
  */
 const TaskDetailSheet: React.FC<TaskDetailSheetProps> = ({ taskId, space, folder, list, orderedIds: visibleOrder, onClose, taskPath, listFallback = true }) => {
   const navigate = useNavigate();
@@ -428,6 +428,10 @@ const TaskDetailSheet: React.FC<TaskDetailSheetProps> = ({ taskId, space, folder
 
           <Section title="Subtasks">
             <SubtaskChecklist taskId={task.id} subtasks={task.subtasks} access={access} />
+          </Section>
+
+          <Section title="Discussion">
+            <TaskCollaboration taskId={task.id} isAssignedEditor={!!user && task.editorId === user.id} />
           </Section>
 
           <footer className="border-t border-border/70 pt-4 text-[11px] text-muted-foreground">

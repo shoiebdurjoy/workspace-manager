@@ -32,6 +32,31 @@ const BOOTSTRAP = `
     $$ SELECT nullif(current_setting('request.jwt.claim.sub', true), '')::uuid $$;
   GRANT USAGE ON SCHEMA auth, public, extensions TO anon, authenticated, service_role;
   GRANT EXECUTE ON FUNCTION auth.uid() TO anon, authenticated, service_role;
+  -- A stand-in for Supabase Storage's tables (the real Storage API fills owner_id from the caller's token
+  -- and metadata from the bytes it actually stored; the trigger below mimics the first, tests supply the second).
+  CREATE SCHEMA storage;
+  CREATE TABLE storage.buckets (
+    id text PRIMARY KEY, name text NOT NULL, public boolean DEFAULT false,
+    file_size_limit bigint, allowed_mime_types text[]
+  );
+  CREATE TABLE storage.objects (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    bucket_id text REFERENCES storage.buckets(id),
+    name text NOT NULL,
+    owner uuid,
+    owner_id text,
+    metadata jsonb,
+    created_at timestamptz DEFAULT now(),
+    UNIQUE (bucket_id, name)
+  );
+  ALTER TABLE storage.objects ENABLE ROW LEVEL SECURITY;
+  CREATE FUNCTION storage.stamp_owner() RETURNS trigger LANGUAGE plpgsql AS
+    $$ BEGIN NEW.owner_id := auth.uid()::text; RETURN NEW; END $$;
+  CREATE TRIGGER trg_stamp_owner BEFORE INSERT ON storage.objects FOR EACH ROW EXECUTE FUNCTION storage.stamp_owner();
+  GRANT USAGE ON SCHEMA storage TO anon, authenticated, service_role;
+  GRANT SELECT, INSERT, DELETE ON storage.objects TO authenticated;
+  GRANT ALL ON storage.objects, storage.buckets TO service_role;
+  GRANT SELECT ON storage.buckets TO authenticated;
   -- Mirrors the live tbb-workspace project: objects created by the migration role get
   -- NO automatic grants for anon/authenticated/service_role (verified in pg_default_acl).
   -- Every privilege the app needs must therefore be granted explicitly by a migration.
@@ -1404,6 +1429,508 @@ console.log('\n== Phase 9: database-side task search, filters and sorting ==');
   record('searching changes nothing', after[0].n === 6);
 }
 
+console.log('\n== Phase 10: comments, attachments, activity and notifications ==');
+{
+  const editor2 = (await svc(`SELECT id FROM auth.users WHERE email = 'editor2@tbb.test'`))[0].id;
+  const uuid = async () => (await svc(`SELECT gen_random_uuid() AS u`))[0].u;
+  const n = async (sql, params = []) => Number((await svc(`SELECT count(*) AS n FROM (${sql}) x`, params))[0].n);
+  const mention = (name, id) => `@[${name}](${id})`;
+  const kinds = async (task) => (await svc(`SELECT kind FROM public.task_activity WHERE task_id = $1 ORDER BY created_at, id`, [task])).map((x) => x.kind);
+
+  const ct = (await svc(`INSERT INTO public.tasks (list_id, title) VALUES ($1, 'P10 collaboration task') RETURNING id`, [list]))[0].id;
+  // a task in the other workspace, to prove nothing crosses over
+  const foreign = (await svc(`INSERT INTO public.tasks (workspace_id, list_id, title) VALUES ($1, $2, 'P10 foreign task') RETURNING id`, [wsB, listB]))[0].id;
+
+  // ---- activity: real events only -------------------------------------------------------------------
+  console.log('  -- activity');
+  record('creating a task wrote one "created" entry', (await kinds(ct)).join() === 'created');
+  await svc(`INSERT INTO public.task_assignees (task_id, role_type, user_id) VALUES ($1,'EDITOR',$2), ($1,'QC_REVIEWER',$3)`, [ct, editor, qc]);
+  record('assigning an editor and a QC reviewer wrote two "assigned" entries', (await kinds(ct)).join() === 'created,assigned,assigned');
+  r = await svc(`SELECT data FROM public.task_activity WHERE task_id = $1 AND kind = 'assigned' ORDER BY created_at, id`, [ct]);
+  record('...saying who and in which role', r.some((x) => x.data.role_type === 'EDITOR' && x.data.user_id === editor) && r.some((x) => x.data.role_type === 'QC_REVIEWER' && x.data.user_id === qc));
+  await svc(`UPDATE public.tasks SET position = 7 WHERE id = $1`, [ct]);
+  record('a change nobody would call an edit (position) writes nothing', (await kinds(ct)).length === 3);
+  await svc(`UPDATE public.tasks SET title = 'P10 collaboration task v2', priority = 'HIGH' WHERE id = $1`, [ct]);
+  r = await svc(`SELECT data FROM public.task_activity WHERE task_id = $1 AND kind = 'updated'`, [ct]);
+  const ch = r[0]?.data.changes ?? [];
+  record('editing title and priority wrote ONE "updated" entry with both changes', r.length === 1 && ch.length === 2
+    && ch.some((c) => c.field === 'title' && c.from === 'P10 collaboration task' && c.to === 'P10 collaboration task v2')
+    && ch.some((c) => c.field === 'priority' && c.from === 'MEDIUM' && c.to === 'HIGH'));
+  await svc(`UPDATE public.tasks SET description = 'a secret brief', review_link = 'https://app.frame.io/r/p10' WHERE id = $1`, [ct]);
+  r = await svc(`SELECT data FROM public.task_activity WHERE task_id = $1 AND kind = 'updated' ORDER BY created_at DESC, id LIMIT 1`, [ct]);
+  record('long text and links only record THAT they changed, never their content', JSON.stringify(r[0].data).indexOf('secret brief') === -1
+    && JSON.stringify(r[0].data).indexOf('frame.io') === -1 && r[0].data.changes.every((c) => c.changed === true));
+  await svc(`UPDATE public.tasks SET title = title WHERE id = $1`, [ct]);
+  record('a save that changes nothing writes nothing', (await svc(`SELECT count(*)::int n FROM public.task_activity WHERE task_id = $1 AND kind = 'updated'`, [ct]))[0].n === 2);
+
+  for (const [name, who] of [['owner', owner], ['admin', admin], ['production manager', pm], ['QC specialist', qc], ['editor', editor]]) {
+    r = await as(who, `SELECT id FROM public.task_activity WHERE task_id = $1`, [ct]);
+    record(`${name} can read the activity feed`, !r.error && r.rows.length >= 3);
+  }
+  for (const [name, who] of [['client viewer', client], ['outsider', stranger]]) {
+    r = await as(who, `SELECT id FROM public.task_activity WHERE task_id = $1`, [ct]);
+    record(`${name} sees no activity`, !r.error && r.rows.length === 0);
+  }
+  r = await as('anon', `SELECT id FROM public.task_activity`);
+  record('anon cannot read activity', !!r.error);
+  for (const [name, who] of [['owner', owner], ['production manager', pm], ['editor', editor]]) {
+    r = await as(who, `INSERT INTO public.task_activity (task_id, workspace_id, kind) VALUES ($1, $2, 'created')`, [ct, ws]);
+    record(`${name} cannot write a fake activity entry`, !!r.error);
+  }
+  r = await as(owner, `UPDATE public.task_activity SET kind = 'created' WHERE task_id = $1 RETURNING id`, [ct]);
+  record('nobody can rewrite history (update)', !!r.error);
+  r = await as(owner, `DELETE FROM public.task_activity WHERE task_id = $1 RETURNING id`, [ct]);
+  record('nobody can erase history (delete)', !!r.error);
+  r = await as(editor, `SELECT private.log_activity($1, $2, NULL, 'created', '{}'::jsonb)`, [ct, ws]);
+  record('the activity writer is not callable from the API', !!r.error);
+
+  // ---- notifications from the events above ----------------------------------------------------------
+  console.log('  -- notifications from assignment and status');
+  const nots = (user, kind) => svc(`SELECT * FROM public.notifications WHERE user_id = $1 AND task_id = $2 ${kind ? `AND kind = '${kind}'` : ''} ORDER BY created_at, id`, [user, ct]);
+  r = await nots(editor, 'assigned');
+  record('the assigned editor was notified once', r.length === 1 && r[0].read_at === null && r[0].data.role_type === 'EDITOR' && r[0].data.title === 'P10 collaboration task');
+  r = await nots(qc, 'assigned');
+  record('the assigned QC reviewer was notified once', r.length === 1 && r[0].data.role_type === 'QC_REVIEWER');
+  record('nobody else was notified of the assignment', (await n(`SELECT 1 FROM public.notifications WHERE task_id = $1 AND kind = 'assigned'`, [ct])) === 2);
+  await svc(`UPDATE public.tasks SET status = 'ASSIGNED' WHERE id = $1`, [ct]);
+  record('a move with no actor (service role) notifies both people working on the task', (await nots(editor, 'status')).length === 1 && (await nots(qc, 'status')).length === 1);
+  r = await as(editor, `SELECT (public.transition_task($1, 'STARTED_EDITING')).status AS status`, [ct]);
+  ok('the editor starts editing', r);
+  r = await nots(qc, 'status');
+  record('the QC reviewer is told the stage changed, and by whom', r.length === 2 && r[1].data.from === 'ASSIGNED' && r[1].data.to === 'STARTED_EDITING' && r[1].actor_id === editor);
+  record('the person who made the move is not notified of their own action', (await nots(editor, 'status')).length === 1);
+  await svc(`UPDATE public.tasks SET status = 'STARTED_EDITING' WHERE id = $1`, [ct]);
+  record('re-saving the same stage creates no notification', (await nots(editor, 'status')).length === 1 && (await nots(qc, 'status')).length === 2);
+  record('a stage move writes nothing into the activity feed (task_status_events is that history)',
+    (await svc(`SELECT count(*)::int n FROM public.task_activity WHERE task_id = $1 AND kind = 'updated'`, [ct]))[0].n === 2);
+
+  // ---- comments -------------------------------------------------------------------------------------
+  console.log('  -- comments');
+  const post = (who, body, extra = '') => as(who, `INSERT INTO public.task_comments (task_id, workspace_id, author_id, body) VALUES ($1, $2, $3, $4) RETURNING *${extra}`, [ct, ws, who, body]);
+  for (const [name, who] of [['owner', owner], ['admin', admin], ['production manager', pm], ['QC specialist', qc], ['editor', editor], ['unassigned editor', editor2]]) {
+    r = await post(who, `hello from ${name}`);
+    record(`${name} can comment`, !r.error && r.rows[0]?.author_id === who && r.rows[0]?.workspace_id === ws, r.error?.message);
+  }
+  for (const [name, who] of [['client viewer', client], ['outsider', stranger]]) {
+    r = await post(who, 'let me in');
+    record(`${name} cannot comment`, !!r.error);
+    r = await as(who, `SELECT id FROM public.task_comments`);
+    record(`${name} cannot read comments`, !r.error && r.rows.length === 0);
+  }
+  r = await as('anon', `INSERT INTO public.task_comments (task_id, workspace_id, author_id, body) VALUES ($1,$2,$3,'x')`, [ct, ws, owner]);
+  record('anon cannot comment', !!r.error);
+  r = await as('anon', `SELECT id FROM public.task_comments`);
+  record('anon cannot read comments', !!r.error);
+  r = await as(editor, `INSERT INTO public.task_comments (task_id, workspace_id, author_id, body) VALUES ($1,$2,$3,'forged') RETURNING author_id`, [ct, ws, owner]);
+  record('a forged author is replaced by the signed-in person', !r.error && r.rows[0]?.author_id === editor, r.error?.message);
+  r = await as(editor, `INSERT INTO public.task_comments (task_id, workspace_id, author_id, body) VALUES ($1,$2,$3,'wrong workspace') RETURNING workspace_id`, [ct, wsB, editor]);
+  record('a forged workspace is replaced by the task\'s own', !r.error && r.rows[0]?.workspace_id === ws, r.error?.message);
+  r = await as(editor, `INSERT INTO public.task_comments (task_id, author_id, body) VALUES ($1,$2,'x')`, [foreign, editor]);
+  record("cannot comment on another workspace's task", !!r.error);
+  r = await post(editor, '   ');
+  record('an empty comment is refused', !!r.error);
+  r = await post(editor, 'x'.repeat(10001));
+  record('a comment over 10,000 characters is refused', !!r.error);
+  r = await post(editor, 'x'.repeat(10000));
+  record('...exactly 10,000 is fine', !r.error);
+  r = await as(editor, `SELECT id FROM public.task_comments WHERE task_id = $1`, [ct]);
+  record('staff see every comment on the task', !r.error && r.rows.length >= 6);
+  r = await as(editor, `SELECT id FROM public.task_comments WHERE task_id = $1`, [foreign]);
+  record("staff do not see another workspace's comments", !r.error && r.rows.length === 0);
+
+  // mentions: only verified staff of this workspace
+  console.log('  -- mentions');
+  const text = `Hi ${mention('Quentin Quill', qc)}, ${mention('Client', client)}, ${mention('Nobody', await uuid())}, ${mention('Outsider', stranger)}, ${mention('Again', qc)} and ${mention('Ada', admin)}`;
+  r = await post(editor, text);
+  const mentionsC = r.rows[0];
+  record('only active staff of this workspace become mentions (deduplicated)', !r.error && mentionsC.mentions.length === 2
+    && mentionsC.mentions.includes(qc) && mentionsC.mentions.includes(admin), JSON.stringify(mentionsC?.mentions));
+  r = await as(editor, `INSERT INTO public.task_comments (task_id, author_id, body, mentions) VALUES ($1,$2,'plain', ARRAY[$3::uuid]) RETURNING mentions`, [ct, editor, owner]);
+  record('a client-supplied mentions list is ignored', !r.error && r.rows[0].mentions.length === 0, r.error?.message);
+  r = await post(editor, `${mention('Evil', editor2)} ]( @[x](zzz) @[](${owner}) not a token`);
+  record('a malformed token mentions nobody', !r.error && r.rows[0].mentions.length === 1 && r.rows[0].mentions[0] === editor2);
+  await svc(`UPDATE public.profiles SET is_active = false WHERE id = $1`, [editor2]);
+  r = await post(editor, mention('Sleeper', editor2));
+  record('a deactivated account cannot be mentioned', !r.error && r.rows[0].mentions.length === 0);
+  await svc(`UPDATE public.profiles SET is_active = true WHERE id = $1`, [editor2]);
+
+  // mention notifications
+  const mentionNots = (user) => nots(user, 'mention');
+  r = await mentionNots(qc);
+  record('the mentioned QC specialist got exactly one mention notification for that comment',
+    r.filter((x) => x.data.comment_id === mentionsC.id).length === 1);
+  record('...with the comment text (mention tokens made readable) and the task title', (() => {
+    const x = r.find((y) => y.data.comment_id === mentionsC.id);
+    return x && x.data.snippet.startsWith('Hi @Quentin Quill, @Client') && x.data.title === 'P10 collaboration task v2' && x.actor_id === editor;
+  })());
+  record('the mentioned admin got one too', (await mentionNots(admin)).filter((x) => x.data.comment_id === mentionsC.id).length === 1);
+  record('the client viewer was NOT notified', (await svc(`SELECT 1 FROM public.notifications WHERE user_id = $1`, [client])).length === 0);
+  record('the outsider was NOT notified', (await svc(`SELECT 1 FROM public.notifications WHERE user_id = $1`, [stranger])).length === 0);
+  record('the author is never notified of their own comment', (await mentionNots(editor)).length === 0);
+  record('the QC reviewer, mentioned, did not ALSO get a plain "comment" notification for it',
+    (await nots(qc, 'comment')).filter((x) => x.data.comment_id === mentionsC.id).length === 0);
+  r = await post(pm, 'A question from the production manager');
+  const pmComment = r.rows[0];
+  record('a comment by someone else notifies the editor and the QC reviewer who work on the task',
+    (await nots(editor, 'comment')).some((x) => x.data.comment_id === pmComment.id)
+    && (await nots(qc, 'comment')).some((x) => x.data.comment_id === pmComment.id));
+  record('...and nobody who does not (admin, owner, the other editor)',
+    (await n(`SELECT 1 FROM public.notifications WHERE kind = 'comment' AND data ->> 'comment_id' = $1 AND user_id NOT IN ($2, $3)`, [pmComment.id, editor, qc])) === 0);
+  // editing: a new mention notifies once; re-saving never repeats
+  r = await as(editor, `UPDATE public.task_comments SET body = body || ' ' || $2 WHERE id = $1 RETURNING mentions, edited_at, updated_at, created_at`, [mentionsC.id, mention('Pat', pm)]);
+  record('editing a comment recomputes its mentions and stamps edited_at', !r.error && r.rows[0].mentions.length === 3 && r.rows[0].mentions.includes(pm) && r.rows[0].edited_at !== null, r.error?.message);
+  record('...the newly mentioned person is notified once', (await mentionNots(pm)).filter((x) => x.data.comment_id === mentionsC.id).length === 1);
+  await as(editor, `UPDATE public.task_comments SET body = body || ' (typo)' WHERE id = $1`, [mentionsC.id]);
+  record('...editing again does not notify anyone a second time',
+    (await mentionNots(pm)).filter((x) => x.data.comment_id === mentionsC.id).length === 1
+    && (await mentionNots(qc)).filter((x) => x.data.comment_id === mentionsC.id).length === 1);
+  r = await as(editor, `UPDATE public.task_comments SET body = $2 WHERE id = $1 RETURNING mentions`, [mentionsC.id, 'no mentions any more']);
+  record('removing a mention removes it from the comment', !r.error && r.rows[0].mentions.length === 0);
+
+  // editing and deleting: author only (+ admin delete)
+  console.log('  -- editing and deleting comments');
+  r = await as(editor, `INSERT INTO public.task_comments (task_id, author_id, body) VALUES ($1,$2,'mine') RETURNING id, created_at`, [ct, editor]);
+  const mine = r.rows[0];
+  r = await as(editor, `UPDATE public.task_comments SET body = 'mine, edited' WHERE id = $1 RETURNING body, edited_at`, [mine.id]);
+  record('the author edits their own comment', !r.error && r.rows[0]?.body === 'mine, edited' && r.rows[0].edited_at !== null);
+  for (const [name, who] of [['owner', owner], ['admin', admin], ['production manager', pm], ['another editor', editor2], ['QC specialist', qc]]) {
+    r = await as(who, `UPDATE public.task_comments SET body = 'hijack' WHERE id = $1 RETURNING id`, [mine.id]);
+    blocked(`${name} cannot edit someone else's comment`, r);
+  }
+  for (const col of ['author_id', 'task_id', 'workspace_id', 'created_at', 'edited_at', 'mentions']) {
+    const val = { author_id: `'${owner}'`, task_id: `'${foreign}'`, workspace_id: `'${wsB}'`, created_at: 'now()', edited_at: 'now()', mentions: `ARRAY['${owner}']::uuid[]` }[col];
+    r = await as(editor, `UPDATE public.task_comments SET ${col} = ${val} WHERE id = $1 RETURNING id`, [mine.id]);
+    record(`the author cannot change ${col}`, !!r.error);
+  }
+  r = await svc(`SELECT body FROM public.task_comments WHERE id = $1`, [mine.id]);
+  record('...and the text is still the author\'s', r[0].body === 'mine, edited');
+  r = await as(client, `UPDATE public.task_comments SET body = 'x' WHERE id = $1 RETURNING id`, [mine.id]);
+  record('a client viewer cannot edit', !!r.error || r.rows.length === 0);
+  for (const [name, who] of [['production manager', pm], ['another editor', editor2], ['QC specialist', qc], ['client viewer', client], ['outsider', stranger]]) {
+    r = await as(who, `DELETE FROM public.task_comments WHERE id = $1 RETURNING id`, [mine.id]);
+    blocked(`${name} cannot delete someone else's comment`, r);
+  }
+  r = await as(admin, `DELETE FROM public.task_comments WHERE id = $1 RETURNING id`, [mine.id]);
+  record('an admin can delete a comment (moderation)', !r.error && r.rows.length === 1);
+  r = await as(editor, `INSERT INTO public.task_comments (task_id, author_id, body) VALUES ($1,$2,'to delete') RETURNING id`, [ct, editor]);
+  r = await as(editor, `DELETE FROM public.task_comments WHERE id = $1 RETURNING id`, [r.rows[0].id]);
+  record('the author deletes their own comment', !r.error && r.rows.length === 1);
+  record('comment activity: one "commented" per comment posted (and none for edits)',
+    (await n(`SELECT 1 FROM public.task_activity WHERE task_id = $1 AND kind = 'commented'`, [ct])) === (await n(`SELECT 1 FROM public.task_comments WHERE task_id = $1`, [ct])) + 2);
+  r = await as(editor, `INSERT INTO public.task_comments (task_id, author_id, body) SELECT id, $1, 'bulk' FROM public.tasks WHERE id = $2 RETURNING id`, [editor, ct]);
+  ok('(an INSERT … SELECT comment is guarded the same way)', r);
+
+  // ---- notification access -------------------------------------------------------------------------
+  console.log('  -- reading and clearing notifications');
+  r = await as(qc, `SELECT id, user_id FROM public.notifications`);
+  record('a person reads only their own notifications', !r.error && r.rows.length > 0 && r.rows.every((x) => x.user_id === qc));
+  r = await as(qc, `SELECT id FROM public.notifications WHERE user_id = $1`, [editor]);
+  record("...and cannot read a colleague's even by asking for them", !r.error && r.rows.length === 0);
+  r = await as(owner, `SELECT id FROM public.notifications WHERE user_id = $1`, [editor]);
+  record('...not even an owner can', !r.error && r.rows.length === 0);
+  r = await as('anon', `SELECT id FROM public.notifications`);
+  record('anon cannot read notifications', !!r.error);
+  r = await as(qc, `INSERT INTO public.notifications (user_id, workspace_id, task_id, kind, dedupe_key) VALUES ($1,$2,$3,'mention','forged')`, [editor, ws, ct]);
+  record('nobody can create a notification through the API', !!r.error);
+  r = await as(qc, `DELETE FROM public.notifications WHERE user_id = $1 RETURNING id`, [qc]);
+  record('...or delete one', !!r.error);
+  const qcNot = (await nots(qc, 'status'))[0];
+  for (const [col, val] of [['kind', `'mention'`], ['user_id', `'${editor}'`], ['task_id', `'${foreign}'`], ['data', `'{}'::jsonb`], ['dedupe_key', `'x'`], ['created_at', 'now()'], ['actor_id', 'NULL']]) {
+    r = await as(qc, `UPDATE public.notifications SET ${col} = ${val} WHERE id = $1 RETURNING id`, [qcNot.id]);
+    record(`the recipient cannot change ${col} of a notification`, !!r.error);
+  }
+  r = await as(editor, `UPDATE public.notifications SET read_at = now() WHERE id = $1 RETURNING id`, [qcNot.id]);
+  record("a colleague cannot mark someone else's notification read", !r.error && r.rows.length === 0);
+  r = await as(qc, `UPDATE public.notifications SET read_at = '2001-01-01' WHERE id = $1 RETURNING read_at`, [qcNot.id]);
+  record('the recipient marks it read; the time is the server\'s, not a forged one', !r.error && new Date(r.rows[0].read_at).getFullYear() >= 2026, r.error?.message ?? String(r.rows[0]?.read_at));
+  const firstRead = r.rows[0]?.read_at;
+  r = await as(qc, `UPDATE public.notifications SET read_at = now() + interval '1 day' WHERE id = $1 RETURNING read_at`, [qcNot.id]);
+  record('...reading it again keeps the first read time', !r.error && +new Date(r.rows[0].read_at) === +new Date(firstRead));
+  r = await as(qc, `UPDATE public.notifications SET read_at = NULL WHERE id = $1 RETURNING read_at`, [qcNot.id]);
+  record('...and it can be marked unread again', !r.error && r.rows[0].read_at === null);
+  r = await as(qc, `UPDATE public.notifications SET read_at = now() WHERE read_at IS NULL RETURNING id`);
+  record('mark-all-read touches only the recipient\'s own rows', !r.error && r.rows.length > 0
+    && (await svc(`SELECT count(*)::int n FROM public.notifications WHERE user_id <> $1 AND read_at IS NOT NULL`, [qc]))[0].n === 0);
+  record('...and leaves nothing unread for them', (await svc(`SELECT count(*)::int n FROM public.notifications WHERE user_id = $1 AND read_at IS NULL`, [qc]))[0].n === 0);
+
+  // the writer itself: who can be notified, and only once
+  console.log('  -- who can be notified');
+  const notify = (user, key) => svc(`SELECT private.notify($1, $2, $3, NULL, 'mention', $4, '{}'::jsonb)`, [user, ws, ct, key]);
+  const countFor = (user, key) => n(`SELECT 1 FROM public.notifications WHERE user_id = $1 AND dedupe_key = $2`, [user, key]);
+  await notify(client, 'k-client');
+  record('a client viewer cannot be notified about a task (no task access)', (await countFor(client, 'k-client')) === 0);
+  await notify(stranger, 'k-stranger');
+  record('someone outside the workspace cannot be notified', (await countFor(stranger, 'k-stranger')) === 0);
+  await svc(`UPDATE public.profiles SET is_active = false WHERE id = $1`, [editor2]);
+  await notify(editor2, 'k-inactive');
+  record('a deactivated account cannot be notified', (await countFor(editor2, 'k-inactive')) === 0);
+  await svc(`UPDATE public.profiles SET is_active = true WHERE id = $1`, [editor2]);
+  r = await svc(`SELECT private.notify($1, $2, $3, NULL, 'mention', 'k-cross', '{}'::jsonb)`, [editor2, ws, foreign]);
+  record("a task from another workspace cannot be used to notify (task must belong to the workspace)", (await countFor(editor2, 'k-cross')) === 0);
+  await notify(editor2, 'k-once');
+  await notify(editor2, 'k-once');
+  record('the same event notifies a person exactly once (dedupe key)', (await countFor(editor2, 'k-once')) === 1);
+  r = await svc(`SELECT private.notify($1, $2, $3, $1, 'mention', 'k-self', '{}'::jsonb)`, [editor2, ws, ct]);
+  record('nobody is notified of their own action', (await countFor(editor2, 'k-self')) === 0);
+  r = await svc(`INSERT INTO public.notifications (user_id, workspace_id, task_id, kind, dedupe_key) VALUES ($1,$2,$3,'mention','k-once') RETURNING id`, [editor2, ws, ct]).catch((e) => ({ error: e }));
+  record('the database itself refuses a duplicate (UNIQUE user + dedupe key)', !!r.error);
+  r = await svc(`INSERT INTO public.notifications (user_id, workspace_id, task_id, kind, dedupe_key) VALUES ($1,$2,$3,'sms','k-bad') RETURNING id`, [editor2, ws, ct]).catch((e) => ({ error: e }));
+  record('only the known kinds exist', !!r.error);
+  // access is re-checked when reading: leaving the workspace hides what you were sent
+  const leaver = await mkUser('leaver@tbb.test');
+  await svc(`INSERT INTO public.workspace_members (workspace_id, user_id, role) VALUES ($1,$2,'EDITOR')`, [ws, leaver]);
+  await svc(`SELECT private.notify($1, $2, $3, NULL, 'mention', 'k-leaver', '{}'::jsonb)`, [leaver, ws, ct]);
+  record('a member receives a notification', (await as(leaver, `SELECT id FROM public.notifications`)).rows.length === 1);
+  await svc(`DELETE FROM public.workspace_members WHERE workspace_id = $1 AND user_id = $2`, [ws, leaver]);
+  record('...after leaving the workspace they can no longer read it (RLS re-checks membership)', (await as(leaver, `SELECT id FROM public.notifications`)).rows.length === 0);
+
+  // ---- attachments and storage ------------------------------------------------------------------
+  console.log('  -- attachments and storage');
+  const bucket = (await svc(`SELECT * FROM storage.buckets WHERE id = 'task-attachments'`))[0];
+  record('the bucket exists and is PRIVATE', !!bucket && bucket.public === false);
+  record('...limited to 25 MB per file', Number(bucket?.file_size_limit) === 26214400);
+  record('...and to an explicit list of file types (no HTML, SVG, scripts or executables)', Array.isArray(bucket?.allowed_mime_types)
+    && bucket.allowed_mime_types.includes('application/pdf')
+    && !['text/html', 'image/svg+xml', 'application/javascript', 'application/x-msdownload', 'application/octet-stream'].some((m) => bucket.allowed_mime_types.includes(m)));
+
+  const pathFor = async (task = ct, wsId = ws, file = 'cut-notes.pdf') => {
+    const a = await uuid();
+    return { att: a, path: `${wsId}/${task}/${a}/${file}` };
+  };
+  const upload = (who, path, meta = { size: 2048, mimetype: 'application/pdf' }, bucketId = 'task-attachments') =>
+    as(who, `INSERT INTO storage.objects (bucket_id, name, metadata) VALUES ($1, $2, $3::jsonb) RETURNING id, owner_id`, [bucketId, path, JSON.stringify(meta)]);
+  const addRow = (who, p, o = {}) =>
+    as(who, `INSERT INTO public.task_attachments (id, task_id, file_name, storage_path, mime_type, size_bytes, uploaded_by) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+      [p.att, o.task ?? ct, o.name ?? 'cut-notes.pdf', p.path, o.mime ?? 'application/pdf', o.size ?? 2048, o.by ?? who]);
+
+  // who may upload (storage policy)
+  let p = await pathFor();
+  r = await upload(editor, p.path);
+  record('an editor assigned to the task can upload into its folder', !r.error && r.rows[0].owner_id === editor, r.error?.message);
+  const mainPath = p;
+  for (const [name, who] of [['owner', owner], ['admin', admin], ['production manager', pm], ['QC specialist', qc]]) {
+    p = await pathFor();
+    r = await upload(who, p.path);
+    record(`${name} can upload to any task`, !r.error, r.error?.message);
+  }
+  p = await pathFor();
+  r = await upload(editor2, p.path);
+  record('an editor NOT assigned to the task cannot upload to it', !!r.error);
+  for (const [name, who] of [['client viewer', client], ['outsider', stranger]]) {
+    p = await pathFor();
+    r = await upload(who, p.path);
+    record(`${name} cannot upload`, !!r.error);
+  }
+  r = await as('anon', `INSERT INTO storage.objects (bucket_id, name, metadata) VALUES ('task-attachments', $1, '{}'::jsonb)`, [(await pathFor()).path]);
+  record('anon cannot upload', !!r.error);
+  p = await pathFor(foreign, wsB);
+  r = await upload(editor, p.path);
+  record("cannot upload into another workspace's task folder", !!r.error);
+  p = await pathFor(foreign, ws);
+  r = await upload(editor, p.path);
+  record("cannot claim this workspace's folder for another workspace's task", !!r.error);
+  p = await pathFor(ct, wsB);
+  r = await upload(editor, p.path);
+  record("cannot claim another workspace's folder for this workspace's task", !!r.error);
+  const a1 = await uuid();
+  for (const [label, bad] of [
+    ['a path with no file name', `${ws}/${ct}/${a1}`],
+    ['a path with only two levels', `${ws}/${ct}/file.pdf`],
+    ['a path with a traversal segment', `${ws}/${ct}/${a1}/../x.pdf`],
+    ['an upper-case id', `${ws.toUpperCase()}/${ct}/${a1}/f.pdf`],
+    ['a file name with a space', `${ws}/${ct}/${a1}/a b.pdf`],
+    ['a nested file name', `${ws}/${ct}/${a1}/sub/f.pdf`],
+    ['a path starting with a slash', `/${ws}/${ct}/${a1}/f.pdf`],
+    ['a path outside the structure', `loose/${a1}.pdf`],
+  ]) {
+    r = await upload(pm, bad);
+    record(`${label} is refused`, !!r.error);
+  }
+  await svc(`INSERT INTO storage.buckets (id, name) VALUES ('some-other-bucket', 'some-other-bucket')`);
+  p = await pathFor();
+  r = await upload(pm, p.path, { size: 10, mimetype: 'application/pdf' }, 'some-other-bucket');
+  record('the policies only cover the task-attachments bucket (a task-shaped path in another bucket gets nothing)', !!r.error);
+  p = await pathFor();
+  r = await upload(pm, p.path);
+  r = await upload(pm, p.path);
+  record('the same path cannot be uploaded twice (no overwrite)', !!r.error);
+
+  // the metadata row
+  r = await addRow(editor, mainPath, { size: 1, mime: 'application/zip' });
+  const row1 = r.rows[0];
+  record('the uploader records the attachment', !r.error && !!row1, r.error?.message);
+  record('...size and type are what Storage stored, not what the client claimed', Number(row1?.size_bytes) === 2048 && row1.mime_type === 'application/pdf', JSON.stringify([row1?.size_bytes, row1?.mime_type]));
+  record('...workspace and uploader are derived', row1?.workspace_id === ws && row1?.uploaded_by === editor);
+  p = await pathFor();
+  await upload(pm, p.path);
+  r = await addRow(pm, p, { by: owner });
+  record('a forged uploaded_by is replaced by the signed-in person', !r.error && r.rows[0].uploaded_by === pm, r.error?.message);
+  const pmRow = r.rows[0];
+  p = await pathFor();
+  r = await addRow(pm, p);
+  record('a row cannot be created for a file that was never uploaded', !!r.error);
+  p = await pathFor();
+  await upload(pm, p.path);
+  r = await addRow(pm, { att: await uuid(), path: p.path });
+  record('the row id must match the id in the path', !!r.error);
+  p = await pathFor();
+  await upload(pm, p.path);
+  r = await addRow(pm, p, { task: foreign });
+  record('a row cannot point a stored file at a different task', !!r.error);
+  p = await pathFor();
+  await upload(pm, p.path, { size: 1024, mimetype: 'text/html' });
+  r = await addRow(pm, p);
+  record('a stored file of a forbidden type (HTML) cannot be recorded, whatever the client says', !!r.error);
+  p = await pathFor();
+  await upload(pm, p.path, { size: 26214401, mimetype: 'application/pdf' });
+  r = await addRow(pm, p);
+  record('a stored file over 25 MB cannot be recorded', !!r.error);
+  p = await pathFor();
+  await upload(pm, p.path, { size: 0, mimetype: 'application/pdf' });
+  r = await addRow(pm, p);
+  record('an empty file cannot be recorded', !!r.error);
+  p = await pathFor();
+  await upload(pm, p.path);
+  for (const bad of ['a/b.pdf', 'a\\b.pdf', 'tab\there.pdf', '', 'x'.repeat(181)]) {
+    r = await addRow(pm, p, { name: bad });
+    record(`a file name like ${JSON.stringify(bad.length > 20 ? bad.slice(0, 8) + '…' : bad)} is refused`, !!r.error);
+  }
+  r = await addRow(pm, p, { name: 'Résumé of the cut — v2.pdf' });
+  record('a normal name with spaces and accents is fine (display name only; the stored name is safe)', !r.error, r.error?.message);
+  const row3 = r.rows[0];
+  p = await pathFor();
+  await upload(editor2, p.path).catch(() => undefined);
+  r = await addRow(editor2, p);
+  record('an editor not assigned cannot add a row', !!r.error);
+  for (const [name, who] of [['client viewer', client], ['outsider', stranger]]) {
+    r = await addRow(who, p);
+    record(`${name} cannot add a row`, !!r.error);
+  }
+  r = await as('anon', `INSERT INTO public.task_attachments (task_id, file_name, storage_path, mime_type, size_bytes) VALUES ($1,'a.pdf','x','application/pdf',1)`, [ct]);
+  record('anon cannot add a row', !!r.error);
+  r = await as(editor, `UPDATE public.task_attachments SET file_name = 'renamed.pdf' WHERE id = $1 RETURNING id`, [row1.id]);
+  record('an attachment record cannot be edited, even by its uploader', !!r.error);
+  r = await as(owner, `UPDATE public.task_attachments SET storage_path = 'x' WHERE id = $1 RETURNING id`, [row1.id]);
+  record('...or repointed by an owner', !!r.error);
+  record('attachment activity: "attachment_added" for each recorded file', (await n(`SELECT 1 FROM public.task_activity WHERE task_id = $1 AND kind = 'attachment_added'`, [ct])) === (await n(`SELECT 1 FROM public.task_attachments WHERE task_id = $1`, [ct])));
+  record('...naming the file', (await svc(`SELECT data FROM public.task_activity WHERE kind = 'attachment_added' AND data ->> 'attachment_id' = $1`, [row1.id]))[0]?.data.file_name === 'cut-notes.pdf');
+
+  // reading
+  for (const [name, who] of [['owner', owner], ['admin', admin], ['production manager', pm], ['QC specialist', qc], ['editor', editor], ['unassigned editor', editor2]]) {
+    r = await as(who, `SELECT id FROM public.task_attachments WHERE id = $1`, [row1.id]);
+    const o = await as(who, `SELECT id FROM storage.objects WHERE name = $1`, [mainPath.path]);
+    record(`${name} can list the attachment and open the stored file`, !r.error && r.rows.length === 1 && o.rows.length === 1);
+  }
+  for (const [name, who] of [['client viewer', client], ['outsider', stranger]]) {
+    r = await as(who, `SELECT id FROM public.task_attachments`);
+    const o = await as(who, `SELECT id FROM storage.objects WHERE bucket_id = 'task-attachments'`);
+    record(`${name} sees no attachment and cannot open any file`, !r.error && r.rows.length === 0 && !o.error && o.rows.length === 0);
+  }
+  r = await as('anon', `SELECT id FROM storage.objects`);
+  record('anon cannot read any stored object', !!r.error || r.rows.length === 0);
+  // an uploaded file with no record is not a leak
+  p = await pathFor();
+  await upload(editor, p.path);
+  r = await as(editor2, `SELECT id FROM storage.objects WHERE name = $1`, [p.path]);
+  record('a file that was uploaded but never recorded is invisible to other staff', !r.error && r.rows.length === 0);
+  r = await as(editor, `SELECT id FROM storage.objects WHERE name = $1`, [p.path]);
+  record('...but its uploader can still see it (to finish or clean up)', !r.error && r.rows.length === 1);
+  r = await as(pm, `SELECT id FROM storage.objects WHERE name = $1`, [p.path]);
+  record('...and so can a manager', !r.error && r.rows.length === 1);
+  await as(editor, `DELETE FROM storage.objects WHERE name = $1`, [p.path]);
+  record('the abandoned upload is cleaned up by its uploader', (await n(`SELECT 1 FROM storage.objects WHERE name = $1`, [p.path])) === 0);
+
+  // an assigned editor who is un-assigned loses the right to add more
+  await svc(`DELETE FROM public.task_assignees WHERE task_id = $1 AND role_type = 'EDITOR'`, [ct]);
+  p = await pathFor();
+  r = await upload(editor, p.path);
+  record('an editor who is no longer assigned can no longer upload', !!r.error);
+  record('...un-assigning wrote an "unassigned" entry', (await kinds(ct)).includes('unassigned'));
+  await svc(`INSERT INTO public.task_assignees (task_id, role_type, user_id) VALUES ($1,'EDITOR',$2)`, [ct, editor]);
+  record('...and re-assigning the same person is a NEW notification, not a duplicate', (await nots(editor, 'assigned')).length === 2);
+
+  // deleting
+  for (const [name, who] of [['an unassigned editor', editor2], ['the QC specialist', qc], ['a client viewer', client], ['an outsider', stranger]]) {
+    r = await as(who, `DELETE FROM public.task_attachments WHERE id = $1 RETURNING id`, [row1.id]);
+    const o = await as(who, `DELETE FROM storage.objects WHERE name = $1 RETURNING id`, [mainPath.path]);
+    record(`${name} cannot delete someone else's attachment (record or file)`, (!!r.error || r.rows.length === 0) && (!!o.error || o.rows.length === 0));
+  }
+  record('...both are still there', (await n(`SELECT 1 FROM public.task_attachments WHERE id = $1`, [row1.id])) === 1 && (await n(`SELECT 1 FROM storage.objects WHERE name = $1`, [mainPath.path])) === 1);
+  r = await as(editor, `DELETE FROM public.task_attachments WHERE id = $1 RETURNING id`, [row1.id]);
+  const o1 = await as(editor, `DELETE FROM storage.objects WHERE name = $1 RETURNING id`, [mainPath.path]);
+  record('the uploader deletes their own attachment (record and file)', !r.error && r.rows.length === 1 && !o1.error && o1.rows.length === 1);
+  record('...deleting wrote an "attachment_removed" entry', (await n(`SELECT 1 FROM public.task_activity WHERE task_id = $1 AND kind = 'attachment_removed' AND data ->> 'file_name' = 'cut-notes.pdf'`, [ct])) === 1);
+  r = await as(admin, `DELETE FROM public.task_attachments WHERE id = $1 RETURNING id`, [pmRow.id]);
+  const o2 = await as(admin, `DELETE FROM storage.objects WHERE name = $1 RETURNING id`, [pmRow.storage_path]);
+  record('a manager can delete anyone\'s attachment', !r.error && r.rows.length === 1 && !o2.error && o2.rows.length === 1);
+  r = await as(pm, `UPDATE storage.objects SET name = 'x' WHERE name = $1 RETURNING id`, [row3.storage_path]);
+  record('a stored file cannot be replaced or renamed through the API (no UPDATE policy or grant)', !!r.error || r.rows.length === 0);
+
+  // ---- cascades: removing a task removes all of it, without error ---------------------------------
+  console.log('  -- cascades');
+  const ct2 = (await svc(`INSERT INTO public.tasks (list_id, title) VALUES ($1, 'P10 doomed task') RETURNING id`, [list]))[0].id;
+  await svc(`INSERT INTO public.task_assignees (task_id, role_type, user_id) VALUES ($1,'EDITOR',$2), ($1,'QC_REVIEWER',$3)`, [ct2, editor, qc]);
+  r = await as(pm, `INSERT INTO public.task_comments (task_id, author_id, body) VALUES ($1,$2,$3) RETURNING id`, [ct2, pm, `hi ${mention('Q', qc)}`]);
+  const doomedPath = `${ws}/${ct2}/${await uuid()}/doomed.pdf`;
+  await upload(pm, doomedPath);
+  await as(pm, `INSERT INTO public.task_attachments (id, task_id, file_name, storage_path, mime_type, size_bytes) VALUES ($1,$2,'doomed.pdf',$3,'application/pdf',1)`, [doomedPath.split('/')[2], ct2, doomedPath]);
+  const before = {
+    activity: await n(`SELECT 1 FROM public.task_activity WHERE task_id = $1`, [ct2]),
+    notes: await n(`SELECT 1 FROM public.notifications WHERE task_id = $1`, [ct2]),
+  };
+  record('(the doomed task has comments, an attachment, activity and notifications)', before.activity >= 5 && before.notes >= 3, JSON.stringify(before));
+  r = await as(pm, `DELETE FROM public.tasks WHERE id = $1 RETURNING id`, [ct2]);
+  record('deleting a task with all of that succeeds (the audit triggers do not trip on the cascade)', !r.error && r.rows.length === 1, r.error?.message);
+  record('...its comments, attachment records, activity and notifications went with it',
+    (await n(`SELECT 1 FROM public.task_comments WHERE task_id = $1`, [ct2])) === 0
+    && (await n(`SELECT 1 FROM public.task_attachments WHERE task_id = $1`, [ct2])) === 0
+    && (await n(`SELECT 1 FROM public.task_activity WHERE task_id = $1`, [ct2])) === 0
+    && (await n(`SELECT 1 FROM public.notifications WHERE task_id = $1`, [ct2])) === 0);
+  // a removed account: its comments stay, as a former member's
+  const gone = await mkUser('gone@tbb.test');
+  await svc(`INSERT INTO public.workspace_members (workspace_id, user_id, role) VALUES ($1,$2,'EDITOR')`, [ws, gone]);
+  r = await as(gone, `INSERT INTO public.task_comments (task_id, author_id, body) VALUES ($1,$2,'I was here') RETURNING id`, [ct, gone]);
+  const goneComment = r.rows[0].id;
+  await svc(`DELETE FROM public.workspace_members WHERE workspace_id = $1 AND user_id = $2`, [ws, gone]);
+  await svc(`DELETE FROM auth.users WHERE id = $1`, [gone]);
+  r = await svc(`SELECT author_id, body FROM public.task_comments WHERE id = $1`, [goneComment]);
+  record("deleting a person's account keeps their comments (author becomes unknown) instead of erasing the conversation", r.length === 1 && r[0].author_id === null);
+
+  // ---- exposure: nothing here is callable or writable by the wrong people --------------------------
+  console.log('  -- exposure');
+  r = await svc(`SELECT p.proname FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname IN ('public', 'private') AND p.proname IN ('log_activity','notify','log_task_activity','log_assignee_activity','log_comment_activity',
+      'log_attachment_activity','notify_status_change','guard_notification','guard_task_comment','guard_task_attachment')
+      AND (has_function_privilege('authenticated', p.oid, 'EXECUTE') OR has_function_privilege('anon', p.oid, 'EXECUTE'))`);
+  record('none of the audit / notification / guard functions can be called by signed-in users or anon', r.length === 0, r.map((x) => x.proname).join());
+  r = await svc(`SELECT table_name, privilege_type FROM information_schema.role_table_grants
+    WHERE table_schema = 'public' AND table_name IN ('task_comments','task_attachments','task_activity','notifications') AND grantee = 'anon'`);
+  record('anon has no privileges on any of the four new tables', r.length === 0);
+  r = await svc(`SELECT table_name, privilege_type FROM information_schema.role_table_grants
+    WHERE table_schema = 'public' AND table_name IN ('task_comments','task_attachments','task_activity','notifications') AND grantee = 'authenticated'
+      AND privilege_type IN ('TRUNCATE','REFERENCES','TRIGGER')`);
+  record('signed-in users have no TRUNCATE / REFERENCES / TRIGGER on them', r.length === 0);
+  r = await svc(`SELECT relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname = 'public' AND relname IN ('task_comments','task_attachments','task_activity','notifications') AND NOT relrowsecurity`);
+  record('row level security is on for all four', r.length === 0);
+  r = await svc(`SELECT policyname FROM pg_policies WHERE tablename = 'objects' AND schemaname = 'storage' AND policyname LIKE 'task_attachments_%' ORDER BY 1`);
+  record('the bucket has exactly its read, upload and delete policies', r.map((x) => x.policyname).join() === 'task_attachments_delete,task_attachments_read,task_attachments_upload', r.map((x) => x.policyname).join());
+  r = await svc(`SELECT cmd, roles FROM pg_policies WHERE tablename = 'objects' AND schemaname = 'storage' AND policyname LIKE 'task_attachments_%'`);
+  record('...all of them for signed-in users only (none for anon)', r.every((x) => String(x.roles).includes('authenticated') && !String(x.roles).includes('anon')));
+  r = await svc(`SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename IN ('task_comments','task_attachments','task_activity','notifications')
+    AND (qual ~ 'auth\\.uid\\(\\)' OR with_check ~ 'auth\\.uid\\(\\)') AND NOT (coalesce(qual,'') ~ 'SELECT auth\\.uid\\(\\)' OR coalesce(with_check,'') ~ 'SELECT auth\\.uid\\(\\)')`);
+  record('the new policies evaluate auth.uid() once per query (initplan form)', r.length === 0);
+  r = await svc(`SELECT pg_get_indexdef(indexrelid) AS d FROM pg_index WHERE indrelid = 'public.notifications'::regclass`);
+  record('the bell is indexed (newest first per person, and unread)', r.some((x) => /user_id, created_at DESC/.test(x.d)) && r.some((x) => /WHERE \(read_at IS NULL\)/.test(x.d)));
+  r = await svc(`SELECT count(*)::int AS n FROM pg_publication`);
+  record('(no realtime publication in a plain Postgres: the migration skipped it without failing)', r[0].n === 0);
+
+  // leave one of each behind on a live task, so the workspace-deletion check at the end has something to cascade
+  p = await pathFor();
+  await upload(pm, p.path);
+  await addRow(pm, p, { name: 'left-behind.pdf' });
+}
+
 console.log('\n== Deactivation & service role ==');
 await svc(`UPDATE public.profiles SET is_active = false WHERE id = $1`, [editor]);
 r = await as(editor, `SELECT id FROM public.tasks`);
@@ -1420,6 +1947,12 @@ r = await as(owner, `DELETE FROM public.workspaces WHERE id = $1 RETURNING id`, 
 ok('owner can delete workspace (cascade passes last-owner guard)', r);
 const left = await svc(`SELECT (SELECT count(*) FROM public.tasks WHERE workspace_id = $1) t, (SELECT count(*) FROM public.workspace_members WHERE workspace_id = $1) m`, [ws]);
 record('cascade removed tasks and members', Number(left[0].t) === 0 && Number(left[0].m) === 0);
+{
+  const rest = await svc(`SELECT (SELECT count(*) FROM public.task_comments WHERE workspace_id = $1) c, (SELECT count(*) FROM public.task_attachments WHERE workspace_id = $1) a,
+    (SELECT count(*) FROM public.task_activity WHERE workspace_id = $1) h, (SELECT count(*) FROM public.notifications WHERE workspace_id = $1) n`, [ws]);
+  record('deleting the whole workspace cascades through comments, attachments, activity and notifications without error',
+    r.rows.length === 1 && ['c', 'a', 'h', 'n'].every((k) => Number(rest[0][k]) === 0), JSON.stringify(rest[0]));
+}
 
 console.log('\n== Table grants (20260930000003) ==');
 {

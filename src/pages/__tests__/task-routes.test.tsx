@@ -15,7 +15,11 @@ import { hierarchyPaths } from '@/lib/hierarchy';
 vi.mock('@/database', async () => (await import('@/test/database-mock')).createDatabaseMock());
 const db = dbModule as unknown as ReturnType<typeof createDatabaseMock>;
 
-const Where: React.FC = () => <span data-testid="where">{useLocation().pathname}</span>;
+const Where: React.FC = () => {
+  const l = useLocation();
+  return <span data-testid="where">{l.pathname}</span>;
+};
+const Search: React.FC = () => <span data-testid="search">{useLocation().search}</span>;
 const routes = (
   <>
     <Routes>
@@ -25,6 +29,7 @@ const routes = (
       <Route path="/tasks/:taskId" element={<TaskRedirect />} />
     </Routes>
     <Where />
+    <Search />
   </>
 );
 
@@ -84,6 +89,17 @@ describe('/tasks/:taskId deep link', () => {
       )
     );
     expect(await screen.findByRole('dialog')).toBeInTheDocument();
+  });
+
+  it('keeps ?tab= and ?comment= through the forward (that is how a notification lands on a comment)', async () => {
+    const COMMENT = 'cccccccc-cccc-4ccc-8ccc-ccccccccccc1';
+    renderWithAuth(routes, { auth: makeAuth('OWNER'), route: `/tasks/${TASK_IDS.one}?tab=comments&comment=${COMMENT}` });
+    await waitFor(() =>
+      expect(screen.getByTestId('where')).toHaveTextContent(`/spaces/${IDS.spaceA}/lists/${IDS.listEdaptx}/tasks/${TASK_IDS.one}`)
+    );
+    expect(screen.getByTestId('search')).toHaveTextContent(`?tab=comments&comment=${COMMENT}`);
+    // the sheet opened on the discussion, with the real (empty) conversation
+    expect(await screen.findByText('No comments yet')).toBeInTheDocument();
   });
 
   it('a task that does not exist (or is not visible) is "not found"', async () => {

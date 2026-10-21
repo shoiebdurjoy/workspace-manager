@@ -1,4 +1,5 @@
 import { getSupabaseClient } from './client';
+import { removeStoredFiles, taskFilePaths } from './collaboration';
 import type { AspectRatio, AssigneeRole, Subtask, Task, TaskDetail, TaskPriority, TaskSummary } from '@/types/database';
 import { DatabaseError, NotFoundError, toDatabaseError, ValidationError } from './errors';
 import {
@@ -279,9 +280,12 @@ export async function updateTask(taskId: string, patch: TaskPatch): Promise<Task
 
 export async function deleteTask(taskId: string): Promise<void> {
   if (!taskId) throw new ValidationError('Task ID is required.');
+  // the attachment rows go with the task (cascade), so the stored files' paths are read first and removed after it is gone
+  const files = await taskFilePaths([taskId]);
   const { data, error } = await getSupabaseClient().from('tasks').delete().eq('id', taskId).select('id');
   if (error) throw mapTaskError('delete the task', error);
   if (!data || data.length === 0) throw toDatabaseError('delete the task', { code: '42501', message: 'no rows deleted' });
+  await removeStoredFiles(files);
 }
 
 /** Sets (or, with null, clears) the editor / QC reviewer atomically. */

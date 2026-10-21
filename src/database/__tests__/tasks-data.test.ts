@@ -13,7 +13,7 @@ function builder(table: string) {
     then: (resolve: (v: Result) => unknown, reject?: (e: unknown) => unknown) =>
       Promise.resolve({ data: null, error: null, ...(results[table] ?? { data: [] }) }).then(resolve, reject),
   };
-  for (const m of ['select', 'insert', 'update', 'delete', 'eq', 'order', 'range', 'single', 'maybeSingle', 'in']) {
+  for (const m of ['select', 'insert', 'update', 'delete', 'eq', 'order', 'range', 'single', 'maybeSingle', 'in', 'limit']) {
     b[m] = (...args: unknown[]) => {
       calls.push({ table, method: m, args });
       return b;
@@ -22,8 +22,11 @@ function builder(table: string) {
   return b;
 }
 
+const removed: string[][] = [];
+
 vi.mock('../client', () => ({
   getSupabaseClient: () => ({
+    storage: { from: () => ({ remove: (paths: string[]) => { removed.push(paths); return Promise.resolve({ data: [], error: null }); } }) },
     from: (table: string) => builder(table),
     rpc: (fn: string, args: Record<string, unknown>) => {
       rpcCalls.push({ fn, args });
@@ -62,6 +65,7 @@ beforeEach(() => {
   for (const k of Object.keys(rpcResults)) delete rpcResults[k];
   calls.length = 0;
   rpcCalls.length = 0;
+  removed.length = 0;
 });
 
 describe('listTasks', () => {
@@ -302,6 +306,28 @@ describe('deleteTask', () => {
   it('surfaces database errors', async () => {
     results.tasks = { error: { code: '42501', message: 'x' } };
     await expect(deleteTask('t1')).rejects.toBeInstanceOf(PermissionDeniedError);
+  });
+
+  it("removes the task's stored files after the task is gone (their records cascade away with it)", async () => {
+    results.task_attachments = { data: [{ storage_path: 'w/t1/a/cut.pdf' }, { storage_path: 'w/t1/b/notes.txt' }] };
+    results.tasks = { data: [{ id: 't1' }] };
+    await deleteTask('t1');
+    expect(at('task_attachments', 'in')[0].args).toEqual(['task_id', ['t1']]);
+    expect(removed).toEqual([['w/t1/a/cut.pdf', 'w/t1/b/notes.txt']]);
+  });
+
+  it('keeps the stored files when the deletion is refused', async () => {
+    results.task_attachments = { data: [{ storage_path: 'w/t1/a/cut.pdf' }] };
+    results.tasks = { data: [] };
+    await expect(deleteTask('t1')).rejects.toBeInstanceOf(PermissionDeniedError);
+    expect(removed).toEqual([]);
+  });
+
+  it('a task without files touches no storage', async () => {
+    results.task_attachments = { data: [] };
+    results.tasks = { data: [{ id: 't1' }] };
+    await deleteTask('t1');
+    expect(removed).toEqual([]);
   });
 });
 

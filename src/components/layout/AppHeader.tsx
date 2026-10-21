@@ -1,6 +1,6 @@
 import React from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
-import { Menu, Search, Bell, User, Settings, LogOut, Palette, Users } from "lucide-react";
+import { Menu, Search, User, Settings, LogOut, Palette, Users } from "lucide-react";
 import { IconButton } from "@/components/ui/icon-button";
 import { UserAvatar } from "@/components/ui/user-avatar";
 import {
@@ -11,7 +11,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -22,6 +21,7 @@ import {
 } from "@/components/ui/breadcrumb";
 import { BrandMark } from "@/components/brand/Logo";
 import ThemeToggle from "@/components/theme/ThemeToggle";
+import NotificationBell from "@/components/collaboration/NotificationBell";
 import RoleBadge from "@/components/team/RoleBadge";
 import { useAuth } from "@/hooks/use-auth";
 import { can } from "@/lib/permissions";
@@ -132,20 +132,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({ onToggleMobileSidebar, onO
           className="md:hidden"
         />
 
-        {/* Notification centre arrives in Phase 10; nothing is simulated until then. */}
-        <Popover>
-          <PopoverTrigger asChild>
-            <span>
-              <IconButton aria-label="Notifications" tooltip="Notifications" icon={<Bell className="h-4 w-4" />} variant="ghost" size="sm" />
-            </span>
-          </PopoverTrigger>
-          <PopoverContent align="end" className="w-72 p-4 text-xs">
-            <p className="font-semibold text-foreground">Notifications</p>
-            <p className="mt-1 text-muted-foreground">
-              You're all caught up. Task notifications (assignments, QC hand-offs, revisions) arrive in Phase 10.
-            </p>
-          </PopoverContent>
-        </Popover>
+        <NotificationBell />
 
         <ThemeToggle />
 
