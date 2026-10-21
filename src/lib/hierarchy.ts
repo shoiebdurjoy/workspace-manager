@@ -192,6 +192,8 @@ export const hierarchyPaths = {
   /** Every task the person can see, across all lists (optionally narrowed by ?space= ?folder= ?list= ...). */
   everything: () => '/everything',
   everythingTask: (taskId: string) => `/everything/tasks/${taskId}`,
+  myTasks: () => '/my-tasks',
+  myTask: (taskId: string) => `/my-tasks/tasks/${taskId}`,
   /** Stable deep link for places that know only a task id (notifications, search, My Tasks). */
   taskById: (taskId: string) => `/tasks/${taskId}`,
 };

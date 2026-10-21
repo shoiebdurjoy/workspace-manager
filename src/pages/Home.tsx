@@ -1,6 +1,6 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useMemo } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowRight, Layers, ListTodo, MailPlus, Plus, ShieldCheck, Users, UsersRound } from 'lucide-react';
+import { AlertTriangle, ArrowRight, CalendarClock, CalendarDays, CircleDot, Layers, ListTodo, MailPlus, Plus, ShieldCheck, UserX, Users, UsersRound } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { useInvitations, useTeams, useWorkspaceMembers } from '@/hooks/use-team';
 import { useHierarchy } from '@/hooks/use-hierarchy';
@@ -11,6 +11,16 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import RoleBadge from '@/components/team/RoleBadge';
 import SpaceIcon from '@/components/hierarchy/SpaceIcon';
+import { TaskStatusPill } from '@/components/tasks/TaskBadges';
+import type { HomeQueueItem } from '@/database';
+import { useHomeSummary } from '@/hooks/use-home';
+import { useInboxNotifications } from '@/hooks/use-inbox';
+import { useTaskSearch } from '@/hooks/use-tasks';
+import { useWorkflow } from '@/hooks/use-workflow';
+import { describeNotification, timeAgo } from '@/lib/collaboration';
+import { memberLookup, memberName } from '@/lib/tasks';
+import { needsMyAction } from '@/lib/workflow';
+import type { TaskStatus } from '@/types/database';
 
 const Stat: React.FC<{ label: string; value: number | undefined; icon: React.ReactNode; to?: string }> = ({
   label,
@@ -34,12 +44,54 @@ const Stat: React.FC<{ label: string; value: number | undefined; icon: React.Rea
   return to ? <Link to={to}>{body}</Link> : body;
 };
 
+const UNREAD_INBOX = { tab: 'inbox' as const, kinds: [], unreadOnly: true };
+
+/** A titled card on Home with an optional "see all" link. */
+const Card: React.FC<{ title: string; to?: string; toLabel?: string; children: React.ReactNode }> = ({ title, to, toLabel, children }) => (
+  <section aria-label={title} className="rounded-lg border border-border/70 bg-card p-4">
+    <div className="mb-2 flex items-center justify-between gap-2">
+      <h2 className="text-sm font-semibold">{title}</h2>
+      {to && (
+        <Link to={to} className="inline-flex items-center text-xs font-medium text-muted-foreground hover:text-foreground">
+          {toLabel ?? 'See all'} <ArrowRight className="ml-1 h-3 w-3" />
+        </Link>
+      )}
+    </div>
+    {children}
+  </section>
+);
+
+/** One task waiting in a queue: title, where it lives, its stage and how long it has waited. */
+const QueueRow: React.FC<{ item: HomeQueueItem; who?: string | null }> = ({ item, who }) => (
+  <li>
+    <Link
+      to={hierarchyPaths.taskById(item.id)}
+      className="flex items-start gap-2 rounded-md px-1 py-1.5 hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+    >
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-sm font-medium">{item.title}</span>
+        <span className="block truncate text-[11px] text-muted-foreground">
+          {item.listName}
+          {who ? ` · ${who}` : ''}
+          {item.revisionCount > 0 ? ` · revision ${item.revisionCount}` : ''}
+        </span>
+      </span>
+      <span className="flex shrink-0 flex-col items-end gap-0.5">
+        <TaskStatusPill status={item.status as TaskStatus} className="text-[10px]" />
+        {item.since && <span className="text-[11px] text-muted-foreground">since {timeAgo(item.since)}</span>}
+      </span>
+    </Link>
+  </li>
+);
+
 /**
- * Home: who you are, your role and the real state of the workspace, including its spaces.
- * The personal Home / Inbox / My Tasks hub is Phase 11 and is not simulated here.
+ * Home: the person's own work first (what needs them, unread notifications, recent changes), then for QC
+ * and managers the QC queue and revisions in progress, and for managers the workspace's open, overdue
+ * and unassigned work. Every number is the database's (my_home_summary under the caller's RLS); nothing
+ * is simulated. Below: the workspace, its spaces and the person's access.
  */
 const Home: React.FC = () => {
-  const { profile, role, workspace } = useAuth();
+  const { profile, role, workspace, user } = useAuth();
   const members = useWorkspaceMembers();
   const teams = useTeams();
   const invitations = useInvitations();
@@ -58,6 +110,21 @@ const Home: React.FC = () => {
 
   const firstName = profile?.fullName.split(' ')[0] ?? '';
 
+  // ---- the personal hub (staff only: client viewers have no task access) ----
+  const me = user?.id ?? null;
+  const summary = useHomeSummary();
+  const inbox = useInboxNotifications(UNREAD_INBOX);
+  const workflow = useWorkflow().data;
+  const lookup = useMemo(() => memberLookup(members.data), [members.data]);
+  const myTasks = useTaskSearch({ query: '', filters: { people: [me ?? ''] }, sort: 'updated', dir: 'desc' }, canSeeSpaces && !!me);
+  const mine = useMemo(() => myTasks.data?.pages.flatMap((p) => p.items) ?? [], [myTasks.data]);
+  const needsMe = useMemo(() => mine.filter((t) => needsMyAction(workflow, t, me, role)).length, [mine, workflow, me, role]);
+  const recent = mine.slice(0, 5);
+  const notes = (inbox.data?.pages.flatMap((p) => p.items) ?? []).slice(0, 5);
+  const s = summary.data;
+  const isManager = role === 'OWNER' || role === 'ADMIN' || role === 'PRODUCTION_MANAGER';
+  const showQueues = isManager || role === 'QC_SPECIALIST';
+
   return (
     <div className="space-y-6">
       <header className="flex flex-wrap items-end justify-between gap-3">
@@ -67,6 +134,124 @@ const Home: React.FC = () => {
         </div>
         {role && <RoleBadge role={role} className="text-[11px]" />}
       </header>
+
+      {canSeeSpaces && (
+        <>
+          <section aria-label="My work" className="space-y-2">
+            <div className="flex items-center justify-between">
+              <h2 className="text-sm font-semibold">My work</h2>
+              <Link to="/my-tasks" className="inline-flex items-center text-xs font-medium text-muted-foreground hover:text-foreground">
+                Open My Tasks <ArrowRight className="ml-1 h-3 w-3" />
+              </Link>
+            </div>
+            {summary.isError ? (
+              <p role="alert" className="text-xs text-destructive">
+                Your summary could not be loaded.{' '}
+                <button type="button" className="font-medium underline" onClick={() => void summary.refetch()}>
+                  Try again
+                </button>
+              </p>
+            ) : (
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                <Stat label="Needs my action" value={myTasks.isLoading || !workflow ? undefined : needsMe} icon={<CircleDot className="h-4 w-4" />} to="/my-tasks" />
+                <Stat label="Overdue" value={s?.mine.overdue} icon={<AlertTriangle className="h-4 w-4" />} to="/my-tasks" />
+                <Stat label="Due today" value={s?.mine.dueToday} icon={<CalendarClock className="h-4 w-4" />} to="/my-tasks" />
+                <Stat label="Next 7 days" value={s?.mine.dueThisWeek} icon={<CalendarDays className="h-4 w-4" />} to="/my-tasks" />
+              </div>
+            )}
+          </section>
+
+          <div className="grid gap-3 lg:grid-cols-2">
+            <Card title="Unread notifications" to="/inbox" toLabel="Open Inbox">
+              {inbox.isLoading ? (
+                <Skeleton className="h-16 w-full" />
+              ) : notes.length === 0 ? (
+                <p className="text-xs text-muted-foreground">You are all caught up.</p>
+              ) : (
+                <ul className="space-y-0.5">
+                  {notes.map((n) => {
+                    const line = describeNotification(n, lookup, workflow);
+                    return (
+                      <li key={n.id}>
+                        <Link
+                          to={line.to}
+                          className="block rounded-md px-1 py-1.5 hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        >
+                          <span className="block truncate text-sm font-medium">{line.headline}</span>
+                          <span className="block truncate text-[11px] text-muted-foreground">
+                            {line.detail} · {timeAgo(line.createdAt)}
+                          </span>
+                        </Link>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </Card>
+            <Card title="Recently updated, assigned to me" to="/my-tasks">
+              {myTasks.isLoading ? (
+                <Skeleton className="h-16 w-full" />
+              ) : recent.length === 0 ? (
+                <p className="text-xs text-muted-foreground">Nothing assigned to you yet.</p>
+              ) : (
+                <ul className="space-y-0.5">
+                  {recent.map((t) => (
+                    <li key={t.id}>
+                      <Link
+                        to={hierarchyPaths.myTask(t.id)}
+                        className="flex items-center gap-2 rounded-md px-1 py-1.5 hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      >
+                        <span className="min-w-0 flex-1 truncate text-sm font-medium">{t.title}</span>
+                        <TaskStatusPill status={t.status} className="shrink-0 text-[10px]" />
+                        <span className="shrink-0 text-[11px] text-muted-foreground">{timeAgo(t.updatedAt)}</span>
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </Card>
+          </div>
+
+          {showQueues && s && (
+            <div className="grid gap-3 lg:grid-cols-2">
+              <Card title={isManager ? 'Waiting for QC' : 'My QC queue'}>
+                {s.qcQueue.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">Nothing is waiting for QC.</p>
+                ) : (
+                  <ul className="space-y-0.5">
+                    {s.qcQueue.map((item) => (
+                      <QueueRow key={item.id} item={item} who={isManager ? (item.qcId ? memberName(lookup, item.qcId) : 'No QC reviewer') : null} />
+                    ))}
+                  </ul>
+                )}
+              </Card>
+              <Card title="Revisions in progress">
+                {s.revisions.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">No cuts are back with editors.</p>
+                ) : (
+                  <ul className="space-y-0.5">
+                    {s.revisions.map((item) => (
+                      <QueueRow key={item.id} item={item} who={item.editorId ? memberName(lookup, item.editorId) : 'No editor'} />
+                    ))}
+                  </ul>
+                )}
+              </Card>
+            </div>
+          )}
+
+          {isManager && s?.manager && (
+            <section aria-label="Across the workspace" className="space-y-2">
+              <h2 className="text-sm font-semibold">Across the workspace</h2>
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                <Stat label="Open tasks" value={s.manager.open} icon={<ListTodo className="h-4 w-4" />} to="/everything?hide=1" />
+                <Stat label="Overdue" value={s.manager.overdue} icon={<AlertTriangle className="h-4 w-4" />} to="/everything?overdue=1&hide=1" />
+                <Stat label="No editor" value={s.manager.noEditor} icon={<UserX className="h-4 w-4" />} to="/everything?editor=none&hide=1" />
+                <Stat label="No QC reviewer" value={s.manager.noQc} icon={<UserX className="h-4 w-4" />} to="/everything?qc=none&hide=1" />
+              </div>
+            </section>
+          )}
+        </>
+      )}
 
       {canSeeTeam && (
         <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3" aria-label="Workspace summary">

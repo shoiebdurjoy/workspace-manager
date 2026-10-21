@@ -33,7 +33,7 @@ const AuthCallback: React.FC = () => {
   }
 
   if (!linkError && (status === 'authenticated' || status === 'deactivated')) {
-    return <Navigate to="/home" replace />;
+    return <Navigate to="/" replace />;
   }
 
   const message =

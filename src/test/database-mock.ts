@@ -24,8 +24,11 @@ export function createDatabaseMock() {
     getWorkflow: vi.fn(),
     transitionTask: vi.fn(),
     getLatestRevisionRequest: vi.fn(),
+    getLatestRevisionNotes: vi.fn().mockResolvedValue(new Map()),
     // production analytics
     getProductionMonthly: vi.fn(),
+    // home (Phase 11)
+    getHomeSummary: vi.fn(),
     getProductionVideos: vi.fn(),
     StaleTransitionError,
     NOTE_MAX_LENGTH: 2000,
@@ -68,6 +71,9 @@ export function createDatabaseMock() {
     ACTIVITY_PAGE_SIZE: 50,
     listNotifications: vi.fn().mockResolvedValue({ items: [], next: null }),
     countUnreadNotifications: vi.fn().mockResolvedValue(0),
+    countInboxUnread: vi.fn().mockResolvedValue(0),
+    setNotificationsDone: vi.fn().mockResolvedValue(undefined),
+    markReadNotificationsDone: vi.fn().mockResolvedValue(undefined),
     markNotificationsRead: vi.fn().mockResolvedValue(undefined),
     markAllNotificationsRead: vi.fn().mockResolvedValue(undefined),
     markNotificationUnread: vi.fn().mockResolvedValue(undefined),

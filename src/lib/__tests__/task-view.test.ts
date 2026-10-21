@@ -7,6 +7,7 @@ import {
   canReorderInView,
   countActiveFilters,
   dueBucket,
+  workBucket,
   groupOptionsFor,
   groupTasks,
   isOverdue,
@@ -260,8 +261,52 @@ describe('grouping by due date and by list', () => {
     ]);
   });
 
-  it('offers grouping by list only where a view spans several lists', () => {
+  it('offers grouping by list only where a view spans several lists, and "My work" only in My Tasks', () => {
     expect(groupOptionsFor(false).map((o) => o.value)).toEqual(['status', 'editor', 'priority', 'due', 'none']);
     expect(groupOptionsFor(true).map((o) => o.value)).toContain('list');
+    expect(groupOptionsFor(true).map((o) => o.value)).not.toContain('work');
+    expect(groupOptionsFor(true, true).map((o) => o.value)).toEqual(['status', 'editor', 'priority', 'due', 'list', 'work', 'none']);
+  });
+
+  describe('My work (My Tasks)', () => {
+    const me = { me: 'me', role: 'EDITOR' as const, workflow: WF };
+    const qcMe = { me: 'me', role: 'QC_SPECIALIST' as const, workflow: WF };
+
+    it('puts a task whose next step is mine first, whatever its date', () => {
+      expect(workBucket(task({ status: 'ASSIGNED', editorId: 'me', dueDate: inDays(30) }), me, NOW_D)).toBe('needs');
+      expect(workBucket(task({ status: 'QC_REVISION_NEEDED', editorId: 'me', qcId: 'qc', dueDate: null }), me, NOW_D)).toBe('needs');
+      expect(workBucket(task({ status: 'QC_FIRST_APPROVAL', editorId: 'ed', qcId: 'me' }), qcMe, NOW_D)).toBe('needs');
+    });
+
+    it('places the rest by the earlier of the QC due date and the client deadline', () => {
+      // waiting on QC: not my step, so by date
+      const waiting = (o: Partial<TaskSummary>) => task({ status: 'QC_FIRST_APPROVAL', editorId: 'me', qcId: 'qc', ...o });
+      expect(workBucket(waiting({ dueDate: inDays(-1) }), me, NOW_D)).toBe('overdue');
+      expect(workBucket(waiting({ dueDate: inDays(5), clientDeadline: inDays(0) }), me, NOW_D)).toBe('today');
+      expect(workBucket(waiting({ clientDeadline: inDays(7) }), me, NOW_D)).toBe('week');
+      expect(workBucket(waiting({ dueDate: inDays(8) }), me, NOW_D)).toBe('later');
+      expect(workBucket(waiting({}), me, NOW_D)).toBe('none');
+    });
+
+    it('keeps finished work apart, even when it was mine and its date has passed', () => {
+      expect(workBucket(task({ status: 'CLOSED', editorId: 'me', dueDate: inDays(-9) }), me, NOW_D)).toBe('done');
+    });
+
+    it('groups in the order a person works through them, each task once', () => {
+      const t = [
+        task({ title: 'later', status: 'QC_FIRST_APPROVAL', editorId: 'me', dueDate: inDays(20) }),
+        task({ title: 'start', status: 'ASSIGNED', editorId: 'me' }),
+        task({ title: 'late', status: 'QC_FIRST_APPROVAL', editorId: 'me', dueDate: inDays(-2) }),
+        task({ title: 'done', status: 'CLOSED', editorId: 'me' }),
+      ];
+      const groups = groupTasks(t, 'work', me, { keepEmpty: true });
+      expect(groups.map((g) => g.label)).toEqual(['Needs my action', 'Overdue', 'Due today', 'Next 7 days', 'Later', 'No date', 'Finished']);
+      expect(groupTasks(t, 'work', me).map((g) => [g.label, titles(g.tasks)])).toEqual([
+        ['Needs my action', ['start']],
+        ['Overdue', ['late']],
+        ['Later', ['later']],
+        ['Finished', ['done']],
+      ]);
+    });
   });
 });

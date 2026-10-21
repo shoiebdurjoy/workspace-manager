@@ -18,6 +18,7 @@ const db = dbModule as unknown as ReturnType<typeof createDatabaseMock>;
 beforeEach(() => {
   vi.clearAllMocks();
   db.getWorkspaceHierarchy.mockResolvedValue([]);
+  db.countInboxUnread.mockResolvedValue(0);
 });
 
 const sidebar = (role: TbbRole | null = 'EDITOR', collapsed = false) =>
@@ -53,16 +54,25 @@ describe('AppSidebar (Phase 2 shell on real data)', () => {
     expect(db.getWorkspaceHierarchy).not.toHaveBeenCalled();
   });
 
-  it('later-phase areas are visibly disabled, not simulated (no fake badge counts)', () => {
+  it('every primary area is real now: nothing disabled, no "Soon", no placeholder counts', () => {
     sidebar();
-    for (const name of ['Inbox', 'My Tasks']) {
-      expect(screen.getByRole('button', { name: new RegExp(name) })).toBeDisabled();
+    for (const name of [/Home/, /Inbox/, /My Tasks/, /Everything/]) {
+      expect(screen.getByRole('button', { name })).toBeEnabled();
     }
-    expect(screen.getByRole('button', { name: /Home/ })).toBeEnabled();
-    // Everything (all tasks) is real now: Phase 8 / 9
-    expect(screen.getByRole('button', { name: /Everything/ })).toBeEnabled();
-    expect(screen.getAllByText('Soon')).toHaveLength(2);
-    expect(screen.queryByText(/^2$/)).not.toBeInTheDocument();
+    expect(screen.queryByText('Soon')).not.toBeInTheDocument();
+    // the Inbox badge only shows a count the database returned (0 here: no badge)
+    expect(screen.queryByLabelText(/unread$/)).not.toBeInTheDocument();
+  });
+
+  it('shows the Inbox badge from the real unread-and-not-Done count', async () => {
+    db.countInboxUnread.mockResolvedValue(3);
+    sidebar();
+    expect(await screen.findByLabelText('3 unread')).toHaveTextContent('3');
+  });
+
+  it('a client viewer has no Inbox (notifications are for the production team)', () => {
+    sidebar('CLIENT_VIEWER');
+    expect(screen.queryByRole('button', { name: /Inbox/ })).not.toBeInTheDocument();
   });
 
   it('marks the current page', () => {

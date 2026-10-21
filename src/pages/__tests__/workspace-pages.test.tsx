@@ -22,6 +22,11 @@ const db = vi.hoisted(() => {
     listTeams: vi.fn(),
     listTeamMembers: vi.fn(),
     getWorkspaceHierarchy: vi.fn(),
+    // the Phase 11 personal hub on Home (covered in detail by home-hub.test.tsx)
+    getHomeSummary: vi.fn(),
+    listNotifications: vi.fn(),
+    searchTasks: vi.fn(),
+    getWorkflow: vi.fn(),
   };
 });
 vi.mock('@/database', () => db);
@@ -36,6 +41,16 @@ beforeEach(() => {
   ]);
   db.listTeams.mockResolvedValue([{ id: 't1' }]);
   db.getWorkspaceHierarchy.mockResolvedValue([]);
+  db.getHomeSummary.mockResolvedValue({
+    role: null,
+    mine: { total: 0, overdue: 0, dueToday: 0, dueThisWeek: 0, later: 0, finished: 0 },
+    qcQueue: [],
+    revisions: [],
+    manager: null,
+  });
+  db.listNotifications.mockResolvedValue({ items: [], next: null });
+  db.searchTasks.mockResolvedValue({ items: [], total: 0 });
+  db.getWorkflow.mockResolvedValue({ id: 'wf', statuses: [], transitions: [] });
   db.listTeamMembers.mockResolvedValue([]);
   db.createWorkspace.mockResolvedValue({ id: 'ws-new' });
   db.updateProfile.mockResolvedValue(makeProfile());
@@ -48,6 +63,8 @@ describe('Onboarding', () => {
       <Routes>
         <Route path="/onboarding" element={<Onboarding />} />
         <Route path="/home" element={<div>home page</div>} />
+        {/* "/" picks the landing page by role in the app (landingFor); here it stands for it */}
+        <Route path="/" element={<div>home page</div>} />
       </Routes>,
       { auth, route: '/onboarding' }
     );
@@ -141,10 +158,12 @@ describe('Home', () => {
     expect(db.getWorkspaceMembers).not.toHaveBeenCalledWith(undefined);
   });
 
-  it('does not invent tasks or notifications', async () => {
-    renderHome('OWNER');
-    await screen.findByText('No spaces yet.', { exact: false });
-    expect(screen.queryByText(/overdue|due today|assigned to you/i)).not.toBeInTheDocument();
+  it('a client viewer gets no personal task hub, and nothing about tasks is asked', async () => {
+    renderHome('CLIENT_VIEWER');
+    expect(await screen.findByText('Your access')).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'My work' })).not.toBeInTheDocument();
+    expect(db.getHomeSummary).not.toHaveBeenCalled();
+    expect(db.searchTasks).not.toHaveBeenCalled();
   });
 });
 

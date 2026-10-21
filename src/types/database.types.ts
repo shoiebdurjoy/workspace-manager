@@ -610,11 +610,12 @@ export interface Database {
           data: Json;
           dedupe_key: string;
           read_at: string | null;
+          archived_at: string | null;
           created_at: string;
         };
         Insert: never;
-        // the recipient can change one thing: whether it has been read
-        Update: { read_at?: string | null };
+        // the recipient can change two things: whether it has been read, and whether it is Done (migration 16)
+        Update: { read_at?: string | null; archived_at?: string | null };
         Relationships: [
           { foreignKeyName: 'notifications_task_id_fkey'; columns: ['task_id']; referencedRelation: 'tasks'; referencedColumns: ['id'] },
         ];
@@ -831,6 +832,16 @@ export interface Database {
           subtask_done: number;
           total_count: number;
         }>;
+      };
+      // Phase 11 (migration 16): the latest revision request per task (SECURITY INVOKER)
+      latest_revision_notes: {
+        Args: { p_task_ids: string[] };
+        Returns: Array<{ task_id: string; note: string | null; revision_number: number | null; actor_id: string | null; created_at: string }>;
+      };
+      // Phase 11 (migration 16): the Home page in one call (SECURITY INVOKER; see HomeSummaryRow)
+      my_home_summary: {
+        Args: { p_workspace_id: string; p_day_start: string; p_day_end: string; p_week_end: string };
+        Returns: Json;
       };
       // Phase 7b (migration 9): production analytics, Owner / Admin only. SECURITY INVOKER.
       production_monthly: {

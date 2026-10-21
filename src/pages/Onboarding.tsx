@@ -28,7 +28,7 @@ const Onboarding: React.FC = () => {
     document.title = 'Get access · TBB Workspace';
   }, []);
 
-  if (status === 'authenticated' && memberships.length > 0) return <Navigate to="/home" replace />;
+  if (status === 'authenticated' && memberships.length > 0) return <Navigate to="/" replace />;
 
   const checkAgain = async () => {
     setChecking(true);

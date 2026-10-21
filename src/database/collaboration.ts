@@ -320,6 +320,7 @@ export function mapNotificationRow(row: Tables['notifications']['Row']): AppNoti
     kind: row.kind as NotificationKind,
     data: (row.data ?? {}) as Record<string, unknown>,
     readAt: row.read_at,
+    archivedAt: row.archived_at ?? null,
     createdAt: row.created_at,
   };
 }
@@ -330,11 +331,30 @@ export interface NotificationPage {
   next: { createdAt: string; id: string } | null;
 }
 
+/** Which notifications a list shows: the Inbox (not Done), Done, or all of them (the bell). */
+export type NotificationView = 'inbox' | 'done' | 'all';
+
+export interface NotificationQuery {
+  before?: { createdAt: string; id: string } | null;
+  unreadOnly?: boolean;
+  view?: NotificationView;
+  /** Only these kinds (mention, comment, assigned, status); empty or missing = every kind. */
+  kinds?: readonly NotificationKind[];
+  limit?: number;
+}
+
+const NOTIFICATION_KINDS: readonly NotificationKind[] = ['mention', 'comment', 'assigned', 'status'];
+
 /** Newest first, a page at a time (keyset on created_at + id: stable while new ones arrive). */
-export async function listNotifications(options: { before?: { createdAt: string; id: string } | null; unreadOnly?: boolean; limit?: number } = {}): Promise<NotificationPage> {
+export async function listNotifications(options: NotificationQuery = {}): Promise<NotificationPage> {
   const limit = Math.min(Math.max(options.limit ?? NOTIFICATION_PAGE_SIZE, 1), 100);
   let query = getSupabaseClient().from('notifications').select('*').order('created_at', { ascending: false }).order('id', { ascending: false }).limit(limit + 1);
   if (options.unreadOnly) query = query.is('read_at', null);
+  if (options.view === 'inbox') query = query.is('archived_at', null);
+  if (options.view === 'done') query = query.not('archived_at', 'is', null);
+  // only known kinds reach the query (the values come from the address bar)
+  const kinds = (options.kinds ?? []).filter((k) => NOTIFICATION_KINDS.includes(k));
+  if (kinds.length) query = query.in('kind', kinds);
   if (options.before) {
     const { createdAt, id } = options.before;
     // strictly older, or the same instant with a smaller id
@@ -352,6 +372,37 @@ export async function countUnreadNotifications(): Promise<number> {
   const { count, error } = await getSupabaseClient().from('notifications').select('id', { count: 'exact', head: true }).is('read_at', null);
   if (error) throw toDatabaseError('count your notifications', error);
   return count ?? 0;
+}
+
+/** The sidebar's Inbox badge: unread and not Done. */
+export async function countInboxUnread(): Promise<number> {
+  const { count, error } = await getSupabaseClient()
+    .from('notifications')
+    .select('id', { count: 'exact', head: true })
+    .is('read_at', null)
+    .is('archived_at', null);
+  if (error) throw toDatabaseError('count your inbox', error);
+  return count ?? 0;
+}
+
+/** Marks these Done (out of the Inbox), or back into the Inbox. The time is the server's. */
+export async function setNotificationsDone(ids: readonly string[], done: boolean): Promise<void> {
+  if (!ids.length) return;
+  const { error } = await getSupabaseClient()
+    .from('notifications')
+    .update({ archived_at: done ? new Date().toISOString() : null })
+    .in('id', [...ids]);
+  if (error) throw toDatabaseError(done ? 'mark notifications as done' : 'move notifications back to the inbox', error);
+}
+
+/** "Clear read": every read notification still in the Inbox becomes Done. */
+export async function markReadNotificationsDone(): Promise<void> {
+  const { error } = await getSupabaseClient()
+    .from('notifications')
+    .update({ archived_at: new Date().toISOString() })
+    .not('read_at', 'is', null)
+    .is('archived_at', null);
+  if (error) throw toDatabaseError('clear read notifications', error);
 }
 
 /** Marks these (yours; anyone else's are invisible to the database) as read now. */

@@ -3,7 +3,7 @@ import { ChevronRight, Plus } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
-import type { TaskPatch } from '@/database';
+import type { RevisionNote, TaskPatch } from '@/database';
 import type { TaskAccess } from '@/lib/tasks';
 import type { GroupBy, TaskGroup } from '@/lib/task-view';
 import type { AssigneeRole, TaskPriority, TaskStatus, TaskSummary, WorkspaceMember } from '@/types/database';
@@ -49,6 +49,8 @@ interface ListViewProps {
   onDelete: (task: TaskSummary) => void;
   onFocusRow: (taskId: string) => void;
   onClearFilters: () => void;
+  /** My Tasks: the latest revision request of tasks sent back to the person, shown under the title. */
+  revisionNotes?: ReadonlyMap<string, RevisionNote>;
 }
 
 /** The grouped list: collapsible group headers with counts, and the inline-editable rows. */
@@ -81,6 +83,7 @@ const ListView: React.FC<ListViewProps> = ({
   onDelete,
   onFocusRow,
   onClearFilters,
+  revisionNotes,
 }) => (
   <div className="overflow-hidden rounded-xl border border-border/80 bg-card shadow-soft">
     {canCreate && listId && (
@@ -172,6 +175,7 @@ const ListView: React.FC<ListViewProps> = ({
                   onMove={onMove}
                   onDelete={onDelete}
                   onFocusRow={onFocusRow}
+                  revisionNote={revisionNotes?.get(task.id)}
                 />
               ))}
             </ul>

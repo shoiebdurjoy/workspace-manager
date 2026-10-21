@@ -71,6 +71,7 @@ The offline and live suites assert, for each role, that results never include an
 Nothing sensitive is ever placed in the address: only ids, enumerated keys and the typed search words the person chose to share.
 
 ## 4. Known limitations
+- **Intermittent slow first page on a freshly bulk-filled list.** After migration 15 the live suite's first filtered page of 3,000 just-inserted tasks took ~1 s in six of seven runs and timed out once (8 s statement limit) on the smallest database size; the same query run directly a moment later took ~0.5 s. It was not reproduced, and only applies right after thousands of rows are inserted at once (production holds a handful of tasks). If it appears on real data, look first at table statistics () and compute size.
 - **No virtual scrolling.** A view loads at most 5,000 rows (with a visible notice) and renders them all; narrowing by filter / search is the way to see the rest. Windowed rendering is the next step if a single view ever needs more.
 - **Board:** no drag-reorder *within* a column (manual order is changed in the List), no keyboard drag (the card's Move menu is the keyboard path).
 - **Table:** columns cannot be resized.

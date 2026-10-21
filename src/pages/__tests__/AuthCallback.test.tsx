@@ -10,6 +10,8 @@ const app = (auth: ReturnType<typeof makeAuth>, route: string) =>
     <Routes>
       <Route path="/auth/callback" element={<AuthCallback />} />
       <Route path="/home" element={<div>home page</div>} />
+      {/* "/" picks the landing page by role in the app (landingFor); here it stands for it */}
+      <Route path="/" element={<div>home page</div>} />
       <Route path="/login" element={<div>login page</div>} />
     </Routes>,
     { auth, route }

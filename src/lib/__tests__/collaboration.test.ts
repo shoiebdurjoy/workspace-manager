@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
+  groupByDay,
+  readInboxParams,
+  writeInboxParams,
   ATTACHMENT_ACCEPT,
   ATTACHMENT_MAX_BYTES,
   ATTACHMENT_TYPES,
@@ -322,7 +325,7 @@ describe('activity sentences', () => {
 
 describe('notifications', () => {
   const n = (kind: AppNotification['kind'], data: Record<string, unknown>, extra: Partial<AppNotification> = {}): AppNotification => ({
-    id: 'n1', userId: 'me', workspaceId: 'ws', taskId: TASK, actorId: PEOPLE.qc, kind, data, readAt: null, createdAt: '2026-10-05T10:00:00Z', ...extra,
+    id: 'n1', userId: 'me', workspaceId: 'ws', taskId: TASK, actorId: PEOPLE.qc, kind, data, readAt: null, archivedAt: null, createdAt: '2026-10-05T10:00:00Z', ...extra,
   });
   const lookup = memberLookup(MEMBERS);
 
@@ -365,5 +368,39 @@ describe('timeAgo', () => {
     expect(timeAgo(ago(3 * 86_400_000), now)).toBe('3 days ago');
     expect(timeAgo(ago(30 * 86_400_000), now)).toMatch(/Sep/);
     expect(timeAgo('not a date', now)).toBe('');
+  });
+});
+
+describe('Inbox (Phase 11)', () => {
+  it('reads the tab, kinds and unread-only from the address, dropping anything unknown', () => {
+    expect(readInboxParams(new URLSearchParams(''))).toEqual({ tab: 'inbox', kinds: [], unreadOnly: false });
+    expect(readInboxParams(new URLSearchParams('tab=done&kind=mention,evil,status,mention&unread=1'))).toEqual({
+      tab: 'done',
+      kinds: ['mention', 'status'],
+      unreadOnly: true,
+    });
+    expect(readInboxParams(new URLSearchParams('tab=archive&unread=yes')).tab).toBe('inbox');
+    expect(readInboxParams(new URLSearchParams('unread=yes')).unreadOnly).toBe(false);
+  });
+
+  it('writes only what differs from the default, and keeps other parameters', () => {
+    const p = writeInboxParams(new URLSearchParams('x=1'), { tab: 'all', kinds: ['comment'], unreadOnly: true });
+    expect(p.toString()).toBe('x=1&tab=all&kind=comment&unread=1');
+    const back = writeInboxParams(p, { tab: 'inbox', kinds: [], unreadOnly: false });
+    expect(back.toString()).toBe('x=1');
+  });
+
+  it('groups newest-first items by the viewer calendar day, keeping their order', () => {
+    const now = new Date(2026, 9, 21, 9, 0);
+    const at = (daysAgo: number, hour = 8) => ({ createdAt: new Date(2026, 9, 21 - daysAgo, hour).toISOString(), id: `${daysAgo}-${hour}` });
+    const items = [at(0, 8), at(0, 1), at(1, 23), at(2), at(6), at(7), at(40)];
+    const groups = groupByDay(items, now);
+    expect(groups.map((g) => [g.label, g.items.map((i) => i.id)])).toEqual([
+      ['Today', ['0-8', '0-1']],
+      ['Yesterday', ['1-23']],
+      ['Earlier this week', ['2-8', '6-8']],
+      ['Older', ['7-8', '40-8']],
+    ]);
+    expect(groupByDay([], now)).toEqual([]);
   });
 });

@@ -1931,6 +1931,143 @@ console.log('\n== Phase 10: comments, attachments, activity and notifications ==
   await addRow(pm, p, { name: 'left-behind.pdf' });
 }
 
+console.log('\n== Phase 11: Home, Inbox and My Tasks ==');
+{
+  // fresh people, so earlier sections' assignments do not blur the personal counts
+  const ed3 = await mkUser('ed3@tbb.test', {}, true);
+  const qc3 = await mkUser('qc3@tbb.test', {}, true);
+  await svc(`INSERT INTO public.workspace_members (workspace_id, user_id, role) VALUES ($1,$2,'EDITOR'), ($1,$3,'QC_SPECIALIST')`, [ws, ed3, qc3]);
+  const DAY = '2030-01-10T00:00:00Z', DAY_END = '2030-01-11T00:00:00Z', WEEK_END = '2030-01-17T00:00:00Z';
+  const at = (offsetDays) => new Date(Date.parse(DAY) + offsetDays * 86400000 + 3600000).toISOString();
+
+  // fixtures written directly (triggers off), so the stages and history are exactly what the checks expect
+  await svc(`SET session_replication_role = replica`);
+  const mk = async (title, status, due, client) => (await svc(
+    `INSERT INTO public.tasks (workspace_id, list_id, title, status, priority, due_date, client_deadline)
+     VALUES ($1,$2,$3,$4,'MEDIUM',$5,$6) RETURNING id`, [ws, list, title, status, due, client]))[0].id;
+  const assign = (t, role, u) => svc(`INSERT INTO public.task_assignees (task_id, workspace_id, role_type, user_id) VALUES ($1,$2,$3,$4)`, [t, ws, role, u]);
+  const event = (t, from, to, note, n, when) => svc(
+    `INSERT INTO public.task_status_events (task_id, workspace_id, from_status, to_status, actor_id, note, revision_number, created_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`, [t, ws, from, to, qc3, note, n, when]);
+  const A = await mk('P11 overdue', 'STARTED_EDITING', at(-2), null);
+  const B = await mk('P11 due today (client deadline)', 'ASSIGNED', null, at(0));
+  const C = await mk('P11 in first QC, this week', 'QC_FIRST_APPROVAL', at(3), at(5));
+  const D = await mk('P11 revision, no date', 'QC_REVISION_NEEDED', null, null);
+  const E = await mk('P11 closed long ago', 'CLOSED', at(-30), null);
+  const G = await mk('P11 final QC, nobody reviewing', 'QC_FINAL_APPROVAL', at(9), null);
+  await assign(A, 'EDITOR', ed3); await assign(A, 'QC_REVIEWER', qc3);
+  await assign(B, 'EDITOR', ed3);
+  await assign(C, 'EDITOR', other); await assign(C, 'QC_REVIEWER', qc3);
+  await assign(D, 'EDITOR', ed3); await assign(D, 'QC_REVIEWER', qc3);
+  await assign(E, 'EDITOR', ed3);
+  await event(C, 'STARTED_EDITING', 'QC_FIRST_APPROVAL', null, null, at(-1));
+  await event(D, 'QC_FIRST_APPROVAL', 'QC_REVISION_NEEDED', 'first: tighten the intro', 1, at(-4));
+  await event(D, 'QC_FINAL_APPROVAL', 'QC_REVISION_NEEDED', 'second: fix the audio pop at 00:45', 2, at(-1));
+  await event(D, 'QC_REVISION_NEEDED', 'QC_FINAL_APPROVAL', null, null, at(-3));
+  await event(G, 'QC_REVISION_NEEDED', 'QC_FINAL_APPROVAL', null, null, at(-2));
+  const foreign = (await svc(`INSERT INTO public.tasks (workspace_id, list_id, title, status) VALUES ($1,$2,'P11 foreign','QC_REVISION_NEEDED') RETURNING id`, [wsB, listB]))[0].id;
+  await svc(`INSERT INTO public.task_status_events (task_id, workspace_id, from_status, to_status, note, revision_number) VALUES ($1,$2,'QC_FIRST_APPROVAL','QC_REVISION_NEEDED','foreign note',1)`, [foreign, wsB]);
+  await svc(`SET session_replication_role = origin`);
+
+  const home = (who, a = DAY, b = DAY_END, c = WEEK_END, w = ws) =>
+    as(who, `SELECT public.my_home_summary($1, $2::timestamptz, $3::timestamptz, $4::timestamptz) AS s`, [w, a, b, c]);
+  const ids = (list) => (list ?? []).map((x) => x.id);
+
+  // ---- my_home_summary ----------------------------------------------------------------------------
+  console.log('  -- home summary');
+  r = await home(ed3);
+  let s = r.rows[0]?.s;
+  record('an editor gets their own buckets: overdue, due today (client deadline counts), later (no date)',
+    !r.error && s.mine.overdue === 1 && s.mine.dueToday === 1 && s.mine.dueThisWeek === 0 && s.mine.later === 1 && s.mine.total === 3,
+    r.error?.message ?? JSON.stringify(s?.mine));
+  record('...finished work is counted apart and never overdue', s?.mine.finished === 1);
+  record('...an editor gets no QC queue, no revision list and no manager numbers',
+    s?.role === 'EDITOR' && s.qcQueue.length === 0 && s.revisions.length === 0 && s.manager === null);
+
+  r = await home(qc3);
+  s = r.rows[0]?.s;
+  record('a QC specialist\'s queue holds only the tasks they review that wait for QC', !r.error && ids(s.qcQueue).join() === C, JSON.stringify(ids(s?.qcQueue)));
+  record('...with its waiting-since time from the stage history', s?.qcQueue[0]?.since && Date.parse(s.qcQueue[0].since) === Date.parse(at(-1)));
+  record('...and revisions in progress lists the tasks they review that are back with the editor', ids(s?.revisions).join() === D);
+  record('...a final-approval task nobody reviews is not in their queue', !ids(s?.qcQueue).includes(G));
+  record('...their own buckets count their QC assignments too (A overdue, C this week, D later)',
+    s?.mine.overdue === 1 && s.mine.dueThisWeek === 1 && s.mine.later === 1 && s.manager === null, JSON.stringify(s?.mine));
+
+  r = await home(pm);
+  s = r.rows[0]?.s;
+  record('a production manager sees every task waiting for QC, oldest first', !r.error && ids(s.qcQueue).includes(C) && ids(s.qcQueue).includes(G)
+    && ids(s.qcQueue).indexOf(G) < ids(s.qcQueue).indexOf(C), JSON.stringify(ids(s?.qcQueue)));
+  record('...and every revision in progress', ids(s?.revisions).includes(D));
+  const truth = (await svc(`
+    WITH st AS (SELECT s.key, s.category FROM public.workflow_statuses s WHERE s.workflow_id = private.task_workflow_id($1)),
+    t AS (SELECT t.id, LEAST(t.due_date, t.client_deadline) d FROM public.tasks t LEFT JOIN st ON st.key = t.status
+          WHERE t.workspace_id = $1 AND COALESCE(st.category,'') <> 'COMPLETED')
+    SELECT count(*)::int AS open, (count(*) FILTER (WHERE d < $2::timestamptz))::int AS overdue,
+      (count(*) FILTER (WHERE NOT EXISTS (SELECT 1 FROM public.task_assignees a WHERE a.task_id = t.id AND a.role_type='EDITOR')))::int AS no_editor,
+      (count(*) FILTER (WHERE NOT EXISTS (SELECT 1 FROM public.task_assignees a WHERE a.task_id = t.id AND a.role_type='QC_REVIEWER')))::int AS no_qc
+    FROM t`, [ws, DAY]))[0];
+  record('...and workspace numbers that equal a direct count (open, overdue, no editor, no QC)',
+    s?.manager?.open === truth.open && s.manager.overdue === truth.overdue && s.manager.noEditor === truth.no_editor && s.manager.noQc === truth.no_qc,
+    JSON.stringify({ got: s?.manager, want: truth }));
+  r = await home(owner);
+  record('the owner gets the manager view too', !r.error && r.rows[0].s.manager !== null);
+
+  r = await home(client);
+  record('a client viewer is refused the summary', r.error?.code === '42501', r.error?.message ?? 'was allowed');
+  r = await home(stranger);
+  record('a non-member is refused the summary', r.error?.code === '42501', r.error?.message ?? 'was allowed');
+  r = await home(ed3, DAY, DAY_END, WEEK_END, wsB);
+  record('a member cannot ask for another workspace\'s summary', r.error?.code === '42501', r.error?.message ?? 'was allowed');
+  r = await home(ed3, DAY_END, DAY, WEEK_END);
+  record('day boundaries in the wrong order are refused', r.error?.code === '22023', r.error?.message ?? 'was allowed');
+  r = await home(ed3, DAY, DAY_END, null);
+  record('a missing boundary is refused', r.error?.code === '22023', r.error?.message ?? 'was allowed');
+  r = await svc(`SELECT p.prosecdef FROM pg_proc p WHERE p.proname IN ('my_home_summary','latest_revision_notes')`);
+  record('both new read functions run with the caller\'s rights (not SECURITY DEFINER)', r.length === 2 && r.every((x) => x.prosecdef === false));
+  r = await as('anon', `SELECT public.my_home_summary($1, now(), now() + interval '1 day', now() + interval '7 days')`, [ws]);
+  record('anon cannot call the summary', !!r.error);
+
+  // ---- latest_revision_notes ---------------------------------------------------------------------
+  console.log('  -- latest revision notes');
+  r = await as(ed3, `SELECT * FROM public.latest_revision_notes($1::uuid[])`, [[D, A, C]]);
+  record('the latest revision request per task, and only for tasks that had one',
+    !r.error && r.rows.length === 1 && r.rows[0].task_id === D && r.rows[0].note === 'second: fix the audio pop at 00:45' && r.rows[0].revision_number === 2 && r.rows[0].actor_id === qc3,
+    r.error?.message ?? JSON.stringify(r.rows));
+  r = await as(ed3, `SELECT * FROM public.latest_revision_notes($1::uuid[])`, [[foreign]]);
+  record('another workspace\'s revision note is not returned', !r.error && r.rows.length === 0);
+  r = await as(client, `SELECT * FROM public.latest_revision_notes($1::uuid[])`, [[D]]);
+  record('a client viewer gets nothing', !r.error && r.rows.length === 0);
+  r = await as(stranger, `SELECT * FROM public.latest_revision_notes($1::uuid[])`, [[D]]);
+  record('a non-member gets nothing', !r.error && r.rows.length === 0);
+  r = await as(ed3, `SELECT * FROM public.latest_revision_notes($1::uuid[])`, [[]]);
+  record('an empty list is fine', !r.error && r.rows.length === 0);
+
+  // ---- Inbox "Done" (archived_at) ----------------------------------------------------------------
+  console.log('  -- inbox done');
+  const note = (await svc(`INSERT INTO public.notifications (user_id, workspace_id, task_id, actor_id, kind, data, dedupe_key)
+    VALUES ($1,$2,$3,$4,'comment','{}'::jsonb,'p11-done-1') RETURNING id`, [ed3, ws, A, qc3]))[0].id;
+  r = await as(ed3, `UPDATE public.notifications SET archived_at = '2000-01-01' WHERE id = $1 RETURNING archived_at, read_at`, [note]);
+  const firstDone = r.rows[0]?.archived_at;
+  record('the recipient can mark a notification Done, with the server\'s time (a supplied time is ignored)',
+    !r.error && r.rows.length === 1 && new Date(firstDone).getFullYear() > 2020, r.error?.message ?? JSON.stringify(r.rows));
+  record('...Done does not change the read state by itself', r.rows[0]?.read_at === null);
+  r = await as(ed3, `UPDATE public.notifications SET archived_at = now() + interval '1 day' WHERE id = $1 RETURNING archived_at`, [note]);
+  record('...marking it Done again keeps the first time', !r.error && +new Date(r.rows[0].archived_at) === +new Date(firstDone));
+  r = await as(ed3, `UPDATE public.notifications SET archived_at = NULL WHERE id = $1 RETURNING archived_at`, [note]);
+  record('...and they can move it back to the Inbox', !r.error && r.rows[0]?.archived_at === null);
+  r = await as(qc3, `UPDATE public.notifications SET archived_at = now() WHERE id = $1 RETURNING id`, [note]);
+  blocked('a colleague cannot mark someone else\'s notification Done', r);
+  r = await as(owner, `UPDATE public.notifications SET archived_at = now() WHERE id = $1 RETURNING id`, [note]);
+  blocked('not even the owner can', r);
+  r = await as(ed3, `UPDATE public.notifications SET archived_at = now(), kind = 'mention' WHERE id = $1 RETURNING id`, [note]);
+  record('Done cannot be used to change anything else (no grant on other columns)', !!r.error);
+  r = await svc(`SELECT column_name FROM information_schema.column_privileges
+    WHERE table_schema='public' AND table_name='notifications' AND grantee='authenticated' AND privilege_type='UPDATE' ORDER BY column_name`);
+  record('signed-in people may update exactly two columns: read_at and archived_at', r.map((x) => x.column_name).join() === 'archived_at,read_at', JSON.stringify(r));
+  r = await svc(`SELECT indexdef FROM pg_indexes WHERE indexname = 'idx_notifications_inbox'`);
+  record('the Inbox index exists (not-done notifications per person, newest first)', r.length === 1 && /WHERE \(archived_at IS NULL\)/.test(r[0].indexdef), r[0]?.indexdef);
+}
+
 console.log('\n== Deactivation & service role ==');
 await svc(`UPDATE public.profiles SET is_active = false WHERE id = $1`, [editor]);
 r = await as(editor, `SELECT id FROM public.tasks`);

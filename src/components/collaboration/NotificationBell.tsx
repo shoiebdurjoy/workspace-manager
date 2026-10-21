@@ -154,6 +154,22 @@ const NotificationBell: React.FC = () => {
               ))}
             </ul>
           )}
+          {staff && (
+            <div className="border-t border-border/50 p-2 text-center">
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                className="text-xs"
+                onClick={() => {
+                  setOpen(false);
+                  navigate('/inbox');
+                }}
+              >
+                Open Inbox
+              </Button>
+            </div>
+          )}
           {list.hasNextPage && (
             <div className="border-t border-border/50 p-2 text-center">
               <Button type="button" size="sm" variant="ghost" className="text-xs" disabled={list.isFetchingNextPage} onClick={() => void list.fetchNextPage()}>

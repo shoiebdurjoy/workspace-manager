@@ -6,7 +6,7 @@ import {
   validateEmail,
   validatePassword,
 } from '../auth-errors';
-import { safeRedirectTarget } from '../redirect';
+import { landingFor, safeRedirectTarget } from '../redirect';
 import { slugify } from '../slug';
 
 describe('describeAuthError', () => {
@@ -69,18 +69,26 @@ describe('validateEmail', () => {
   });
 });
 
+describe('landingFor (where a signed-in person starts)', () => {
+  it('sends editors and QC specialists to My Tasks and everyone else to Home', () => {
+    expect(landingFor('EDITOR')).toBe('/my-tasks');
+    expect(landingFor('QC_SPECIALIST')).toBe('/my-tasks');
+    for (const role of ['OWNER', 'ADMIN', 'PRODUCTION_MANAGER', 'CLIENT_VIEWER', null, undefined]) expect(landingFor(role)).toBe('/home');
+  });
+});
+
 describe('safeRedirectTarget (no open redirects after login)', () => {
   it('keeps in-app paths and rejects everything else', () => {
     expect(safeRedirectTarget('/team?tab=pods')).toBe('/team?tab=pods');
-    expect(safeRedirectTarget(undefined)).toBe('/home');
-    expect(safeRedirectTarget(null)).toBe('/home');
-    expect(safeRedirectTarget('')).toBe('/home');
-    expect(safeRedirectTarget('https://evil.example')).toBe('/home');
-    expect(safeRedirectTarget('//evil.example')).toBe('/home');
-    expect(safeRedirectTarget('/\\evil.example')).toBe('/home');
-    expect(safeRedirectTarget('javascript:alert(1)')).toBe('/home');
-    expect(safeRedirectTarget('/login')).toBe('/home');
-    expect(safeRedirectTarget('/register')).toBe('/home');
+    expect(safeRedirectTarget(undefined)).toBe('/');
+    expect(safeRedirectTarget(null)).toBe('/');
+    expect(safeRedirectTarget('')).toBe('/');
+    expect(safeRedirectTarget('https://evil.example')).toBe('/');
+    expect(safeRedirectTarget('//evil.example')).toBe('/');
+    expect(safeRedirectTarget('/\\evil.example')).toBe('/');
+    expect(safeRedirectTarget('javascript:alert(1)')).toBe('/');
+    expect(safeRedirectTarget('/login')).toBe('/');
+    expect(safeRedirectTarget('/register')).toBe('/');
   });
 });
 

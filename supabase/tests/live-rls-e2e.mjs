@@ -1684,6 +1684,99 @@ VALUES (gen_random_uuid(), '${u.id}', '${u.id}', jsonb_build_object('sub','${u.i
 
   }
 
+  console.log('\n== Phase 11: Home summary, revision notes, inbox Done (live) ==');
+  {
+    const grantsBefore11 = grantRefusals; // refusals by design (client, stranger, anon, no column grant) are not missing grants
+    // fixtures: one list, tasks made through the real create_task RPC and moved through the real workflow
+    res = await clients.pm.from('lists').insert({ space_id: space, folder_id: folder, name: `P11 LIVE ${RUN}` }).select().single();
+    const lp11 = res.data?.id;
+    const mk11 = async (title, o = {}) => (await clients.pm.rpc('create_task', { p_list_id: lp11, p_title: title, p_editor_id: o.editor ?? null, p_qc_id: o.qc ?? null, p_review_link: null })).data?.id;
+    const mv11 = (who, id, to, extra = {}) => clients[who].rpc('transition_task', { p_task_id: id, p_to: to, ...extra });
+    const a11 = await mk11(`P11 A ${RUN}`, { editor: U.editor.id, qc: U.qc.id });
+    const b11 = await mk11(`P11 B ${RUN}`, { editor: U.editor.id });
+    const c11 = await mk11(`P11 C ${RUN}`);
+    rec('P11 fixtures were created through the real RPC', !!lp11 && !!a11 && !!b11 && !!c11);
+    // A: the editor submits the first cut to QC
+    await mv11('pm', a11, 'ASSIGNED');
+    await mv11('editor', a11, 'STARTED_EDITING');
+    res = await mv11('editor', a11, 'QC_FIRST_APPROVAL', { p_review_link: 'https://app.frame.io/r/p11a' });
+    rec('the editor moves the cut to first QC through the real workflow', !res.error, res.error?.message);
+
+    const today = new Date();
+    const at = (d) => new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate() + d)).toISOString();
+    const homeOf = (who, ws0 = ws, a = at(0), b = at(1), c = at(8)) =>
+      clients[who].rpc('my_home_summary', { p_workspace_id: ws0, p_day_start: a, p_day_end: b, p_week_end: c });
+
+    let t0 = Date.now();
+    res = await homeOf('editor');
+    const homeMs = Date.now() - t0;
+    console.log(`      (home summary through the API: ${homeMs} ms)`);
+    rec('an editor gets their own counts, and no QC queue or workspace numbers',
+      !res.error && res.data.role === 'EDITOR' && res.data.mine.total >= 2 && res.data.qcQueue.length === 0 && res.data.revisions.length === 0 && res.data.manager === null,
+      res.error?.message ?? JSON.stringify(res.data));
+    rec('...quickly, network included', homeMs < 3000, `${homeMs}ms`);
+
+    res = await homeOf('qc');
+    const qcIds = (res.data?.qcQueue ?? []).map((x) => x.id);
+    rec('the QC reviewer\'s queue holds the task they review that waits for QC (with its waiting time)',
+      !res.error && qcIds.includes(a11) && !qcIds.includes(b11) && !!res.data.qcQueue.find((x) => x.id === a11)?.since, res.error?.message ?? JSON.stringify(qcIds));
+    res = await homeOf('pm');
+    rec('a production manager sees the same task in the queue, and workspace numbers',
+      !res.error && (res.data.qcQueue ?? []).some((x) => x.id === a11) && res.data.manager && res.data.manager.open >= 3 && res.data.manager.noEditor >= 1 && res.data.manager.noQc >= 2,
+      res.error?.message ?? JSON.stringify(res.data?.manager));
+    res = await homeOf('editor2');
+    rec('another editor sees none of these tasks: no QC queue, no revisions, no workspace numbers',
+      !res.error && res.data.qcQueue.length === 0 && res.data.revisions.length === 0 && res.data.manager === null, res.error?.message ?? JSON.stringify(res.data));
+
+    res = await homeOf('client');
+    rec('a client viewer is refused the summary', res.error?.code === '42501', res.error?.message ?? 'was allowed');
+    res = await homeOf('stranger');
+    rec('a non-member is refused the summary', res.error?.code === '42501', res.error?.message ?? 'was allowed');
+    res = await homeOf('editor', wsB);
+    rec('asking for another workspace\'s summary is refused', res.error?.code === '42501', res.error?.message ?? 'was allowed');
+    res = await homeOf('editor', ws, at(1), at(0), at(8));
+    rec('day boundaries in the wrong order are refused', res.error?.code === '22023', res.error?.message ?? 'was allowed');
+    res = await mk().rpc('my_home_summary', { p_workspace_id: ws, p_day_start: at(0), p_day_end: at(1), p_week_end: at(8) });
+    rec('an anonymous caller cannot call the summary', !!res.error);
+
+    // QC sends the cut back: the latest revision note, per task
+    res = await mv11('qc', a11, 'QC_REVISION_NEEDED', { p_note: 'fix the audio pop at 00:45' });
+    rec('QC sends the cut back with a note', !res.error, res.error?.message);
+    res = await clients.editor.rpc('latest_revision_notes', { p_task_ids: [a11, b11, c11] });
+    rec('the editor reads the latest revision note, only for the task that has one',
+      !res.error && res.data.length === 1 && res.data[0].task_id === a11 && res.data[0].note === 'fix the audio pop at 00:45' && res.data[0].revision_number === 1 && res.data[0].actor_id === U.qc.id,
+      res.error?.message ?? JSON.stringify(res.data));
+    res = await clients.client.rpc('latest_revision_notes', { p_task_ids: [a11] });
+    rec('a client viewer gets no revision notes', !res.error && res.data.length === 0, res.error?.message);
+    res = await clients.stranger.rpc('latest_revision_notes', { p_task_ids: [a11] });
+    rec('a non-member gets no revision notes', !res.error && res.data.length === 0, res.error?.message);
+    res = await homeOf('qc');
+    rec('the cut moved from the QC queue to revisions in progress',
+      !res.error && !res.data.qcQueue.some((x) => x.id === a11) && res.data.revisions.some((x) => x.id === a11 && x.revisionCount === 1), res.error?.message ?? JSON.stringify(res.data?.revisions));
+
+    // Inbox "Done": the editor was notified by the real triggers
+    res = await clients.editor.from('notifications').select('id, kind, read_at, archived_at').eq('task_id', a11).order('created_at', { ascending: false });
+    const mine11 = res.data ?? [];
+    rec('the editor has real notifications for the task, none Done yet', !res.error && mine11.length > 0 && mine11.every((n) => n.archived_at === null), res.error?.message ?? String(mine11.length));
+    const nid = mine11[0]?.id;
+    res = await clients.editor.from('notifications').update({ archived_at: '2000-01-01T00:00:00Z' }).eq('id', nid).select('archived_at, read_at');
+    const doneAt = res.data?.[0]?.archived_at;
+    rec('the recipient can mark a notification Done; the time is the server\'s (a supplied time is ignored)',
+      !res.error && res.data?.length === 1 && new Date(doneAt).getFullYear() >= 2026, res.error?.message ?? JSON.stringify(res.data));
+    rec('...Done does not mark it read', res.data?.[0]?.read_at === null);
+    res = await clients.editor.from('notifications').update({ archived_at: null }).eq('id', nid).select('archived_at');
+    rec('...and it can be moved back to the Inbox', !res.error && res.data?.[0]?.archived_at === null, res.error?.message);
+    res = await clients.qc.from('notifications').update({ archived_at: new Date().toISOString() }).eq('id', nid).select('id');
+    rec('a colleague cannot mark someone else\'s notification Done', !res.error && (res.data ?? []).length === 0, res.error?.message);
+    res = await clients.owner.from('notifications').update({ archived_at: new Date().toISOString() }).eq('id', nid).select('id');
+    rec('not even the owner can', !res.error && (res.data ?? []).length === 0, res.error?.message);
+    res = await clients.editor.from('notifications').update({ kind: 'mention' }).eq('id', nid).select('id');
+    rec('Done is not a way to change anything else (no grant on other columns)', !!res.error);
+    res = await clients.editor.from('notifications').select('id', { count: 'exact', head: true }).is('archived_at', null).is('read_at', null);
+    rec('the Inbox badge query (unread and not Done) works through the API', !res.error && typeof res.count === 'number', res.error?.message);
+      grantRefusals = grantsBefore11;
+  }
+
   console.log('\n== Deactivation (flag flipped by the service owner) ==');
   const run = runSql;
   run(`UPDATE public.profiles SET is_active = false WHERE id = '${U.editor.id}'`);

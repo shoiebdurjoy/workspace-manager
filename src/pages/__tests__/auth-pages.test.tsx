@@ -18,6 +18,8 @@ describe('Login page', () => {
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/home" element={<Home />} />
+        {/* "/" picks the landing page by role in the app (landingFor); here it stands for it */}
+        <Route path="/" element={<Home />} />
         <Route path="/team" element={<div>team page</div>} />
       </Routes>,
       { auth, route }
@@ -113,6 +115,8 @@ describe('Register page', () => {
       <Routes>
         <Route path="/register" element={<Register />} />
         <Route path="/home" element={<Home />} />
+        {/* "/" picks the landing page by role in the app (landingFor); here it stands for it */}
+        <Route path="/" element={<Home />} />
       </Routes>,
       { auth, route: '/register' }
     );
@@ -207,6 +211,8 @@ describe('Forgot / reset password', () => {
       <Routes>
         <Route path="/" element={<ResetPassword />} />
         <Route path="/home" element={<Home />} />
+        {/* "/" picks the landing page by role in the app (landingFor); here it stands for it */}
+        <Route path="/" element={<Home />} />
       </Routes>,
       { auth }
     );

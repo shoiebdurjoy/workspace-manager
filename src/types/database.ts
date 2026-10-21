@@ -342,5 +342,7 @@ export interface AppNotification {
   kind: NotificationKind;
   data: Record<string, unknown>;
   readAt: string | null;
+  /** "Done" in the Inbox (Phase 11): set by the recipient, null while it is in the Inbox. */
+  archivedAt: string | null;
   createdAt: string;
 }

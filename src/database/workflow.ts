@@ -130,6 +130,36 @@ export async function transitionTask(taskId: string, input: TransitionInput): Pr
   return mapTaskRow(data);
 }
 
+/** A task's most recent request for changes, as My Tasks shows it under the title. */
+export interface RevisionNote {
+  taskId: string;
+  note: string | null;
+  revisionNumber: number | null;
+  actorId: string | null;
+  createdAt: string;
+}
+
+/**
+ * The latest revision request of each of these tasks in one call (Phase 11). Tasks that never had one,
+ * or that the person cannot read, are simply absent. At most 1,000 ids are read per call.
+ */
+export async function getLatestRevisionNotes(taskIds: readonly string[]): Promise<Map<string, RevisionNote>> {
+  const out = new Map<string, RevisionNote>();
+  if (taskIds.length === 0) return out;
+  const { data, error } = await getSupabaseClient().rpc('latest_revision_notes', { p_task_ids: taskIds.slice(0, 1000) });
+  if (error) throw toDatabaseError('load the revision notes', error);
+  for (const row of data ?? []) {
+    out.set(row.task_id, {
+      taskId: row.task_id,
+      note: row.note,
+      revisionNumber: row.revision_number,
+      actorId: row.actor_id,
+      createdAt: row.created_at,
+    });
+  }
+  return out;
+}
+
 /** The most recent request for changes on a task (who asked, when, and what to fix), if any. */
 export async function getLatestRevisionRequest(taskId: string): Promise<StatusEvent | null> {
   if (!taskId) throw new ValidationError('Task ID is required.');

@@ -15,7 +15,7 @@ export type { TaskFilters };
  * this file never filters by text, status, people or dates. It orders and groups what came back.
  */
 
-export type GroupBy = 'status' | 'editor' | 'priority' | 'due' | 'list' | 'none';
+export type GroupBy = 'status' | 'editor' | 'priority' | 'due' | 'list' | 'work' | 'none';
 export type SortKey = 'manual' | 'dueDate' | 'clientDeadline' | 'priority' | 'status' | 'editor' | 'qc' | 'title' | 'created' | 'updated';
 export type SortDir = 'asc' | 'desc';
 
@@ -58,11 +58,16 @@ export const GROUP_OPTIONS: ReadonlyArray<{ value: GroupBy; label: string }> = [
   { value: 'priority', label: 'Priority' },
   { value: 'due', label: 'Due date' },
   { value: 'list', label: 'List' },
+  { value: 'work', label: 'My work' },
   { value: 'none', label: 'No grouping' },
 ];
 
-/** A single list has no use for grouping by list. */
-export const groupOptionsFor = (spansLists: boolean) => GROUP_OPTIONS.filter((o) => spansLists || o.value !== 'list');
+/**
+ * A single list has no use for grouping by list; "My work" (needs my action, then by date) only makes
+ * sense where every task is the person's own (My Tasks).
+ */
+export const groupOptionsFor = (spansLists: boolean, mine = false) =>
+  GROUP_OPTIONS.filter((o) => (spansLists || o.value !== 'list') && (mine || o.value !== 'work'));
 
 export const SORT_OPTIONS: ReadonlyArray<{ value: SortKey; label: string }> = [
   { value: 'manual', label: 'Manual order' },
@@ -180,6 +185,36 @@ export function dueBucket(task: Pick<TaskSummary, 'status' | 'dueDate'>, workflo
   return days <= 7 ? 'week' : 'later';
 }
 
+const WORK_BUCKETS = [
+  { key: 'needs', label: 'Needs my action' },
+  { key: 'overdue', label: 'Overdue' },
+  { key: 'today', label: 'Due today' },
+  { key: 'week', label: 'Next 7 days' },
+  { key: 'later', label: 'Later' },
+  { key: 'none', label: 'No date' },
+  { key: 'done', label: 'Finished' },
+] as const;
+
+/**
+ * My Tasks: where one of my tasks belongs. Finished work is its own bucket; a task whose next step is
+ * mine comes first whatever its date; the rest is placed by its nearest date, the earlier of the
+ * internal QC due date and the client deadline (the same rule as the Home summary).
+ */
+export function workBucket(
+  task: Pick<TaskSummary, 'status' | 'dueDate' | 'clientDeadline' | 'editorId' | 'qcId'>,
+  ctx: Pick<ViewContext, 'workflow' | 'me' | 'role'>,
+  now: Date
+): string {
+  if (isFinishedStatus(ctx.workflow, task.status)) return 'done';
+  if (needsMyAction(ctx.workflow, task, ctx.me, ctx.role)) return 'needs';
+  const dates = [task.dueDate, task.clientDeadline].filter((d): d is string => !!d).map((d) => new Date(d));
+  if (dates.length === 0) return 'none';
+  const days = differenceInCalendarDays(new Date(Math.min(...dates.map((d) => d.getTime()))), now);
+  if (days < 0) return 'overdue';
+  if (days === 0) return 'today';
+  return days <= 7 ? 'week' : 'later';
+}
+
 export function groupTasks(
   tasks: readonly TaskSummary[],
   groupBy: GroupBy,
@@ -219,6 +254,15 @@ export function groupTasks(
       tasks: tasks.filter((t) => dueBucket(t, ctx.workflow, now) === b.key),
     }));
     groups = buckets;
+  } else if (groupBy === 'work') {
+    const now = new Date();
+    groups = WORK_BUCKETS.map((b) => ({
+      key: `work:${b.key}`,
+      label: b.label,
+      kind: 'work' as const,
+      value: b.key,
+      tasks: tasks.filter((t) => workBucket(t, ctx, now) === b.key),
+    }));
   } else if (groupBy === 'list') {
     const info = (id: string) => ctx.lists?.get(id);
     const label = (id: string) => {

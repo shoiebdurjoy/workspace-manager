@@ -24,7 +24,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import type { TaskPatch } from '@/database';
+import type { RevisionNote, TaskPatch } from '@/database';
 import { isValidTaskUrl, linkHost, progressOf, validateTaskTitle, type LinkField, type TaskAccess } from '@/lib/tasks';
 import { isFinishedStatus, statusOf } from '@/lib/workflow';
 import { useWorkflow } from '@/hooks/use-workflow';
@@ -109,7 +109,36 @@ export interface TaskRowProps {
   onMove: (taskId: string, direction: 'up' | 'down') => void;
   onDelete: (task: TaskSummary) => void;
   onFocusRow: (taskId: string) => void;
+  /** My Tasks: what QC asked for the last time the cut was sent back (first line, "more" for the rest). */
+  revisionNote?: RevisionNote;
 }
+
+/** The latest revision request under a row: its first line, and "more" to read the whole note in place. */
+const RevisionNoteLine: React.FC<{ note: string; number: number | null }> = ({ note, number }) => {
+  const [open, setOpen] = useState(false);
+  const text = note.trim();
+  const firstLine = text.split(/\r?\n/)[0].trimEnd();
+  const longer = firstLine.length < text.length || firstLine.length > 140;
+  return (
+    <div className="relative z-10 mt-0.5 flex items-start gap-1.5 pl-8 text-xs text-destructive md:pl-[3.25rem]">
+      <span className="shrink-0 font-semibold">{number ? `Revision ${number}:` : 'Revision:'}</span>
+      <span className={cn('min-w-0 whitespace-pre-wrap break-words text-foreground/80', !open && 'line-clamp-1')}>{open ? text : firstLine}</span>
+      {longer && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            setOpen((x) => !x);
+          }}
+          aria-expanded={open}
+          className="shrink-0 rounded px-1 font-medium text-muted-foreground underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          {open ? 'less' : 'more'}
+        </button>
+      )}
+    </div>
+  );
+};
 
 const TaskRow: React.FC<TaskRowProps> = ({
   task,
@@ -129,6 +158,7 @@ const TaskRow: React.FC<TaskRowProps> = ({
   onMove,
   onDelete,
   onFocusRow,
+  revisionNote,
 }) => {
   const [renaming, setRenaming] = useState(false);
   const [expanded, setExpanded] = useState(false);
@@ -366,6 +396,7 @@ const TaskRow: React.FC<TaskRowProps> = ({
         <RowLinks task={task} compact />
       </div>
 
+      {revisionNote?.note && <RevisionNoteLine note={revisionNote.note} number={revisionNote.revisionNumber} />}
       {expanded && <RowSubtasks taskId={task.id} access={access} />}
     </li>
   );

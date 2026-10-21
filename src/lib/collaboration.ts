@@ -9,7 +9,7 @@ import type {
 import { memberName, type MemberLookup } from '@/lib/tasks';
 import { statusName } from '@/lib/workflow';
 import { hierarchyPaths } from '@/lib/hierarchy';
-import type { TbbRole } from '@/types/database';
+import type { NotificationKind, TbbRole } from '@/types/database';
 
 /**
  * Pure helpers for Phase 10: comments and @mentions, attachments, the activity feed, notifications.
@@ -461,4 +461,80 @@ export function timeAgo(iso: string, now: Date = new Date()): string {
   if (days === 1) return 'yesterday';
   if (days < 7) return `${days} days ago`;
   return then.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: then.getFullYear() === now.getFullYear() ? undefined : 'numeric' });
+}
+
+// ---------------------------------------------------------------------------------------
+// Inbox (Phase 11)
+// ---------------------------------------------------------------------------------------
+
+export const INBOX_TABS = ['inbox', 'done', 'all'] as const;
+export type InboxTab = (typeof INBOX_TABS)[number];
+export const INBOX_KINDS: readonly NotificationKind[] = ['mention', 'comment', 'assigned', 'status'];
+export const INBOX_KIND_LABELS: Record<NotificationKind, string> = {
+  mention: 'Mentions',
+  comment: 'Comments',
+  assigned: 'Assignments',
+  status: 'Stage changes',
+};
+
+export interface InboxState {
+  tab: InboxTab;
+  kinds: NotificationKind[];
+  unreadOnly: boolean;
+}
+
+/** The Inbox as written in the address (?tab=done&kind=mention,comment&unread=1); anything unknown is dropped. */
+export function readInboxParams(params: URLSearchParams): InboxState {
+  const tab = params.get('tab');
+  const kinds = (params.get('kind') ?? '')
+    .split(',')
+    .filter((k): k is NotificationKind => (INBOX_KINDS as readonly string[]).includes(k));
+  return {
+    tab: (INBOX_TABS as readonly string[]).includes(tab ?? '') ? (tab as InboxTab) : 'inbox',
+    kinds: [...new Set(kinds)],
+    unreadOnly: params.get('unread') === '1',
+  };
+}
+
+export function writeInboxParams(params: URLSearchParams, state: Partial<InboxState>): URLSearchParams {
+  const next = new URLSearchParams(params);
+  if (state.tab !== undefined) {
+    if (state.tab === 'inbox') next.delete('tab');
+    else next.set('tab', state.tab);
+  }
+  if (state.kinds !== undefined) {
+    if (state.kinds.length) next.set('kind', state.kinds.join(','));
+    else next.delete('kind');
+  }
+  if (state.unreadOnly !== undefined) {
+    if (state.unreadOnly) next.set('unread', '1');
+    else next.delete('unread');
+  }
+  return next;
+}
+
+export interface DayGroup<T> {
+  key: 'today' | 'yesterday' | 'week' | 'older';
+  label: string;
+  items: T[];
+}
+
+/**
+ * Newest-first items grouped by the viewer's calendar day: Today, Yesterday, Earlier this week (2-6
+ * days back) and Older. Empty groups are left out and the order of the items is kept.
+ */
+export function groupByDay<T extends { createdAt: string }>(items: readonly T[], now: Date = new Date()): DayGroup<T>[] {
+  const startOf = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const today = startOf(now);
+  const defs: DayGroup<T>[] = [
+    { key: 'today', label: 'Today', items: [] },
+    { key: 'yesterday', label: 'Yesterday', items: [] },
+    { key: 'week', label: 'Earlier this week', items: [] },
+    { key: 'older', label: 'Older', items: [] },
+  ];
+  for (const item of items) {
+    const days = Math.round((today - startOf(new Date(item.createdAt))) / 86_400_000);
+    defs[days <= 0 ? 0 : days === 1 ? 1 : days < 7 ? 2 : 3].items.push(item);
+  }
+  return defs.filter((g) => g.items.length > 0);
 }

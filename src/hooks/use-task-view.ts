@@ -7,6 +7,7 @@ import {
   readViewParams,
   serializeViewPrefs,
   writeViewParams,
+  type GroupBy,
   type TaskFilters,
   type TaskViewState,
   type ViewPrefs,
@@ -38,9 +39,10 @@ function writePrefs(scopeKey: string, prefs: ViewPrefs) {
  * browser only remembers the person's own way of grouping / sorting (and which groups are collapsed)
  * for links that do not say; filters are never remembered silently.
  *
- * `scopeKey` is the list (or "everything") the preferences belong to.
+ * `scopeKey` is the list (or "everything", "mine") the preferences belong to; `defaultGroupBy` is the
+ * grouping used when neither the link nor the person says (My Tasks starts grouped by "My work").
  */
-export function useTaskView(scopeKey: string) {
+export function useTaskView(scopeKey: string, defaultGroupBy: GroupBy = DEFAULT_VIEW.groupBy) {
   const [params, setParams] = useSearchParams();
   const [prefs, setPrefsState] = useState<ViewPrefs>(() => readPrefs(scopeKey));
   const [forKey, setForKey] = useState(scopeKey);
@@ -54,13 +56,13 @@ export function useTaskView(scopeKey: string) {
   const filters = useMemo(() => readFilters(params), [params]);
   const view: TaskViewState = useMemo(
     () => ({
-      groupBy: fromUrl.groupBy ?? prefs.groupBy ?? DEFAULT_VIEW.groupBy,
+      groupBy: fromUrl.groupBy ?? prefs.groupBy ?? defaultGroupBy,
       sort: fromUrl.sort ?? prefs.sort ?? DEFAULT_VIEW.sort,
       dir: fromUrl.dir ?? prefs.dir ?? DEFAULT_VIEW.dir,
       filters,
       collapsed: prefs.collapsed,
     }),
-    [fromUrl, prefs, filters]
+    [fromUrl, prefs, filters, defaultGroupBy]
   );
 
   const savePrefs = useCallback(

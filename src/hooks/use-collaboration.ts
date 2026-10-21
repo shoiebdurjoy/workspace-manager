@@ -23,7 +23,7 @@ import {
 import type { AppNotification, TaskAttachment, TaskComment } from '@/types/database';
 import { useAuth } from '@/hooks/use-auth';
 import { can } from '@/lib/permissions';
-import { mentionedIds, sortComments, validateAttachmentFile } from '@/lib/collaboration';
+import { mentionedIds, sortComments, validateAttachmentFile, type InboxState } from '@/lib/collaboration';
 
 /**
  * Comments, files, the activity feed and notifications.
@@ -39,6 +39,10 @@ export const collabKeys = {
   activity: (ws: string, taskId: string) => ['workspace', ws, 'collab', 'activity', taskId] as const,
   notifications: (ws: string, userId: string) => ['workspace', ws, 'notifications', userId, 'list'] as const,
   unread: (ws: string, userId: string) => ['workspace', ws, 'notifications', userId, 'unread'] as const,
+  // the Inbox page's lists live under the bell's list key, so anything that refreshes the bell refreshes them
+  inbox: (ws: string, userId: string, state: InboxState) => ['workspace', ws, 'notifications', userId, 'list', 'inbox', state] as const,
+  // not under 'unread': that one counts every unread notification, this one only those not yet Done
+  inboxCount: (ws: string, userId: string) => ['workspace', ws, 'notifications', userId, 'inbox-count'] as const,
 };
 
 function errorMessage(err: unknown): string {
@@ -440,6 +444,7 @@ export function useNotificationRealtime() {
         () => {
           void qc.invalidateQueries({ queryKey: collabKeys.notifications(workspaceId, userId) });
           void qc.invalidateQueries({ queryKey: collabKeys.unread(workspaceId, userId) });
+          void qc.invalidateQueries({ queryKey: collabKeys.inboxCount(workspaceId, userId) });
         },
         setStatus
       );

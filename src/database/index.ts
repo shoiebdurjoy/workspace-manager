@@ -15,6 +15,7 @@ export * from './tasks';
 export * from './collaboration';
 export * from './workflow';
 export * from './production';
+export * from './home';
 export * from './teams';
 export * from './invitations';
 export * from './health';

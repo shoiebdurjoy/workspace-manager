@@ -26,14 +26,14 @@ import { useTaskView } from '@/hooks/use-task-view';
 import { useViewMode } from '@/hooks/use-view-mode';
 import { useBulkTasks, useMoveTask, useSetAssignee, useTaskSearch, useUpdateTask, type BulkAction } from '@/hooks/use-tasks';
 import { useWorkspaceMembers } from '@/hooks/use-team';
-import { useWorkflow } from '@/hooks/use-workflow';
+import { useRevisionNotes, useWorkflow } from '@/hooks/use-workflow';
 import { can } from '@/lib/permissions';
 import { hierarchyPaths } from '@/lib/hierarchy';
 import { TASK_LOAD_CAP, taskAccess } from '@/lib/tasks';
 import { buildView, canReorderInView, countActiveFilters, groupOptionsFor, groupTasks, type ListInfo, type TaskGroup } from '@/lib/task-view';
 import { toSearchFilters } from '@/lib/task-filters';
 import { nextSort } from '@/lib/task-views';
-import { initialStatus, movesFor } from '@/lib/workflow';
+import { initialStatus, movesFor, statusOf } from '@/lib/workflow';
 import type { AssigneeRole, HierarchyList, HierarchySpace, TaskSummary, WorkspaceMember } from '@/types/database';
 import BoardView from './BoardView';
 import BulkBar from './BulkBar';
@@ -45,8 +45,8 @@ import TaskDialog from './TaskDialog';
 import TaskToolbar, { type Option, type ScopeOptions } from './TaskToolbar';
 import ViewSwitcher from './ViewSwitcher';
 
-/** Which tasks a workspace shows: one list, or every task the person can see. */
-export type WorkspaceScope = { kind: 'list'; space: HierarchySpace; list: HierarchyList } | { kind: 'everything' };
+/** Which tasks a workspace shows: one list, every task the person can see, or the person's own (My Tasks). */
+export type WorkspaceScope = { kind: 'list'; space: HierarchySpace; list: HierarchyList } | { kind: 'everything' } | { kind: 'mine' };
 
 interface TaskWorkspaceProps {
   scope: WorkspaceScope;
@@ -74,12 +74,14 @@ const TaskWorkspace: React.FC<TaskWorkspaceProps> = ({ scope, selectedTaskId, on
   const { role, user } = useAuth();
   const me = user?.id ?? null;
   const list = scope.kind === 'list' ? scope.list : null;
-  const everything = scope.kind === 'everything';
+  // Everything and My Tasks span many lists: no quick add, a List column and the scope filters
+  const everything = scope.kind !== 'list';
+  const mineScope = scope.kind === 'mine';
   const canCreate = can(role, 'task:create') && !!list;
   const members = useWorkspaceMembers().data ?? NO_MEMBERS;
   const tree = useHierarchy().data;
-  const scopeKey = list ? list.id : 'everything';
-  const { view, update: updateView, setFilters, toggleCollapsed, reset } = useTaskView(scopeKey);
+  const scopeKey = list ? list.id : scope.kind;
+  const { view, update: updateView, setFilters, toggleCollapsed, reset } = useTaskView(scopeKey, mineScope ? 'work' : undefined);
   const [mode, setMode] = useViewMode(scopeKey);
   const [columns, setColumns, resetColumns] = useTableColumns();
   const updateTask = useUpdateTask();
@@ -92,14 +94,15 @@ const TaskWorkspace: React.FC<TaskWorkspaceProps> = ({ scope, selectedTaskId, on
   const day = format(new Date(), 'yyyy-MM-dd');
   const request = useMemo(() => {
     const [y, m, d] = day.split('-').map(Number);
-    const filters = list ? { ...view.filters, lists: [list.id] } : view.filters;
+    // a list is "lists = [this one]"; My Tasks is "assigned to me" (as editor or QC reviewer), always
+    const filters = list ? { ...view.filters, lists: [list.id] } : mineScope ? { ...view.filters, mine: true } : view.filters;
     return {
       query: view.filters.search.trim(),
       filters: toSearchFilters(filters, { me, today: new Date(y, m - 1, d) }),
       sort: view.sort,
       dir: view.dir,
     };
-  }, [view.filters, view.sort, view.dir, list, me, day]);
+  }, [view.filters, view.sort, view.dir, list, mineScope, me, day]);
   const query = useTaskSearch(request);
 
   const [creating, setCreating] = useState(false);
@@ -159,6 +162,13 @@ const TaskWorkspace: React.FC<TaskWorkspaceProps> = ({ scope, selectedTaskId, on
   const accessOf = useCallback((t: TaskSummary) => taskAccess(role, { isAssignedEditor: !!me && t.editorId === me }), [role, me]);
   const contextOf = useCallback((t: TaskSummary) => lists.get(t.listId), [lists]);
 
+  // My Tasks: an editor sees what QC asked for under each cut that was sent back to them
+  const revisionIds = useMemo(
+    () => (mineScope && me ? tasks.filter((t) => t.editorId === me && statusOf(workflow, t.status)?.countsRevision).map((t) => t.id) : []),
+    [mineScope, me, tasks, workflow]
+  );
+  const revisionNotes = useRevisionNotes(revisionIds).data;
+
   /** A new task starts at the first stage; it can be added straight into a group one plain step away. */
   const canAddIn = useCallback(
     (group: TaskGroup) => {
@@ -187,11 +197,17 @@ const TaskWorkspace: React.FC<TaskWorkspaceProps> = ({ scope, selectedTaskId, on
   }, [mode]);
 
   // Opening a task keeps the URL's view and filters, so closing the sheet returns to the same screen.
-  const basePath = scope.kind === 'list' ? hierarchyPaths.list(scope.space.id, scope.list.id) : hierarchyPaths.everything();
+  const basePath =
+    scope.kind === 'list' ? hierarchyPaths.list(scope.space.id, scope.list.id) : scope.kind === 'mine' ? hierarchyPaths.myTasks() : hierarchyPaths.everything();
   const listHref = `${basePath}${search}`;
   const taskHref = useCallback(
     (id: string) => {
-      const path = scope.kind === 'list' ? hierarchyPaths.task(scope.space.id, scope.list.id, id) : hierarchyPaths.everythingTask(id);
+      const path =
+        scope.kind === 'list'
+          ? hierarchyPaths.task(scope.space.id, scope.list.id, id)
+          : scope.kind === 'mine'
+            ? hierarchyPaths.myTask(id)
+            : hierarchyPaths.everythingTask(id);
       return `${path}${search}`;
     },
     [scope, search]
@@ -334,9 +350,11 @@ const TaskWorkspace: React.FC<TaskWorkspaceProps> = ({ scope, selectedTaskId, on
           )}
           <EmptyState
             icon={<ClipboardList className="h-6 w-6" />}
-            title={list ? 'No tasks in this list yet' : 'No tasks yet'}
+            title={list ? 'No tasks in this list yet' : mineScope ? 'Nothing assigned to you' : 'No tasks yet'}
             description={
-              !list
+              mineScope
+                ? 'Tasks where you are the editor or the QC reviewer appear here as soon as you are assigned.'
+                : !list
                 ? 'Tasks from every list you can see appear here as soon as they are created.'
                 : canCreate
                   ? 'Each task is one video deliverable: add the brief, assign an editor and a QC reviewer, set the deadlines and keep the links together. Type a title above to start, or use New task for the full form.'
@@ -366,7 +384,7 @@ const TaskWorkspace: React.FC<TaskWorkspaceProps> = ({ scope, selectedTaskId, on
             onNewTask={canCreate ? () => setCreating(true) : undefined}
             lead={<ViewSwitcher mode={mode} onChange={setMode} />}
             hideGroup={mode === 'board'}
-            groupOptions={groupOptionsFor(everything)}
+            groupOptions={groupOptionsFor(everything, mineScope)}
             scopeOptions={scopeOptions}
             trail={mode === 'table' ? <ColumnsMenu visible={columns} onChange={setColumns} onReset={resetColumns} /> : undefined}
           />
@@ -420,6 +438,7 @@ const TaskWorkspace: React.FC<TaskWorkspaceProps> = ({ scope, selectedTaskId, on
               onDelete={onDelete}
               onFocusRow={setActiveId}
               onClearFilters={reset}
+              revisionNotes={revisionNotes}
             />
           )}
 

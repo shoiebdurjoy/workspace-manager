@@ -72,6 +72,7 @@ vi.mock('../client', () => ({
 import {
   addComment,
   buildUploadRequest,
+  countInboxUnread,
   countUnreadNotifications,
   deleteAttachment,
   deleteComment,
@@ -86,6 +87,8 @@ import {
   markAllNotificationsRead,
   markNotificationUnread,
   markNotificationsRead,
+  markReadNotificationsDone,
+  setNotificationsDone,
   subscribeToNotifications,
   taskFilePaths,
   uploadAttachment,
@@ -434,6 +437,62 @@ describe('notifications', () => {
     const updates = at('notifications', 'update');
     expect(updates[1].args[0]).toEqual({ read_at: null });
     expect(at('notifications', 'eq')[0].args).toEqual(['id', 'n1']);
+  });
+
+  it('maps the Done time (Phase 11)', async () => {
+    results.notifications = { data: [{ ...row(1), archived_at: '2026-10-06T08:00:00+00:00' }, row(2)] };
+    const page = await listNotifications({ limit: 5 });
+    expect(page.items.map((n) => n.archivedAt)).toEqual(['2026-10-06T08:00:00+00:00', null]);
+  });
+
+  it('the Inbox tab asks for not-Done rows, the Done tab for Done ones, All for both', async () => {
+    results.notifications = { data: [] };
+    await listNotifications({ view: 'inbox' });
+    expect(at('notifications', 'is')).toEqual([{ table: 'notifications', method: 'is', args: ['archived_at', null] }]);
+    calls.length = 0;
+    await listNotifications({ view: 'done' });
+    expect(at('notifications', 'not')[0].args).toEqual(['archived_at', 'is', null]);
+    calls.length = 0;
+    await listNotifications({ view: 'all' });
+    expect(at('notifications', 'is')).toHaveLength(0);
+    expect(at('notifications', 'not')).toHaveLength(0);
+  });
+
+  it('filters by kind, passing only known kinds to the query', async () => {
+    results.notifications = { data: [] };
+    await listNotifications({ kinds: ['mention', 'status', 'evil' as never] });
+    expect(at('notifications', 'in')[0].args).toEqual(['kind', ['mention', 'status']]);
+    calls.length = 0;
+    await listNotifications({ kinds: [] });
+    expect(at('notifications', 'in')).toHaveLength(0);
+  });
+
+  it('counts the Inbox badge as unread and not Done', async () => {
+    results.notifications = { count: 4, data: null };
+    expect(await countInboxUnread()).toBe(4);
+    expect(at('notifications', 'is').map((c) => c.args)).toEqual([
+      ['read_at', null],
+      ['archived_at', null],
+    ]);
+  });
+
+  it('marks Done (and back to the Inbox) only the given ids', async () => {
+    results.notifications = { data: null };
+    await setNotificationsDone(['n1', 'n2'], true);
+    expect((at('notifications', 'update')[0].args[0] as { archived_at: string }).archived_at).toMatch(/^\d{4}-/);
+    expect(at('notifications', 'in')[0].args).toEqual(['id', ['n1', 'n2']]);
+    await setNotificationsDone(['n1'], false);
+    expect(at('notifications', 'update')[1].args[0]).toEqual({ archived_at: null });
+    calls.length = 0;
+    await setNotificationsDone([], true);
+    expect(calls).toHaveLength(0);
+  });
+
+  it('"Clear read" marks Done every read notification still in the Inbox', async () => {
+    results.notifications = { data: null };
+    await markReadNotificationsDone();
+    expect(at('notifications', 'not')[0].args).toEqual(['read_at', 'is', null]);
+    expect(at('notifications', 'is')[0].args).toEqual(['archived_at', null]);
   });
 
   it('reports failures readably', async () => {

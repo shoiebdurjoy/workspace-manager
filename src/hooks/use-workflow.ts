@@ -1,6 +1,6 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { getLatestRevisionRequest, getWorkflow, StaleTransitionError, transitionTask, type TransitionInput } from '@/database';
+import { getLatestRevisionNotes, getLatestRevisionRequest, getWorkflow, StaleTransitionError, transitionTask, type TransitionInput } from '@/database';
 import { useAuth } from '@/hooks/use-auth';
 import { can } from '@/lib/permissions';
 import { statusName, statusOf } from '@/lib/workflow';
@@ -17,6 +17,8 @@ import { useTaskCache } from '@/hooks/use-tasks';
 export const workflowKeys = {
   workflow: (workspaceId: string) => ['workspace', workspaceId, 'workflow'] as const,
   revision: (workspaceId: string, taskId: string) => ['workspace', workspaceId, 'tasks', 'revision', taskId] as const,
+  // under 'tasks', so anything that refreshes tasks (a move, a save) refreshes these too
+  revisionNotes: (workspaceId: string, taskIds: readonly string[]) => ['workspace', workspaceId, 'tasks', 'revision-notes', taskIds] as const,
 };
 
 export function useWorkflow() {
@@ -40,6 +42,23 @@ export function useLatestRevisionRequest(taskId: string | undefined, enabled = t
     queryFn: () => getLatestRevisionRequest(taskId ?? ''),
     enabled: enabled && !!workspaceId && !!taskId && can(role, 'hierarchy:view'),
     staleTime: 30_000,
+  });
+}
+
+/**
+ * The latest revision request of each of these tasks, in one call (My Tasks shows it under the title).
+ * Only tasks that are in a revision stage are worth asking about; the caller passes those ids.
+ */
+export function useRevisionNotes(taskIds: readonly string[]) {
+  const { workspace, role } = useAuth();
+  const workspaceId = workspace?.id ?? '';
+  const ids = [...taskIds].sort();
+  return useQuery({
+    queryKey: workflowKeys.revisionNotes(workspaceId, ids),
+    queryFn: () => getLatestRevisionNotes(ids),
+    enabled: !!workspaceId && ids.length > 0 && can(role, 'hierarchy:view'),
+    staleTime: 30_000,
+    placeholderData: (previous) => previous,
   });
 }
 

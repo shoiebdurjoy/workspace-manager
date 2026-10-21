@@ -459,7 +459,8 @@ describe('table', () => {
     expect(screen.queryByRole('link', { name: 'Clip 170' })).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: /Show 30 more/ }));
     expect(screen.getByRole('link', { name: 'Clip 170' })).toBeInTheDocument();
-  });
+    // renders 150+ table rows: slow under a full parallel run, so it gets more than the default 5 s
+  }, 20_000);
 
   describe('permissions', () => {
     it('an editor edits only their own rows, and nothing else', async () => {

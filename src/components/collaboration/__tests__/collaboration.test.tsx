@@ -572,7 +572,7 @@ describe('tabs live in the address', () => {
 describe('notification centre', () => {
   const note = (n: number, over: Partial<AppNotification> = {}): AppNotification => ({
     id: `n${n}`, userId: PEOPLE.me, workspaceId: 'ws-1', taskId: TASK, actorId: PEOPLE.qc, kind: 'mention',
-    data: { title: 'Founder story', snippet: 'Can you check the intro?', comment_id: COMMENT_A }, readAt: null,
+    data: { title: 'Founder story', snippet: 'Can you check the intro?', comment_id: COMMENT_A }, readAt: null, archivedAt: null,
     createdAt: new Date(Date.now() - n * 60_000).toISOString(), ...over,
   });
   const renderBell = (role: TbbRole = 'EDITOR') => renderWithAuth(<><NotificationBell /><Where /></>, { auth: makeAuth(role), route: '/home' });

@@ -36,6 +36,8 @@ export interface AppHeaderProps {
 const PAGE_TITLES: Record<string, string> = {
   "/home": "Home",
   "/everything": "Everything",
+  "/my-tasks": "My Tasks",
+  "/inbox": "Inbox",
   "/production": "Production",
   "/team": "Team",
   "/profile": "Profile",

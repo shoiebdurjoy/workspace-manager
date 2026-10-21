@@ -8,11 +8,16 @@ import { useTask } from '@/hooks/use-tasks';
 import { findListById, hierarchyPaths, isUuid } from '@/lib/hierarchy';
 
 /**
- * A task opened over the Everything view. Its space, folder and list are looked up from the task, so the
+ * A task opened over a view that spans lists (Everything, My Tasks). Its space, folder and list are looked up from the task, so the
  * sheet shows the usual breadcrumbs; a task that does not exist (or that the person cannot read) sends
  * them back to the view with a message instead of showing a broken sheet.
  */
-const EverythingSheet: React.FC<{ taskId: string; orderedIds: readonly string[]; onClose: () => void }> = ({ taskId, orderedIds, onClose }) => {
+export const SpanningTaskSheet: React.FC<{
+  taskId: string;
+  orderedIds: readonly string[];
+  onClose: () => void;
+  taskPath?: (taskId: string) => string;
+}> = ({ taskId, orderedIds, onClose, taskPath = hierarchyPaths.everythingTask }) => {
   const valid = isUuid(taskId);
   const task = useTask(valid ? taskId : undefined);
   const tree = useHierarchy().data;
@@ -34,7 +39,7 @@ const EverythingSheet: React.FC<{ taskId: string; orderedIds: readonly string[];
       list={located.list}
       orderedIds={orderedIds}
       onClose={onClose}
-      taskPath={hierarchyPaths.everythingTask}
+      taskPath={taskPath}
       listFallback={false}
     />
   );
@@ -64,7 +69,7 @@ const EverythingPage: React.FC = () => {
         <p className="text-xs text-muted-foreground">Every task you can see, across all spaces. Search, filter and switch between List, Board and Table.</p>
       </header>
       <TaskWorkspace scope={{ kind: 'everything' }} selectedTaskId={taskId} onVisibleOrder={setVisibleOrder} />
-      {taskId && <EverythingSheet taskId={taskId} orderedIds={visibleOrder} onClose={close} />}
+      {taskId && <SpanningTaskSheet taskId={taskId} orderedIds={visibleOrder} onClose={close} />}
     </div>
   );
 };

@@ -10,6 +10,7 @@ import Layout from '@/components/layout/Layout';
 import ProtectedRoute, { FullScreen } from '@/components/auth/ProtectedRoute';
 import { LoadingState } from '@/components/ui/loading-state';
 import Login from '@/pages/Login';
+import { landingFor } from '@/lib/redirect';
 const Register = lazy(() => import('@/pages/Register'));
 const ForgotPassword = lazy(() => import('@/pages/ForgotPassword'));
 const ResetPassword = lazy(() => import('@/pages/ResetPassword'));
@@ -19,6 +20,8 @@ const Home = lazy(() => import('@/pages/Home'));
 const Team = lazy(() => import('@/pages/Team'));
 const Production = lazy(() => import('@/pages/Production'));
 const EverythingPage = lazy(() => import('@/pages/EverythingPage'));
+const MyTasksPage = lazy(() => import('@/pages/MyTasksPage'));
+const InboxPage = lazy(() => import('@/pages/InboxPage'));
 const SpacePage = lazy(() => import('@/pages/SpacePage'));
 const FolderPage = lazy(() => import('@/pages/FolderPage'));
 const ListPage = lazy(() => import('@/pages/ListPage'));
@@ -43,9 +46,9 @@ const queryClient = new QueryClient({
   },
 });
 
-/** `/` sends people where they belong: the app when signed in, otherwise sign-in. */
+/** `/` sends people where they belong: sign-in, or their landing page (see landingFor). */
 const RootRedirect: React.FC = () => {
-  const { status } = useAuth();
+  const { status, role } = useAuth();
   if (status === 'loading') {
     return (
       <FullScreen>
@@ -53,7 +56,7 @@ const RootRedirect: React.FC = () => {
       </FullScreen>
     );
   }
-  return <Navigate to={status === 'unauthenticated' ? '/login' : '/home'} replace />;
+  return <Navigate to={status === 'unauthenticated' ? '/login' : landingFor(role)} replace />;
 };
 
 const App = () => (
@@ -146,6 +149,29 @@ const App = () => (
                 }
               >
                 {/* like a list: the task is a side sheet over the view, so the view stays mounted */}
+                <Route path="tasks/:taskId" element={null} />
+              </Route>
+              <Route
+                path="/inbox"
+                element={
+                  <ProtectedRoute capability="comments:view-internal">
+                    <Layout>
+                      <InboxPage />
+                    </Layout>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/my-tasks"
+                element={
+                  <ProtectedRoute capability="hierarchy:view">
+                    <Layout>
+                      <MyTasksPage />
+                    </Layout>
+                  </ProtectedRoute>
+                }
+              >
+                {/* like Everything: the task is a side sheet over the view, so the view stays mounted */}
                 <Route path="tasks/:taskId" element={null} />
               </Route>
               <Route

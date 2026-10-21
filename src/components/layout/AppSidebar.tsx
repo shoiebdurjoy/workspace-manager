@@ -18,6 +18,7 @@ import { IconButton } from "@/components/ui/icon-button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { UserAvatar } from "@/components/ui/user-avatar";
 import { useAuth } from "@/hooks/use-auth";
+import { useInboxCount } from "@/hooks/use-inbox";
 import { can, ROLE_LABELS } from "@/lib/permissions";
 import SpacesTree from "@/components/hierarchy/SpacesTree";
 
@@ -35,6 +36,8 @@ interface NavItem {
   href?: string;
   /** Roadmap phase that delivers this area; rendered disabled until then. */
   comingInPhase?: number;
+  /** A real count from the database (the Inbox's unread), never a placeholder. */
+  badge?: number;
 }
 
 export const AppSidebar: React.FC<AppSidebarProps> = ({
@@ -47,6 +50,7 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
   const { pathname } = useLocation();
   const navigate = useNavigate();
   const { profile, role, workspace } = useAuth();
+  const inboxCount = useInboxCount().data ?? 0;
 
   const handleNavClick = (href: string) => {
     navigate(href);
@@ -55,8 +59,8 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
 
   const primaryNavItems: NavItem[] = [
     { label: "Home", icon: Home, href: "/home" },
-    { label: "Inbox", icon: Inbox, comingInPhase: 11 },
-    { label: "My Tasks", icon: UserCheck, comingInPhase: 11 },
+    ...(can(role, "comments:view-internal") ? [{ label: "Inbox", icon: Inbox, href: "/inbox", badge: inboxCount }] : []),
+    ...(can(role, "hierarchy:view") ? [{ label: "My Tasks", icon: UserCheck, href: "/my-tasks" }] : []),
     ...(can(role, "hierarchy:view") ? [{ label: "Everything", icon: CheckSquare, href: "/everything" }] : []),
   ];
 
@@ -95,6 +99,14 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
           />
           {!isCollapsed && <span className="truncate">{item.label}</span>}
         </span>
+        {!isCollapsed && !!item.badge && (
+          <span
+            aria-label={`${item.badge} unread`}
+            className="rounded-full bg-primary px-1.5 text-[10px] font-semibold leading-4 tabular-nums text-primary-foreground"
+          >
+            {item.badge > 99 ? '99+' : item.badge}
+          </span>
+        )}
         {!isCollapsed && item.comingInPhase && (
           <span className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/60">Soon</span>
         )}
