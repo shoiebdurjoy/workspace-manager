@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import RoleBadge from '@/components/team/RoleBadge';
 import SpaceIcon from '@/components/hierarchy/SpaceIcon';
+import AdminInsights from '@/components/home/AdminInsights';
 import { AnimatedNumber, Stagger, StaggerItem } from '@/components/motion';
 import { TaskStatusPill } from '@/components/tasks/TaskBadges';
 import type { HomeQueueItem } from '@/database';
@@ -277,6 +278,8 @@ const Home: React.FC = () => {
               </Card>
             </div>
           )}
+
+          {isManager && <AdminInsights />}
 
           {isManager && s?.manager && (
             <section aria-label="Across the workspace" className="space-y-2">

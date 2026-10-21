@@ -218,7 +218,7 @@ const BoardColumn: React.FC<ColumnProps> = ({ group, collapsed, onToggleCollapse
         'flex max-h-[calc(100vh-15rem)] min-h-[12rem] shrink-0 snap-start flex-col rounded-card border border-border/40 bg-muted/50 transition-colors duration-200',
         collapsed ? 'w-12' : 'w-[82vw] max-w-[20rem] md:w-72',
         !!dragging && allowed && 'border-primary/50 bg-primary/5',
-        isOver && allowed && 'bg-primary/10 ring-2 ring-primary/50',
+        isOver && allowed && 'bg-primary/10 ring-2 ring-primary/50 shadow-[0_0_0_6px_hsl(var(--primary)/0.08),0_12px_32px_-12px_hsl(var(--primary)/0.35)]',
         blocked && 'opacity-50',
         isOver && blocked && 'opacity-100 ring-2 ring-destructive/40'
       )}

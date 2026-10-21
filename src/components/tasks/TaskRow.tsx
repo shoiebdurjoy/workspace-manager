@@ -1,4 +1,4 @@
-import React, { memo, useState } from 'react';
+import React, { memo, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   ArrowDown,
@@ -168,7 +168,22 @@ const TaskRow: React.FC<TaskRowProps> = ({
   const progress = progressOf(task.subtaskDone, task.subtaskTotal);
   const hasMenu = access.editBrief || access.delete || canReorder;
 
-  const statusControl = <WorkflowPicker task={task} members={members} />;
+  // live feedback: the stage pill pulses once when the stage changes; a task created moments ago slides in
+  const prevStatus = useRef(task.status);
+  const [pulse, setPulse] = useState(false);
+  useEffect(() => {
+    if (prevStatus.current === task.status) return;
+    prevStatus.current = task.status;
+    setPulse(true);
+    const t = setTimeout(() => setPulse(false), 700);
+    return () => clearTimeout(t);
+  }, [task.status]);
+  const isNew = Date.now() - new Date(task.createdAt).getTime() < 8000;
+  const statusControl = (
+    <span className={cn('inline-flex rounded-full', pulse && 'pulse-once')}>
+      <WorkflowPicker task={task} members={members} />
+    </span>
+  );
   const people = (
     <span className="inline-flex items-center -space-x-1">
       {(['EDITOR', 'QC_REVIEWER'] as const).map((slot) => {
@@ -215,6 +230,7 @@ const TaskRow: React.FC<TaskRowProps> = ({
       data-task-row={task.id}
       className={cn(
         'group relative border-b border-border/40 px-2 py-2.5 transition-colors duration-150 last:border-b-0 hover:bg-foreground/[0.035] md:py-1',
+        isNew && 'enter-row',
         checked && 'bg-brand-subtle/60 hover:bg-brand-subtle/80',
         // a cut sent back for changes stands out in any list
         inRevision && !open && 'shadow-[inset_3px_0_0_hsl(var(--destructive))]',

@@ -441,3 +441,116 @@
 :root { color-scheme: light; }
 .dark { color-scheme: dark; }
 * { scrollbar-width: thin; scrollbar-color: hsl(var(--muted-foreground) / 0.35) transparent; }
+
+/* ==========================================================================================
+   Premium layer: glass menus, motion from the trigger, shimmer, scrollbars, dark depth
+   ========================================================================================== */
+@layer components {
+  /* Every floating surface (menus, popovers, selects, the command palette, hover cards) is frosted glass
+     and grows out of the control that opened it. */
+  [data-radix-popper-content-wrapper] > [role='menu'],
+  [data-radix-popper-content-wrapper] > [role='dialog'],
+  [data-radix-popper-content-wrapper] > [role='listbox'],
+  [data-radix-popper-content-wrapper] > div[data-side] {
+    background: hsl(var(--popover) / 0.86) !important;
+    -webkit-backdrop-filter: saturate(180%) blur(18px);
+    backdrop-filter: saturate(180%) blur(18px);
+    border-color: hsl(var(--border) / 0.7) !important;
+    border-radius: 14px;
+    box-shadow: var(--shadow-float), inset 0 1px 0 hsl(0 0% 100% / 0.06);
+    transform-origin: var(--radix-popper-transform-origin);
+  }
+  [data-radix-popper-content-wrapper] > [data-state='open'] {
+    animation: float-in 180ms var(--ease-out) both;
+  }
+  [data-radix-popper-content-wrapper] > [data-state='closed'] {
+    animation: float-out 120ms ease-in both;
+  }
+
+  /* Dialogs and the task panel: a soft spring in, a quick fade out */
+  [role='dialog'][data-state='open'].fixed {
+    animation-timing-function: cubic-bezier(0.32, 0.72, 0, 1) !important;
+    animation-duration: 380ms !important;
+  }
+
+  /* Skeletons: a slow light sweep instead of a pulse */
+  .skeleton-shimmer {
+    position: relative;
+    overflow: hidden;
+  }
+  .skeleton-shimmer::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    transform: translateX(-100%);
+    background: linear-gradient(90deg, transparent, hsl(var(--background) / 0.55), transparent);
+    animation: shimmer 1.4s ease-in-out infinite;
+  }
+
+  /* Live feedback: something just changed */
+  .pulse-once {
+    animation: pulse-once 600ms var(--ease-out);
+  }
+  .enter-row {
+    animation: enter-row 320ms var(--ease-out) both;
+  }
+}
+
+@keyframes float-in {
+  from { opacity: 0; transform: scale(0.96) translateY(-2px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+@keyframes float-out {
+  from { opacity: 1; transform: scale(1); }
+  to { opacity: 0; transform: scale(0.97); }
+}
+@keyframes shimmer {
+  to { transform: translateX(100%); }
+}
+@keyframes pulse-once {
+  0% { box-shadow: 0 0 0 0 hsl(var(--primary) / 0.45); }
+  100% { box-shadow: 0 0 0 8px hsl(var(--primary) / 0); }
+}
+@keyframes enter-row {
+  from { opacity: 0; transform: translateY(-4px); background-color: hsl(var(--brand-subtle)); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Slim, quiet scrollbars that appear on hover (macOS feel on every OS) */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: hsl(var(--muted-foreground) / 0.25) transparent;
+}
+*::-webkit-scrollbar { width: 10px; height: 10px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb {
+  background-color: hsl(var(--muted-foreground) / 0.22);
+  border-radius: 9999px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+*::-webkit-scrollbar-thumb:hover { background-color: hsl(var(--muted-foreground) / 0.4); }
+
+/* Dark mode, tuned like macOS: layered surfaces with a faint top highlight */
+.dark .surface-card,
+.dark .hero-surface {
+  box-shadow: inset 0 1px 0 hsl(0 0% 100% / 0.05), 0 1px 2px hsl(0 0% 0% / 0.5), 0 8px 24px -12px hsl(0 0% 0% / 0.6);
+  border-color: hsl(0 0% 100% / 0.07);
+}
+.dark .surface-glass {
+  box-shadow: inset 0 -1px 0 hsl(0 0% 100% / 0.04);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-radix-popper-content-wrapper] > [data-state] { animation: none !important; }
+  .skeleton-shimmer::after, .pulse-once, .enter-row { animation: none !important; }
+}
+
+/* Ctrl+K: a Spotlight-sized search field and roomy results */
+.spotlight [cmdk-input-wrapper] { padding-left: 1.25rem; padding-right: 1.25rem; border-color: hsl(var(--border) / 0.6); }
+.spotlight [cmdk-input-wrapper] svg { width: 1.25rem; height: 1.25rem; opacity: 0.6; }
+.spotlight [cmdk-input] { height: 3.75rem; font-size: 1.0625rem; letter-spacing: -0.01em; }
+.spotlight [cmdk-list] { max-height: min(60vh, 28rem); }
+.spotlight [cmdk-item] { border-radius: 10px; padding-top: 0.55rem; padding-bottom: 0.55rem; transition: background-color 120ms ease; }
+.spotlight [cmdk-item][data-selected='true'] { background: hsl(var(--primary) / 0.1); color: hsl(var(--foreground)); }
+.spotlight [cmdk-group-heading] { font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; }

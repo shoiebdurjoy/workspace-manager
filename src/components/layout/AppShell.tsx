@@ -89,11 +89,11 @@ export const AppShell: React.FC<AppShellProps> = ({
         <main
           className={cn(
             "flex-1 overflow-y-auto surface-canvas focus:outline-none",
-            noPadding ? "p-0" : "p-4 sm:p-6 lg:px-10 lg:py-8",
+            noPadding ? "p-0" : "px-3 py-3 sm:px-4 lg:px-6 lg:py-4",
             className
           )}
         >
-          <div className="mx-auto max-w-7xl w-full">
+          <div className="w-full">
             <PageTransition routeKey={pageKey}>{children}</PageTransition>
           </div>
         </main>

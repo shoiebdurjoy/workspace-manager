@@ -7,11 +7,22 @@ import type { RevisionNote, TaskPatch } from '@/database';
 import type { TaskAccess } from '@/lib/tasks';
 import type { GroupBy, TaskGroup } from '@/lib/task-view';
 import type { AssigneeRole, TaskPriority, TaskStatus, TaskSummary, WorkspaceMember } from '@/types/database';
+import { useWorkflow } from '@/hooks/use-workflow';
+import { statusOf } from '@/lib/workflow';
 import QuickAdd from './QuickAdd';
 import TaskRow, { LINKS_COLUMN, ROW_GRID } from './TaskRow';
 import { PriorityFlag, TaskStatusPill } from './TaskBadges';
 
 const COLUMN = 'section-label';
+
+/** A thin bar in the stage's color down the left edge of a status group (ClickUp-style). */
+const GroupBar: React.FC<{ group: TaskGroup }> = ({ group }) => {
+  const workflow = useWorkflow().data;
+  if (group.kind !== 'status' || !group.value) return null;
+  const color = statusOf(workflow, group.value as TaskStatus)?.color;
+  if (!color) return null;
+  return <span aria-hidden className="pointer-events-none absolute inset-y-0 left-0 z-30 w-[3px] rounded-r" style={{ background: color }} />;
+};
 
 const GroupLabel: React.FC<{ group: TaskGroup }> = ({ group }) => {
   if (group.kind === 'status' && group.value) return <TaskStatusPill status={group.value as TaskStatus} className="font-semibold uppercase tracking-wide" />;
@@ -121,7 +132,8 @@ const ListView: React.FC<ListViewProps> = ({
       const someChecked = group.tasks.some((t) => checked.has(t.id));
       const showHeader = groupBy !== 'none';
       return (
-        <div key={group.key} role="group" aria-label={showHeader ? `${group.label}, ${group.tasks.length}` : 'Tasks'}>
+        <div key={group.key} role="group" className="relative" aria-label={showHeader ? `${group.label}, ${group.tasks.length}` : 'Tasks'}>
+          <GroupBar group={group} />
           {showHeader && (
             <div className="group/header sticky top-0 z-20 flex items-center gap-2 border-b border-border/50 bg-card/85 px-2 py-2 backdrop-blur-md [&:not(:first-child)]:border-t [&:not(:first-child)]:border-t-border/40">
               <Checkbox
