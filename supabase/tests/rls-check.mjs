@@ -2510,6 +2510,67 @@ console.log('\n== Phase 12c: team availability ==');
   record('anon cannot read statuses', !!r.error);
 }
 
+console.log('\n== Phase 12d: QC auto-assignment ==');
+{
+  const oQ = await mkUser('q-owner@tbb.test', {}, true);
+  const edQ = await mkUser('q-editor@tbb.test', {}, true);
+  const qcFree = await mkUser('q-free@tbb.test', {}, true);
+  const qcBusy = await mkUser('q-busy@tbb.test', {}, true);
+  const qcAway = await mkUser('q-away@tbb.test', {}, true);
+  const wsQ = (await svc(`INSERT INTO public.workspaces (name, slug, owner_id) VALUES ('Q','q-auto',$1) RETURNING id`, [oQ]))[0].id;
+  await svc(`INSERT INTO public.workspace_members (workspace_id, user_id, role) VALUES ($1,$2,'EDITOR'), ($1,$3,'QC_SPECIALIST'), ($1,$4,'QC_SPECIALIST'), ($1,$5,'QC_SPECIALIST')
+             ON CONFLICT DO NOTHING`, [wsQ, edQ, qcFree, qcBusy, qcAway]);
+  await svc(`INSERT INTO public.member_availability (workspace_id, user_id, status) VALUES ($1,$2,'AVAILABLE'), ($1,$3,'BUSY'), ($1,$4,'ON_LEAVE')`, [wsQ, qcFree, qcBusy, qcAway]);
+  const spQ = (await as(oQ, `INSERT INTO public.spaces (workspace_id, name, slug) VALUES ($1,'S','s') RETURNING id`, [wsQ])).rows[0]?.id;
+  const lQ = (await as(oQ, `INSERT INTO public.lists (space_id, name) VALUES ($1,'L') RETURNING id`, [spQ])).rows[0]?.id;
+  const mk = async (title) => {
+    const t = (await as(oQ, `INSERT INTO public.tasks (list_id, title) VALUES ($1,$2) RETURNING id`, [lQ, title])).rows[0]?.id;
+    await svc(`INSERT INTO public.task_assignees (task_id, role_type, user_id) VALUES ($1,'EDITOR',$2)`, [t, edQ]);
+    return t;
+  };
+  const toQc = async (t) => {
+    for (const step of ['IN_EDIT', 'ASSIGNED', 'STARTED_EDITING']) await as(oQ, `SELECT public.transition_task($1, $2)`, [t, step]);
+    return as(oQ, `SELECT (public.transition_task($1, 'QC_FIRST_APPROVAL', NULL, 'https://frame.io/r/x')).status AS status`, [t]);
+  };
+  const qcOf = async (t) => (await svc(`SELECT user_id FROM public.task_assignees WHERE task_id = $1 AND role_type = 'QC_REVIEWER'`, [t]))[0]?.user_id ?? null;
+
+  const t1 = await mk('Q1');
+  r = await toQc(t1);
+  record('a cut reaching first QC without a reviewer gets one automatically', !r.error && r.rows[0]?.status === 'QC_FIRST_APPROVAL' && (await qcOf(t1)) === qcFree, r.error?.message ?? String(await qcOf(t1)));
+  r = await svc(`SELECT kind FROM public.notifications WHERE task_id = $1 AND user_id = $2 AND kind = 'assigned'`, [t1, qcFree]);
+  record('...and the chosen QC specialist is notified', r.length === 1);
+  record('...the one on leave is never picked', (await qcOf(t1)) !== qcAway);
+
+  const t2 = await mk('Q2');
+  await toQc(t2);
+  record('the free QC stays first while the busy one is at capacity (free beats busy even with more work)', (await qcOf(t2)) === qcFree, String(await qcOf(t2)));
+
+  await svc(`UPDATE public.member_availability SET status = 'ON_LEAVE' WHERE workspace_id = $1 AND user_id = $2`, [wsQ, qcFree]);
+  const t3 = await mk('Q3');
+  await toQc(t3);
+  record('with the free one on leave, the busy one is chosen rather than nobody', (await qcOf(t3)) === qcBusy, String(await qcOf(t3)));
+
+  // final approval keeps the reviewer already on the task
+  await as(oQ, `SELECT public.transition_task($1, 'QC_REVISION_NEEDED', 'fix the intro')`, [t1]);
+  await as(oQ, `SELECT public.transition_task($1, 'QC_FINAL_APPROVAL', NULL, 'https://frame.io/r/x2')`, [t1]);
+  record('final approval keeps the reviewer from first approval', (await qcOf(t1)) === qcFree);
+
+  // a task that already has a reviewer is never changed
+  const t4 = await mk('Q4');
+  await svc(`INSERT INTO public.task_assignees (task_id, role_type, user_id) VALUES ($1,'QC_REVIEWER',$2)`, [t4, qcAway]);
+  await toQc(t4);
+  record('a reviewer chosen by hand is kept', (await qcOf(t4)) === qcAway);
+
+  // nobody available: the task waits unassigned as before
+  await svc(`UPDATE public.member_availability SET status = 'ON_LEAVE' WHERE workspace_id = $1`, [wsQ]);
+  const t5 = await mk('Q5');
+  r = await toQc(t5);
+  record('with every QC on leave the move still succeeds and the task waits unassigned', !r.error && (await qcOf(t5)) === null, r.error?.message);
+
+  r = await svc(`SELECT prosecdef FROM pg_proc WHERE proname = 'pick_qc_reviewer'`);
+  record('the picker cannot be called by signed-in users', (await as(edQ, `SELECT private.pick_qc_reviewer($1, NULL)`, [wsQ])).error !== null);
+}
+
 console.log('\n== Deactivation & service role ==');
 await svc(`UPDATE public.profiles SET is_active = false WHERE id = $1`, [editor]);
 r = await as(editor, `SELECT id FROM public.tasks`);
