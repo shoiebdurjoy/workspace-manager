@@ -326,7 +326,7 @@ export interface TaskAttachment {
   createdAt: string;
 }
 
-export type CustomFieldType = 'text' | 'url' | 'number' | 'dropdown' | 'date';
+export type CustomFieldType = 'text' | 'url' | 'number' | 'dropdown' | 'date' | 'checkbox' | 'labels' | 'people' | 'rating' | 'money' | 'email' | 'phone' | 'long_text';
 
 /** A workspace-level field definition (Phase 12). `options` is set for dropdowns only. */
 export interface CustomField {
@@ -336,12 +336,21 @@ export interface CustomField {
   type: CustomFieldType;
   options: string[] | null;
   position: number;
+  /** a reminder on tasks that miss it (not a block) */
+  isRequired: boolean;
+  /** filled in on every new task */
+  defaultValue: CustomFieldValue | null;
+  /** shown only on lists in these folders; null = everywhere */
+  folderIds: string[] | null;
   createdAt: string;
   updatedAt: string;
 }
 
-/** A stored value: text/url/date/dropdown are strings, number is a number. An empty field has no value. */
-export type CustomFieldValue = string | number;
+/**
+ * A stored value: text / url / date / dropdown / email / phone / long text / people (a member id) are strings,
+ * number / money / rating are numbers, checkbox is true, labels is a list of choices. An empty field has no value.
+ */
+export type CustomFieldValue = string | number | boolean | string[];
 
 export type ActivityKind = 'created' | 'updated' | 'assigned' | 'unassigned' | 'commented' | 'attachment_added' | 'attachment_removed';
 

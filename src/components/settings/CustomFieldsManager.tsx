@@ -29,12 +29,29 @@ import {
   FIELD_NAME_MAX,
   FIELD_TYPES,
   FIELD_TYPE_LABELS,
+  formatFieldValue,
+  hasChoices,
   optionsToText,
   parseOptions,
   validateFieldName,
   validateFieldOptions,
+  validateFieldValue,
 } from '@/lib/custom-fields';
-import type { CustomField, CustomFieldType } from '@/types/database';
+import { useHierarchy } from '@/hooks/use-hierarchy';
+import type { CustomField, CustomFieldType, CustomFieldValue } from '@/types/database';
+
+export interface FieldFormValues {
+  name: string;
+  type: CustomFieldType;
+  options: string[];
+  isRequired: boolean;
+  defaultValue: CustomFieldValue | null;
+  folderIds: string[];
+}
+
+/** What the default box shows for a stored default (labels as "a, b"). */
+const defaultToText = (field?: CustomField) =>
+  field?.defaultValue === undefined || field.defaultValue === null ? '' : Array.isArray(field.defaultValue) ? field.defaultValue.join(', ') : String(field.defaultValue);
 
 const SELECT_CLASS =
   'focus-soft h-10 w-full rounded-control border border-input bg-background px-3 text-sm outline-none transition-shadow';
@@ -46,7 +63,7 @@ const FieldForm: React.FC<{
   existing?: CustomField;
   others: readonly string[];
   busy: boolean;
-  onSubmit: (v: { name: string; type: CustomFieldType; options: string[] }) => Promise<unknown>;
+  onSubmit: (v: FieldFormValues) => Promise<unknown>;
   onCancel?: () => void;
 }> = ({ existing, others, busy, onSubmit, onCancel }) => {
   const [name, setName] = useState(existing?.name ?? '');
@@ -54,22 +71,34 @@ const FieldForm: React.FC<{
   const [optionsText, setOptionsText] = useState(optionsToText(existing?.options));
   const [nameError, setNameError] = useState<string | null>(null);
   const [optionsError, setOptionsError] = useState<string | null>(null);
+  const [isRequired, setIsRequired] = useState(existing?.isRequired ?? false);
+  const [defaultText, setDefaultText] = useState(defaultToText(existing));
+  const [defaultError, setDefaultError] = useState<string | null>(null);
+  const [folderIds, setFolderIds] = useState<string[]>(existing?.folderIds ?? []);
+  const folders = (useHierarchy().data ?? []).flatMap((sp) => sp.folders.map((f) => ({ id: f.id, name: f.name })));
   const idBase = existing ? `field-${existing.id}` : 'new-field';
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     const nErr = validateFieldName(name, others);
-    const options = type === 'dropdown' ? parseOptions(optionsText) : [];
-    const oErr = type === 'dropdown' ? validateFieldOptions(options) : null;
+    const options = hasChoices(type) ? parseOptions(optionsText) : [];
+    const oErr = hasChoices(type) ? validateFieldOptions(options) : null;
+    // the default is typed like a value ("a, b" for labels; "true" for a ticked checkbox)
+    const parsed = validateFieldValue(type, options, type === 'labels' ? JSON.stringify(defaultText.split(',').map((x) => x.trim()).filter(Boolean)) : defaultText);
+    const dErr = parsed.ok ? null : parsed.error;
     setNameError(nErr);
     setOptionsError(oErr);
-    if (nErr || oErr) return;
+    setDefaultError(dErr);
+    if (nErr || oErr || dErr) return;
     try {
-      await onSubmit({ name: name.trim(), type, options });
+      await onSubmit({ name: name.trim(), type, options, isRequired, defaultValue: parsed.ok ? parsed.value : null, folderIds });
       if (!existing) {
         setName('');
         setOptionsText('');
         setType('text');
+        setIsRequired(false);
+        setDefaultText('');
+        setFolderIds([]);
       }
     } catch {
       // the hook already told the person why; keep the form as typed
@@ -112,7 +141,7 @@ const FieldForm: React.FC<{
         </select>
         {existing && <p className="text-[11px] text-muted-foreground">The type cannot be changed after the field is created.</p>}
       </div>
-      {type === 'dropdown' && (
+      {hasChoices(type) && (
         <div className="space-y-1.5">
           <Label htmlFor={`${idBase}-options`} className="text-xs">
             Choices
@@ -133,6 +162,57 @@ const FieldForm: React.FC<{
           <FieldError id={`${idBase}-options-error`} message={optionsError} />
         </div>
       )}
+      <details className="group rounded-control border border-border/60 bg-background/40 px-3 py-2" open={!!existing && (existing.isRequired || existing.defaultValue !== null || !!existing.folderIds)}>
+        <summary className="cursor-pointer select-none text-xs font-medium text-muted-foreground">More settings: required, default, where it shows</summary>
+        <div className="mt-3 space-y-3">
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={isRequired} onChange={(e) => setIsRequired(e.target.checked)} className="h-4 w-4 accent-[hsl(var(--primary))]" />
+            Required (tasks without it are flagged)
+          </label>
+          <div className="space-y-1.5">
+            <Label htmlFor={`${idBase}-default`} className="text-xs">
+              Default for new tasks
+            </Label>
+            {type === 'checkbox' ? (
+              <label className="flex items-center gap-2 text-sm">
+                <input id={`${idBase}-default`} type="checkbox" checked={defaultText === 'true'} onChange={(e) => setDefaultText(e.target.checked ? 'true' : '')} className="h-4 w-4 accent-[hsl(var(--primary))]" />
+                Ticked on new tasks
+              </label>
+            ) : (
+              <Input
+                id={`${idBase}-default`}
+                value={defaultText}
+                onChange={(e) => setDefaultText(e.target.value)}
+                placeholder={type === 'labels' ? 'Choices separated by commas' : type === 'rating' ? '1 to 5' : type === 'date' ? 'YYYY-MM-DD' : 'Leave empty for none'}
+                aria-invalid={!!defaultError}
+                className="h-9 text-sm"
+              />
+            )}
+            <FieldError id={`${idBase}-default-error`} message={defaultError} />
+          </div>
+          {folders.length > 0 && (
+            <fieldset className="space-y-1.5">
+              <legend className="text-xs font-medium">Show only in these folders (none ticked = everywhere)</legend>
+              <div className="flex flex-wrap gap-1.5">
+                {folders.map((f) => {
+                  const on = folderIds.includes(f.id);
+                  return (
+                    <button
+                      key={f.id}
+                      type="button"
+                      aria-pressed={on}
+                      onClick={() => setFolderIds(on ? folderIds.filter((x) => x !== f.id) : [...folderIds, f.id])}
+                      className={`press rounded-full border px-2.5 py-1 text-[11px] transition-colors ${on ? 'border-primary/50 bg-primary/10 text-foreground' : 'border-border text-muted-foreground hover:text-foreground'}`}
+                    >
+                      {f.name}
+                    </button>
+                  );
+                })}
+              </div>
+            </fieldset>
+          )}
+        </div>
+      </details>
       <div className="flex gap-2">
         <Button type="submit" size="sm" disabled={busy}>
           {existing ? 'Save field' : 'Add field'}
@@ -235,7 +315,13 @@ const CustomFieldsManager: React.FC = () => {
                 onSubmit={async (v) => {
                   await update.mutateAsync({
                     fieldId: field.id,
-                    patch: { name: v.name, ...(field.type === 'dropdown' ? { options: v.options } : {}) },
+                    patch: {
+                      name: v.name,
+                      ...(hasChoices(field.type) ? { options: v.options } : {}),
+                      isRequired: v.isRequired,
+                      defaultValue: v.defaultValue,
+                      folderIds: v.folderIds,
+                    },
                   });
                   setEditingId(null);
                 }}
@@ -243,10 +329,15 @@ const CustomFieldsManager: React.FC = () => {
             ) : (
               <div className="flex items-center gap-2">
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium">{field.name}</p>
+                  <p className="truncate text-sm font-medium">
+                    {field.name}
+                    {field.isRequired && <span className="ml-1 text-destructive" title="Required">*</span>}
+                  </p>
                   <p className="truncate text-[11px] text-muted-foreground">
                     {FIELD_TYPE_LABELS[field.type]}
-                    {field.type === 'dropdown' && field.options ? `: ${field.options.join(', ')}` : ''}
+                    {hasChoices(field.type) && field.options ? `: ${field.options.join(', ')}` : ''}
+                    {field.defaultValue !== null ? ` · default ${formatFieldValue(field, field.defaultValue)}` : ''}
+                    {field.folderIds && field.folderIds.length > 0 ? ` · only in ${field.folderIds.length} folder${field.folderIds.length === 1 ? '' : 's'}` : ''}
                   </p>
                 </div>
                 <IconButton
@@ -295,7 +386,12 @@ const CustomFieldsManager: React.FC = () => {
         <FieldForm
           others={list.map((f) => f.name)}
           busy={create.isPending}
-          onSubmit={(v) => create.mutateAsync({ name: v.name, type: v.type, options: v.options, position: list.length })}
+          onSubmit={async (v) => {
+            const created = await create.mutateAsync({ name: v.name, type: v.type, options: v.options, position: list.length });
+            if (v.isRequired || v.defaultValue !== null || v.folderIds.length > 0) {
+              await update.mutateAsync({ fieldId: created.id, patch: { isRequired: v.isRequired, defaultValue: v.defaultValue, folderIds: v.folderIds } });
+            }
+          }}
         />
       )}
 

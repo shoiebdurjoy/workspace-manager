@@ -2112,7 +2112,7 @@ console.log('\n== Phase 12: custom fields ==');
   record('a name over 60 characters is refused', !!r.error);
   r = await cf(pm, 'text', 'x'.repeat(60));
   record('a name of exactly 60 characters is fine', !r.error, r.error?.message);
-  r = await cf(pm, 'checkbox', 'P12 bad type');
+  r = await cf(pm, 'hologram', 'P12 bad type');
   record('an unknown type is refused', !!r.error);
   r = await cf(pm, 'dropdown', 'P12 dd none');
   record('a dropdown without choices is refused', !!r.error);
@@ -2325,8 +2325,8 @@ console.log('\n== Phase 12: custom fields ==');
     r.map((x) => `${x.table_name}:${x.privilege_type}`).join() === 'custom_field_values:DELETE,custom_field_values:INSERT,custom_field_values:SELECT,custom_fields:DELETE,custom_fields:INSERT,custom_fields:SELECT', JSON.stringify(r));
   r = await svc(`SELECT table_name, column_name FROM information_schema.column_privileges
     WHERE table_schema='public' AND table_name IN ('custom_fields','custom_field_values') AND grantee='authenticated' AND privilege_type='UPDATE' ORDER BY 1,2`);
-  record('...and update only on name / options / position, and on value',
-    r.map((x) => `${x.table_name}.${x.column_name}`).join() === 'custom_field_values.value,custom_fields.name,custom_fields.options,custom_fields.position', JSON.stringify(r));
+  record('...and update only on name / options / position / required / default / folders, and on value',
+    r.map((x) => `${x.table_name}.${x.column_name}`).join() === 'custom_field_values.value,custom_fields.default_value,custom_fields.folder_ids,custom_fields.is_required,custom_fields.name,custom_fields.options,custom_fields.position', JSON.stringify(r));
   r = await svc(`SELECT relname FROM pg_class WHERE relname IN ('custom_fields','custom_field_values') AND relrowsecurity`);
   record('row level security is on for both tables', r.length === 2);
 }
@@ -2615,6 +2615,61 @@ console.log('\n== Phase 12f: default QC reviewer per folder / list ==');
   record('with the list\'s reviewer on leave, the folder\'s reviewer is used', (await qcOf(t4)) === myla, String(await qcOf(t4)));
   r = await as(edD, `SELECT private.default_qc_for_task($1)`, [t4]);
   record('the default lookup cannot be called by signed-in users', !!r.error);
+}
+
+console.log('\n== Customize: more field types ==');
+{
+  const oF = await mkUser('ft-owner@tbb.test', {}, true);
+  const edF = await mkUser('ft-editor@tbb.test', {}, true);
+  const outsider = await mkUser('ft-outsider@tbb.test', {}, true);
+  const wsF = (await svc(`INSERT INTO public.workspaces (name, slug, owner_id) VALUES ('FT','ft-fields',$1) RETURNING id`, [oF]))[0].id;
+  await svc(`INSERT INTO public.workspace_members (workspace_id, user_id, role) VALUES ($1,$2,'EDITOR') ON CONFLICT DO NOTHING`, [wsF, edF]);
+  const spF = (await as(oF, `INSERT INTO public.spaces (workspace_id, name, slug) VALUES ($1,'S','s') RETURNING id`, [wsF])).rows[0]?.id;
+  const fz = (await as(oF, `INSERT INTO public.folders (space_id, name) VALUES ($1,'ZIM') RETURNING id`, [spF])).rows[0]?.id;
+  const lF = (await as(oF, `INSERT INTO public.lists (space_id, folder_id, name) VALUES ($1,$2,'L') RETURNING id`, [spF, fz])).rows[0]?.id;
+  const mkField = async (name, type, options = null) =>
+    (await as(oF, `INSERT INTO public.custom_fields (workspace_id, name, field_type, options) VALUES ($1,$2,$3,$4) RETURNING id`, [wsF, name, type, options === null ? null : JSON.stringify(options)])).rows[0]?.id;
+  const ids = {
+    checkbox: await mkField('Approved by client', 'checkbox'),
+    labels: await mkField('Platforms', 'labels', ['TikTok', 'Reels', 'Shorts']),
+    people: await mkField('Account manager', 'people'),
+    rating: await mkField('Quality', 'rating'),
+    money: await mkField('Budget (USD)', 'money'),
+    email: await mkField('Client e-mail', 'email'),
+    phone: await mkField('Client phone', 'phone'),
+    long_text: await mkField('Script', 'long_text'),
+  };
+  record('the owner creates fields of all eight new types', Object.values(ids).every(Boolean), JSON.stringify(ids));
+  const tF = (await as(oF, `INSERT INTO public.tasks (list_id, title) VALUES ($1,'v') RETURNING id`, [lF])).rows[0]?.id;
+  const setv = (field, value) => as(oF, `INSERT INTO public.custom_field_values (task_id, field_id, value) VALUES ($1,$2,$3) ON CONFLICT (task_id, field_id) DO UPDATE SET value = EXCLUDED.value`, [tF, field, JSON.stringify(value)]);
+  const good = [['checkbox', true], ['labels', ['TikTok', 'Shorts']], ['people', edF], ['rating', 4], ['money', 250.5], ['email', 'client@brand.com'], ['phone', '+880 1711-000000'], ['long_text', 'Hook, then three beats.']];
+  for (const [k, val] of good) {
+    r = await setv(ids[k], val);
+    record(`a valid ${k} value is stored`, !r.error, r.error?.message);
+  }
+  const bad = [['checkbox', false], ['labels', ['Facebook']], ['labels', []], ['people', outsider], ['rating', 6], ['rating', 2.5], ['money', 'lots'], ['email', 'not-an-email'], ['phone', 'call me'], ['long_text', '']];
+  for (const [k, val] of bad) {
+    r = await setv(ids[k], val);
+    record(`an invalid ${k} value (${JSON.stringify(val)}) is refused`, r.error?.code === '23514', r.error?.message ?? 'was stored');
+  }
+  r = await as(oF, `INSERT INTO public.custom_fields (workspace_id, name, field_type) VALUES ($1,'No choices','labels')`, [wsF]);
+  record('labels need choices', !!r.error);
+  r = await as(oF, `UPDATE public.custom_fields SET is_required = true, default_value = '"Reels"', folder_ids = ARRAY[$2]::uuid[] WHERE id = $1 RETURNING is_required`, [ids.labels, fz]);
+  record('a manager sets required, default and folders on a field', !r.error && r.rows[0]?.is_required === true, r.error?.message);
+  r = await as(edF, `UPDATE public.custom_fields SET is_required = false WHERE id = $1 RETURNING id`, [ids.labels]);
+  record('an editor cannot change field settings', !!r.error || r.rows.length === 0);
+  // a default that fits the field is filled in on new tasks; one that does not is skipped without blocking
+  await svc(`UPDATE public.custom_fields SET default_value = '["Reels"]' WHERE id = $1`, [ids.labels]);
+  await svc(`UPDATE public.custom_fields SET default_value = '9' WHERE id = $1`, [ids.rating]);
+  r = await as(oF, `INSERT INTO public.tasks (list_id, title) VALUES ($1,'new one') RETURNING id`, [lF]);
+  const tNew = r.rows[0]?.id;
+  const vals = await svc(`SELECT field_id, value FROM public.custom_field_values WHERE task_id = $1`, [tNew]);
+  record('a new task gets the valid defaults', !r.error && vals.some((x) => x.field_id === ids.labels && JSON.stringify(x.value) === '["Reels"]'), JSON.stringify(vals));
+  record('...and an invalid default is skipped, not blocking the task', !vals.some((x) => x.field_id === ids.rating));
+  const lOut = (await as(oF, `INSERT INTO public.lists (space_id, name) VALUES ($1,'Outside') RETURNING id`, [spF])).rows[0]?.id;
+  const tOut = (await as(oF, `INSERT INTO public.tasks (list_id, title) VALUES ($1,'elsewhere') RETURNING id`, [lOut])).rows[0]?.id;
+  r = await svc(`SELECT count(*)::int n FROM public.custom_field_values WHERE task_id = $1 AND field_id = $2`, [tOut, ids.labels]);
+  record('a field limited to some folders gives no default elsewhere', r[0].n === 0);
 }
 
 console.log('\n== Customize: status editor ==');

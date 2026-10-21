@@ -16,7 +16,7 @@ vi.mock('sonner', () => ({ toast: toasts }));
 const db = dbModule as unknown as ReturnType<typeof createDatabaseMock>;
 
 const TASK = 'task-1';
-const base = { workspaceId: 'ws-1', createdAt: '2026-10-01T00:00:00Z', updatedAt: '2026-10-01T00:00:00Z' };
+const base = { workspaceId: 'ws-1', createdAt: '2026-10-01T00:00:00Z', updatedAt: '2026-10-01T00:00:00Z', isRequired: false, defaultValue: null, folderIds: null };
 const FIELDS: CustomField[] = [
   { ...base, id: 'f-note', name: 'A) Note', type: 'text', options: null, position: 0 },
   { ...base, id: 'f-loom', name: 'F) Loom video', type: 'url', options: null, position: 1 },
@@ -206,7 +206,7 @@ describe('CustomFieldsManager', () => {
     await userEvent.type(name, 'Format');
     await userEvent.type(screen.getByLabelText('Choices'), '{Enter}1:1');
     await userEvent.click(screen.getByRole('button', { name: 'Save field' }));
-    await waitFor(() => expect(db.updateCustomField).toHaveBeenCalledWith('f-format', { name: 'Format', options: ['16:9', '9:16', '1:1'] }));
+    await waitFor(() => expect(db.updateCustomField).toHaveBeenCalledWith('f-format', { name: 'Format', options: ['16:9', '9:16', '1:1'], isRequired: false, defaultValue: null, folderIds: [] }));
   });
 
   it('deleting asks first and says how many values go with the field', async () => {

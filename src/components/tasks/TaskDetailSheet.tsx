@@ -420,7 +420,7 @@ const TaskDetailSheet: React.FC<TaskDetailSheetProps> = ({ taskId, space, folder
             />
           </Section>
 
-          <CustomFieldsSection taskId={task.id} isAssignedEditor={!!user && task.editorId === user.id} />
+          <CustomFieldsSection taskId={task.id} isAssignedEditor={!!user && task.editorId === user.id} folderId={folder?.id ?? list.folderId ?? null} />
 
           <Section title="Production links">
             <div className="divide-y divide-border/50">

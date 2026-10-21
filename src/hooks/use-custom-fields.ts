@@ -102,7 +102,7 @@ export function useUpdateField() {
   const qc = useQueryClient();
   const { workspaceId } = useFieldScope();
   return useMutation({
-    mutationFn: ({ fieldId, patch }: { fieldId: string; patch: { name?: string; options?: string[]; position?: number } }) =>
+    mutationFn: ({ fieldId, patch }: { fieldId: string; patch: Parameters<typeof updateCustomField>[1] }) =>
       updateCustomField(fieldId, patch),
     onSuccess: (saved) =>
       qc.setQueryData<CustomField[]>(fieldKeys.all(workspaceId), (old) => (old ?? []).map((f) => (f.id === saved.id ? saved : f))),

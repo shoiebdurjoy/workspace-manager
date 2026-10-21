@@ -1,10 +1,12 @@
 import React from 'react';
-import { ExternalLink } from 'lucide-react';
+import { ExternalLink, Star } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useAuth } from '@/hooks/use-auth';
 import { useCustomFields, useSetFieldValue, useTaskFieldValues } from '@/hooks/use-custom-fields';
-import { canEditFieldValue, formatFieldValue, validateFieldValue, valueToInput } from '@/lib/custom-fields';
+import { canEditFieldValue, fieldsForFolder, formatFieldValue, validateFieldValue, valueToInput } from '@/lib/custom-fields';
+import { useWorkspaceMembers } from '@/hooks/use-team';
+import { cn } from '@/lib/utils';
 import { isValidTaskUrl, linkHost } from '@/lib/tasks';
 import type { CustomField, CustomFieldValue } from '@/types/database';
 import { InlineText } from './fields';
@@ -15,6 +17,8 @@ const NONE = '__none__';
 interface CustomFieldsSectionProps {
   taskId: string;
   isAssignedEditor: boolean;
+  /** the folder of the task's list: fields limited to other folders are hidden */
+  folderId?: string | null;
 }
 
 const checkValue = (field: CustomField) => (raw: string): string | null => {
@@ -22,9 +26,9 @@ const checkValue = (field: CustomField) => (raw: string): string | null => {
   return parsed.ok ? null : parsed.error;
 };
 
-const ReadOnlyValue: React.FC<{ field: CustomField; value: CustomFieldValue | undefined }> = ({ field, value }) => {
+const ReadOnlyValue: React.FC<{ field: CustomField; value: CustomFieldValue | undefined; personName: (id: string) => string }> = ({ field, value, personName }) => {
   if (value === undefined) return <span className={`${STATIC_VALUE} text-muted-foreground/70`}>Not set</span>;
-  const text = formatFieldValue(field, value);
+  const text = formatFieldValue(field, value, personName);
   if (field.type === 'url' && typeof value === 'string' && isValidTaskUrl(value)) {
     return (
       <a
@@ -47,20 +51,23 @@ const ReadOnlyValue: React.FC<{ field: CustomField; value: CustomFieldValue | un
  * and QC; an editor on their own tasks) and plain text for everyone else. Hidden when the workspace has no
  * fields. Saves on blur / Enter / pick; a refused save shows a message and puts the old value back.
  */
-const CustomFieldsSection: React.FC<CustomFieldsSectionProps> = ({ taskId, isAssignedEditor }) => {
+const CustomFieldsSection: React.FC<CustomFieldsSectionProps> = ({ taskId, isAssignedEditor, folderId }) => {
   const { role } = useAuth();
   const fields = useCustomFields();
   const values = useTaskFieldValues(taskId);
   const setValue = useSetFieldValue(taskId);
   const [hideEmpty, setHideEmpty] = React.useState(false);
   const editable = canEditFieldValue(role, isAssignedEditor);
+  const members = useWorkspaceMembers().data ?? [];
+  const personName = (id: string) => members.find((m) => m.userId === id)?.profile?.fullName ?? 'Former member';
 
-  const list = fields.data ?? [];
+  const list = fieldsForFolder(fields.data ?? [], folderId);
   if (list.length === 0) return null;
   const stored = values.data;
   const visible = hideEmpty ? list.filter((f) => stored?.has(f.id)) : list;
 
   /** Validates again (the input already did) and saves; rejects when the database refuses. */
+  const missing = list.filter((f) => f.isRequired && !stored?.has(f.id)).length;
   const save = (field: CustomField, raw: string) => {
     const parsed = validateFieldValue(field.type, field.options, raw);
     if (!parsed.ok) return Promise.reject(new Error(parsed.error));
@@ -70,7 +77,10 @@ const CustomFieldsSection: React.FC<CustomFieldsSectionProps> = ({ taskId, isAss
   return (
     <section aria-label="Fields" className="space-y-2.5">
       <div className="flex items-center justify-between gap-3 border-b border-border/70 pb-1.5">
-        <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Fields</h3>
+        <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          Fields
+          {missing > 0 && <span className="ml-2 rounded-full bg-destructive/10 px-1.5 py-0.5 text-[10px] font-medium normal-case tracking-normal text-destructive">{missing} required missing</span>}
+        </h3>
         <Button
           type="button"
           variant="ghost"
@@ -93,9 +103,73 @@ const CustomFieldsSection: React.FC<CustomFieldsSectionProps> = ({ taskId, isAss
               <div key={field.id} className="grid grid-cols-[7.5rem_minmax(0,1fr)] items-start gap-x-2 py-1.5">
                 <span className="mt-1.5 break-words text-xs font-medium text-muted-foreground" title={field.name}>
                   {field.name}
+                  {field.isRequired && <span className={cn('ml-0.5', value === undefined ? 'text-destructive' : 'text-muted-foreground')} aria-label="required">*</span>}
                 </span>
                 {!editable ? (
-                  <ReadOnlyValue field={field} value={value} />
+                  <ReadOnlyValue field={field} value={value} personName={personName} />
+                ) : field.type === 'checkbox' ? (
+                  <label className="flex h-8 items-center gap-2 px-2 text-sm">
+                    <input type="checkbox" aria-label={field.name} checked={value === true} onChange={(e) => void save(field, e.target.checked ? 'true' : '').catch(() => undefined)} className="h-4 w-4 accent-[hsl(var(--primary))]" />
+                    <span className="text-muted-foreground">{value === true ? 'Yes' : 'No'}</span>
+                  </label>
+                ) : field.type === 'rating' ? (
+                  <div role="radiogroup" aria-label={field.name} className="flex h-8 items-center gap-0.5 px-1">
+                    {[1, 2, 3, 4, 5].map((n) => (
+                      <button
+                        key={n}
+                        type="button"
+                        role="radio"
+                        aria-checked={value === n}
+                        aria-label={`${n} of 5`}
+                        onClick={() => void save(field, value === n ? '' : String(n)).catch(() => undefined)}
+                        className="press rounded p-0.5"
+                      >
+                        <Star className={cn('h-4 w-4 transition-colors', typeof value === 'number' && n <= value ? 'fill-amber-400 text-amber-400' : 'text-muted-foreground/50')} />
+                      </button>
+                    ))}
+                  </div>
+                ) : field.type === 'labels' ? (
+                  <div role="group" aria-label={field.name} className="flex min-h-8 flex-wrap items-center gap-1 px-1 py-1">
+                    {(field.options ?? []).map((o) => {
+                      const picked = Array.isArray(value) ? value : [];
+                      const on = picked.includes(o);
+                      return (
+                        <button
+                          key={o}
+                          type="button"
+                          aria-pressed={on}
+                          onClick={() => void save(field, JSON.stringify(on ? picked.filter((x) => x !== o) : [...picked, o])).catch(() => undefined)}
+                          className={cn('press rounded-full border px-2 py-0.5 text-[11px] transition-colors', on ? 'border-primary/50 bg-primary/15 text-foreground' : 'border-border text-muted-foreground hover:text-foreground')}
+                        >
+                          {o}
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : field.type === 'people' ? (
+                  <Select value={typeof value === 'string' ? value : NONE} onValueChange={(v) => void save(field, v === NONE ? '' : v).catch(() => undefined)}>
+                    <SelectTrigger aria-label={field.name} className={GHOST_SELECT_TRIGGER}>
+                      <SelectValue placeholder="Not set" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={NONE}>Not set</SelectItem>
+                      {members.map((m) => (
+                        <SelectItem key={m.userId} value={m.userId}>
+                          {m.profile?.fullName ?? m.profile?.email ?? 'Member'}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : field.type === 'long_text' ? (
+                  <textarea
+                    aria-label={field.name}
+                    defaultValue={valueToInput(value)}
+                    key={valueToInput(value)}
+                    rows={3}
+                    placeholder="Add text"
+                    onBlur={(e) => e.target.value.trim() !== valueToInput(value) && void save(field, e.target.value).catch(() => undefined)}
+                    className="w-full resize-y rounded-md border border-transparent bg-transparent px-2 py-1.5 text-sm hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  />
                 ) : field.type === 'dropdown' ? (
                   <Select
                     value={typeof value === 'string' ? value : NONE}
@@ -130,7 +204,7 @@ const CustomFieldsSection: React.FC<CustomFieldsSectionProps> = ({ taskId, isAss
                       hideLabel
                       type={field.type === 'url' ? 'url' : 'text'}
                       value={valueToInput(value)}
-                      placeholder={field.type === 'url' ? 'https://' : field.type === 'number' ? 'Number' : 'Add a value'}
+                      placeholder={field.type === 'url' ? 'https://' : field.type === 'number' ? 'Number' : field.type === 'money' ? '0.00' : field.type === 'email' ? 'name@company.com' : field.type === 'phone' ? '+880 ...' : 'Add a value'}
                       validate={checkValue(field)}
                       onCommit={(v) => save(field, v)}
                       className="min-w-0 flex-1"

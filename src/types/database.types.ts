@@ -596,16 +596,19 @@ export interface Database {
           id: string;
           workspace_id: string;
           name: string;
-          field_type: 'text' | 'url' | 'number' | 'dropdown' | 'date';
+          field_type: 'text' | 'url' | 'number' | 'dropdown' | 'date' | 'checkbox' | 'labels' | 'people' | 'rating' | 'money' | 'email' | 'phone' | 'long_text';
           options: Json | null;
           position: number;
+          is_required: boolean;
+          default_value: Json | null;
+          folder_ids: string[] | null;
           created_by: string | null;
           created_at: string;
           updated_at: string;
         };
-        // the type is fixed at creation (guard_custom_field); only name, options and position can change
-        Insert: { id?: string; workspace_id: string; name: string; field_type: 'text' | 'url' | 'number' | 'dropdown' | 'date'; options?: Json | null; position?: number };
-        Update: { name?: string; options?: Json | null; position?: number };
+        // the type is fixed at creation (guard_custom_field); name, options, position and the settings can change
+        Insert: { id?: string; workspace_id: string; name: string; field_type: 'text' | 'url' | 'number' | 'dropdown' | 'date' | 'checkbox' | 'labels' | 'people' | 'rating' | 'money' | 'email' | 'phone' | 'long_text'; options?: Json | null; position?: number; is_required?: boolean; default_value?: Json | null; folder_ids?: string[] | null };
+        Update: { name?: string; options?: Json | null; position?: number; is_required?: boolean; default_value?: Json | null; folder_ids?: string[] | null };
         Relationships: [
           { foreignKeyName: 'custom_fields_workspace_id_fkey'; columns: ['workspace_id']; referencedRelation: 'workspaces'; referencedColumns: ['id'] },
         ];

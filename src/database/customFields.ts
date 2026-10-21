@@ -2,7 +2,7 @@ import { getSupabaseClient } from './client';
 import type { Database } from '@/types/database.types';
 import type { CustomField, CustomFieldType, CustomFieldValue } from '@/types/database';
 import { ValidationError, toDatabaseError } from './errors';
-import { readOptions, validateFieldName, validateFieldOptions } from '@/lib/custom-fields';
+import { readOptions, readValue, validateFieldName, validateFieldOptions } from '@/lib/custom-fields';
 
 /**
  * Phase 12 data access: custom field definitions and the values on tasks. Every call goes through the
@@ -18,8 +18,11 @@ export function mapCustomFieldRow(row: Tables['custom_fields']['Row']): CustomFi
     workspaceId: row.workspace_id,
     name: row.name,
     type: row.field_type,
-    options: row.field_type === 'dropdown' ? readOptions(row.options) : null,
+    options: row.field_type === 'dropdown' || row.field_type === 'labels' ? readOptions(row.options) : null,
     position: row.position,
+    isRequired: !!row.is_required,
+    defaultValue: readValue(row.default_value) ?? null,
+    folderIds: row.folder_ids ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -50,7 +53,7 @@ export async function createCustomField(workspaceId: string, input: NewCustomFie
   if (!workspaceId) throw new ValidationError('Workspace ID is required.');
   const nameError = validateFieldName(input.name);
   if (nameError) throw new ValidationError(nameError);
-  if (input.type === 'dropdown') {
+  if (input.type === 'dropdown' || input.type === 'labels') {
     const optionsError = validateFieldOptions(input.options ?? []);
     if (optionsError) throw new ValidationError(optionsError);
   }
@@ -60,7 +63,7 @@ export async function createCustomField(workspaceId: string, input: NewCustomFie
       workspace_id: workspaceId,
       name: input.name.trim(),
       field_type: input.type,
-      options: input.type === 'dropdown' ? (input.options ?? []) : null,
+      options: input.type === 'dropdown' || input.type === 'labels' ? (input.options ?? []) : null,
       ...(input.position !== undefined ? { position: input.position } : {}),
     })
     .select('*')
@@ -72,7 +75,7 @@ export async function createCustomField(workspaceId: string, input: NewCustomFie
 /** The type cannot change; name, choices and position can. */
 export async function updateCustomField(
   fieldId: string,
-  patch: { name?: string; options?: string[]; position?: number }
+  patch: { name?: string; options?: string[]; position?: number; isRequired?: boolean; defaultValue?: CustomFieldValue | null; folderIds?: string[] | null }
 ): Promise<CustomField> {
   if (!fieldId) throw new ValidationError('Field ID is required.');
   if (patch.name !== undefined) {
@@ -87,6 +90,9 @@ export async function updateCustomField(
   if (patch.name !== undefined) update.name = patch.name.trim();
   if (patch.options !== undefined) update.options = patch.options;
   if (patch.position !== undefined) update.position = patch.position;
+  if (patch.isRequired !== undefined) update.is_required = patch.isRequired;
+  if (patch.defaultValue !== undefined) update.default_value = patch.defaultValue === '' ? null : patch.defaultValue;
+  if (patch.folderIds !== undefined) update.folder_ids = patch.folderIds && patch.folderIds.length > 0 ? patch.folderIds : null;
   const { data, error } = await getSupabaseClient().from('custom_fields').update(update).eq('id', fieldId).select('*').single();
   if (error) throw toDatabaseError('change this field', error);
   return mapCustomFieldRow(data);
@@ -129,7 +135,7 @@ export async function listTaskFieldValues(taskId: string): Promise<Map<string, C
   if (error) throw toDatabaseError('load the fields of this task', error);
   const out = new Map<string, CustomFieldValue>();
   for (const row of (data ?? []) as Array<{ field_id: string; value: unknown }>) {
-    const v = typeof row.value === 'number' ? row.value : typeof row.value === 'string' ? row.value : undefined;
+    const v = readValue(row.value);
     if (v !== undefined) out.set(row.field_id, v);
   }
   return out;
@@ -143,7 +149,7 @@ export async function setTaskFieldValue(taskId: string, fieldId: string, value: 
   if (!taskId) throw new ValidationError('Task ID is required.');
   if (!fieldId) throw new ValidationError('Field ID is required.');
   const client = getSupabaseClient();
-  if (value === null || value === '') {
+  if (value === null || value === '' || value === false || (Array.isArray(value) && value.length === 0)) {
     const { error } = await client.from('custom_field_values').delete().eq('task_id', taskId).eq('field_id', fieldId);
     if (error) throw toDatabaseError('clear this field', error);
     return;
