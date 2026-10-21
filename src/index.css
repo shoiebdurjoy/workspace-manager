@@ -547,6 +547,8 @@
 }
 
 /* Ctrl+K: a Spotlight-sized search field and roomy results */
+.spotlight[data-state='open'] { animation: spot-in 300ms cubic-bezier(0.32, 0.72, 0, 1) both; }
+@keyframes spot-in { from { opacity: 0; transform: translate(-50%, -8px) scale(0.97); } to { opacity: 1; transform: translate(-50%, 0) scale(1); } }
 .spotlight [cmdk-input-wrapper] { padding-left: 1.25rem; padding-right: 1.25rem; border-color: hsl(var(--border) / 0.6); }
 .spotlight [cmdk-input-wrapper] svg { width: 1.25rem; height: 1.25rem; opacity: 0.6; }
 .spotlight [cmdk-input] { height: 3.75rem; font-size: 1.0625rem; letter-spacing: -0.01em; }
@@ -625,4 +627,77 @@
   background: linear-gradient(135deg, hsl(var(--tone, var(--primary)) / 0.18), hsl(var(--tone, var(--primary)) / 0.06)) !important;
   color: hsl(var(--tone, var(--primary))) !important;
   box-shadow: inset 0 0 0 1px hsl(var(--tone, var(--primary)) / 0.16) !important;
+}
+
+/* ==========================================================================================
+   Motion everywhere: nothing snaps, everything eases
+   ========================================================================================== */
+
+/* Every interactive element eases its color, shadow and scale changes */
+button, a, [role='button'], [role='tab'], [role='menuitem'], [role='option'], input, textarea, select, summary {
+  transition-property: background-color, color, border-color, box-shadow, opacity, transform, filter;
+  transition-duration: 180ms;
+  transition-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* The task panel glides in with a spring and its sections follow one after another */
+.panel-motion[data-state='open'] {
+  animation: panel-in 520ms cubic-bezier(0.32, 0.72, 0, 1) both !important;
+}
+.panel-motion[data-state='closed'] {
+  animation: panel-out 240ms cubic-bezier(0.4, 0, 1, 1) both !important;
+}
+.panel-motion[data-state='open'] section,
+.panel-motion[data-state='open'] h2 {
+  animation: rise-in 520ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.panel-motion[data-state='open'] section:nth-of-type(1) { animation-delay: 60ms; }
+.panel-motion[data-state='open'] section:nth-of-type(2) { animation-delay: 110ms; }
+.panel-motion[data-state='open'] section:nth-of-type(3) { animation-delay: 160ms; }
+.panel-motion[data-state='open'] section:nth-of-type(4) { animation-delay: 210ms; }
+.panel-motion[data-state='open'] section:nth-of-type(n + 5) { animation-delay: 260ms; }
+.panel-motion [role='tabpanel'] {
+  animation: rise-in 300ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* Dialogs scale up softly from the center; their backdrop fades */
+[role='dialog'][data-state='open'][class*='left-[50%]']:not(.spotlight) {
+  animation: dialog-in 340ms cubic-bezier(0.32, 0.72, 0, 1) both;
+}
+[role='alertdialog'][data-state='open'][class*='left-[50%]'] {
+  animation: dialog-in 340ms cubic-bezier(0.32, 0.72, 0, 1) both;
+}
+
+/* Lists: rows and cards drift in when a view first appears */
+[role='group'] > ul > li,
+.stat-grid > * {
+  animation: rise-in 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+[role='group'] > ul > li:nth-child(2) { animation-delay: 30ms; }
+[role='group'] > ul > li:nth-child(3) { animation-delay: 60ms; }
+[role='group'] > ul > li:nth-child(4) { animation-delay: 90ms; }
+[role='group'] > ul > li:nth-child(n + 5) { animation-delay: 120ms; }
+
+@keyframes panel-in {
+  from { opacity: 0; transform: translate3d(48px, 0, 0) scale(0.985); }
+  to { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
+}
+@keyframes panel-out {
+  from { opacity: 1; transform: translate3d(0, 0, 0); }
+  to { opacity: 0; transform: translate3d(36px, 0, 0) scale(0.99); }
+}
+@keyframes rise-in {
+  from { opacity: 0; transform: translate3d(0, 10px, 0); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes dialog-in {
+  from { opacity: 0; transform: translate(-50%, -48%) scale(0.96); }
+  to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .panel-motion[data-state], .panel-motion section, .panel-motion h2, .panel-motion [role='tabpanel'],
+  [role='dialog'][data-state], [role='alertdialog'][data-state], [role='group'] > ul > li, .stat-grid > * {
+    animation: none !important;
+  }
 }

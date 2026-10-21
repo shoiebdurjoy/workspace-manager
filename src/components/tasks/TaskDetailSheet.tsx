@@ -472,7 +472,7 @@ const TaskDetailSheet: React.FC<TaskDetailSheetProps> = ({ taskId, space, folder
     <Sheet open onOpenChange={(open) => !open && onClose()}>
       <SheetContent
         side="right"
-        className="flex w-full outline-none focus:outline-none data-[state=open]:duration-300 motion-reduce:data-[state=closed]:animate-none motion-reduce:data-[state=open]:animate-none flex-col gap-0 overflow-hidden border bg-background p-0 shadow-float sm:inset-y-3 sm:right-3 sm:h-[calc(100%-1.5rem)] sm:w-[min(94vw,1200px)] sm:max-w-none sm:rounded-card lg:w-[min(90vw,1200px)]"
+        className="panel-motion flex w-full outline-none focus:outline-none data-[state=open]:duration-300 motion-reduce:data-[state=closed]:animate-none motion-reduce:data-[state=open]:animate-none flex-col gap-0 overflow-hidden border bg-background p-0 shadow-float sm:inset-y-3 sm:right-3 sm:h-[calc(100%-1.5rem)] sm:w-[min(94vw,1200px)] sm:max-w-none sm:rounded-card lg:w-[min(90vw,1200px)]"
         // Focus the panel itself (not the close button), so no stray ring appears and a screen reader starts at the title.
         onOpenAutoFocus={(e) => {
           e.preventDefault();
