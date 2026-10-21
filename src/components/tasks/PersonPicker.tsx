@@ -6,6 +6,8 @@ import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, Command
 import { UserAvatar } from '@/components/ui/user-avatar';
 import { ROLE_LABELS } from '@/lib/permissions';
 import { eligibleAssignees } from '@/lib/tasks';
+import { useAvailability } from '@/hooks/use-availability';
+import { AVAILABILITY_META, assignableRank } from '@/lib/availability';
 import type { AssigneeRole, WorkspaceMember } from '@/types/database';
 
 interface PersonPickerProps {
@@ -49,9 +51,13 @@ const PersonPicker: React.FC<PersonPickerProps> = ({
   const [query, setQuery] = useState('');
   const needle = query.trim().toLowerCase();
   const eligible = eligibleAssignees(members, slot, otherSlotUserId);
-  const options = eligible.filter(
-    (m) => !needle || `${m.profile?.fullName ?? ''} ${ROLE_LABELS[m.role]}`.toLowerCase().includes(needle)
-  );
+  const { byUser } = useAvailability();
+  // the people who can take work right now come first (available, working, no status, busy, on leave)
+  const options = eligible
+    .filter((m) => !needle || `${m.profile?.fullName ?? ''} ${ROLE_LABELS[m.role]}`.toLowerCase().includes(needle))
+    .map((m, i) => ({ m, i }))
+    .sort((a, b) => assignableRank(byUser.get(a.m.userId)) - assignableRank(byUser.get(b.m.userId)) || a.i - b.i)
+    .map(({ m }) => m);
   const current = value ? members.find((m) => m.userId === value) : undefined;
   const currentName = current?.profile?.fullName ?? (value ? 'Former member' : null);
   // judged against everyone eligible, not the search result, or the current person would appear "missing" while searching
@@ -134,7 +140,17 @@ const PersonPicker: React.FC<PersonPickerProps> = ({
                   <span className="flex min-w-0 flex-1 items-center gap-2">
                     <UserAvatar name={m.profile?.fullName} src={m.profile?.avatarUrl ?? undefined} size="xs" />
                     <span className="truncate">{m.profile?.fullName ?? m.userId}</span>
-                    <span className="shrink-0 text-[11px] text-muted-foreground">{ROLE_LABELS[m.role]}</span>
+                    {byUser.get(m.userId) ? (
+                      <span
+                        className="inline-flex shrink-0 items-center gap-1 rounded-full px-1.5 text-[10.5px] font-semibold"
+                        style={{ color: `hsl(${AVAILABILITY_META[byUser.get(m.userId)!.status].tone})`, background: `hsl(${AVAILABILITY_META[byUser.get(m.userId)!.status].tone} / 0.12)` }}
+                      >
+                        <span aria-hidden className="h-1.5 w-1.5 rounded-full" style={{ background: 'currentColor' }} />
+                        {AVAILABILITY_META[byUser.get(m.userId)!.status].short}
+                      </span>
+                    ) : (
+                      <span className="shrink-0 text-[11px] text-muted-foreground">{ROLE_LABELS[m.role]}</span>
+                    )}
                   </span>
                   {m.userId === value && <Check aria-hidden className="h-4 w-4" />}
                 </CommandItem>

@@ -701,3 +701,12 @@ button, a, [role='button'], [role='tab'], [role='menuitem'], [role='option'], in
     animation: none !important;
   }
 }
+
+/* Availability: a soft live pulse on "Available" dots */
+.availability-live { box-shadow: 0 0 0 0 hsl(var(--tone) / 0.5); animation: availability-pulse 2.4s ease-out infinite; }
+@keyframes availability-pulse {
+  0% { box-shadow: 0 0 0 0 hsl(var(--tone) / 0.5), 0 0 0 2px hsl(var(--card)); }
+  70% { box-shadow: 0 0 0 6px hsl(var(--tone) / 0), 0 0 0 2px hsl(var(--card)); }
+  100% { box-shadow: 0 0 0 0 hsl(var(--tone) / 0), 0 0 0 2px hsl(var(--card)); }
+}
+@media (prefers-reduced-motion: reduce) { .availability-live { animation: none; } }

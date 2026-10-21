@@ -2466,6 +2466,50 @@ console.log('\n== Phase 12b: task batches ==');
   record('a former video (its batch was deleted) can be a batch again', !r.error, r.error?.message);
 }
 
+console.log('\n== Phase 12c: team availability ==');
+{
+  const set = (who, w, u, status, note = null, back = null) =>
+    as(who, `INSERT INTO public.member_availability (workspace_id, user_id, status, note, back_on) VALUES ($1,$2,$3,$4,$5) RETURNING status, note, updated_at`, [w, u, status, note, back]);
+  r = await set(editor, ws, editor, 'BUSY', '  Finishing the Medicus batch  ');
+  record('a staff member sets their own status (note trimmed, server time)', !r.error && r.rows[0]?.status === 'BUSY' && r.rows[0].note === 'Finishing the Medicus batch', r.error?.message);
+  r = await set(qc, ws, editor, 'AVAILABLE');
+  record('nobody can set someone else\'s status', !!r.error);
+  r = await set(owner, ws, editor, 'AVAILABLE');
+  record('not even the owner', !!r.error);
+  r = await set(client, ws, client, 'AVAILABLE');
+  record('a client viewer cannot set a status', !!r.error);
+  r = await set(stranger, ws, stranger, 'AVAILABLE');
+  record('a non-member cannot set a status', !!r.error);
+  r = await set(editor, wsB, editor, 'AVAILABLE');
+  record('a status for a workspace you are not in is refused', !!r.error);
+  r = await set(qc, ws, qc, 'HOLIDAY');
+  record('an unknown status is refused', !!r.error);
+  r = await set(qc, ws, qc, 'WORKING', null, '2030-01-01');
+  record('a return date is only for leave', !!r.error);
+  r = await set(qc, ws, qc, 'ON_LEAVE', 'x'.repeat(81));
+  record('a note over 80 characters is refused', !!r.error);
+  r = await set(qc, ws, qc, 'ON_LEAVE', 'Family trip', '2030-01-10');
+  record('leave with a note and a return date is fine', !r.error, r.error?.message);
+  r = await as(pm, `SELECT user_id, status FROM public.member_availability WHERE workspace_id = $1 ORDER BY status`, [ws]);
+  record('staff see everyone\'s status', !r.error && r.rows.length === 2);
+  r = await as(client, `SELECT user_id FROM public.member_availability`);
+  record('a client viewer sees no statuses', !r.error && r.rows.length === 0);
+  r = await as(stranger, `SELECT user_id FROM public.member_availability`);
+  record('a non-member sees no statuses', !r.error && r.rows.length === 0);
+  r = await as(editor, `UPDATE public.member_availability SET status = 'AVAILABLE', note = NULL WHERE workspace_id = $1 AND user_id = $2 RETURNING status`, [ws, editor]);
+  record('a person updates their own status', !r.error && r.rows[0]?.status === 'AVAILABLE', r.error?.message);
+  r = await as(pm, `UPDATE public.member_availability SET status = 'BUSY' WHERE workspace_id = $1 AND user_id = $2 RETURNING status`, [ws, editor]);
+  blocked('a manager cannot change someone else\'s status', r);
+  r = await as(editor, `UPDATE public.member_availability SET user_id = $3 WHERE workspace_id = $1 AND user_id = $2 RETURNING user_id`, [ws, editor, qc]);
+  record('a status cannot be moved to another person (no column grant)', !!r.error);
+  r = await as(pm, `DELETE FROM public.member_availability WHERE user_id = $1 RETURNING user_id`, [qc]);
+  blocked('a manager cannot clear someone else\'s status', r);
+  r = await as(qc, `DELETE FROM public.member_availability WHERE user_id = $1 RETURNING user_id`, [qc]);
+  record('a person clears their own status', !r.error && r.rows.length === 1, r.error?.message);
+  r = await as('anon', `SELECT user_id FROM public.member_availability`);
+  record('anon cannot read statuses', !!r.error);
+}
+
 console.log('\n== Deactivation & service role ==');
 await svc(`UPDATE public.profiles SET is_active = false WHERE id = $1`, [editor]);
 r = await as(editor, `SELECT id FROM public.tasks`);

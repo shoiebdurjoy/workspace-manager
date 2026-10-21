@@ -29,6 +29,11 @@ export function createDatabaseMock() {
     getProductionMonthly: vi.fn(),
     // home (Phase 11)
     getHomeSummary: vi.fn(),
+    // availability (migration 19)
+    listAvailability: vi.fn().mockResolvedValue(new Map()),
+    setMyAvailability: vi.fn().mockResolvedValue(undefined),
+    clearMyAvailability: vi.fn().mockResolvedValue(undefined),
+    subscribeToAvailability: vi.fn(() => () => undefined),
     getProductionVideos: vi.fn(),
     StaleTransitionError,
     NOTE_MAX_LENGTH: 2000,

@@ -18,6 +18,7 @@ export * from './customFields';
 export * from './workflow';
 export * from './production';
 export * from './home';
+export * from './availability';
 export * from './teams';
 export * from './invitations';
 export * from './health';

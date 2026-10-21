@@ -23,6 +23,8 @@ import { BrandMark } from "@/components/brand/Logo";
 import ThemeToggle from "@/components/theme/ThemeToggle";
 import NotificationBell from "@/components/collaboration/NotificationBell";
 import RoleBadge from "@/components/team/RoleBadge";
+import { AvailabilityRing, MyStatusButton } from "@/components/team/Availability";
+import { useAvailability } from "@/hooks/use-availability";
 import { useAuth } from "@/hooks/use-auth";
 import { can } from "@/lib/permissions";
 import { useHierarchy } from "@/hooks/use-hierarchy";
@@ -46,7 +48,8 @@ const PAGE_TITLES: Record<string, string> = {
 };
 
 export const AppHeader: React.FC<AppHeaderProps> = ({ onToggleMobileSidebar, onOpenSearch }) => {
-  const { profile, role, workspace, signOut } = useAuth();
+  const { profile, role, workspace, signOut, user } = useAuth();
+  const availability = useAvailability();
   const location = useLocation();
   const navigate = useNavigate();
   const params = useParams();
@@ -134,6 +137,8 @@ export const AppHeader: React.FC<AppHeaderProps> = ({ onToggleMobileSidebar, onO
           className="md:hidden"
         />
 
+        {can(role, "comments:view-internal") && <MyStatusButton />}
+
         <NotificationBell />
 
         <ThemeToggle />
@@ -145,7 +150,9 @@ export const AppHeader: React.FC<AppHeaderProps> = ({ onToggleMobileSidebar, onO
               aria-label="Account menu"
               className="rounded-full ring-2 ring-transparent hover:ring-border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring transition-all p-0.5"
             >
-              <UserAvatar name={profile?.fullName} src={profile?.avatarUrl ?? undefined} size="sm" />
+              <AvailabilityRing availability={user ? availability.byUser.get(user.id) : undefined}>
+                <UserAvatar name={profile?.fullName} src={profile?.avatarUrl ?? undefined} size="sm" />
+              </AvailabilityRing>
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent className="w-60" align="end" sideOffset={8}>

@@ -643,6 +643,13 @@ export interface Database {
           { foreignKeyName: 'task_activity_task_id_fkey'; columns: ['task_id']; referencedRelation: 'tasks'; referencedColumns: ['id'] },
         ];
       };
+      // Phase 12c (migration 19): each staff member's own availability
+      member_availability: {
+        Row: { workspace_id: string; user_id: string; status: string; note: string | null; back_on: string | null; updated_at: string };
+        Insert: { workspace_id: string; user_id: string; status: string; note?: string | null; back_on?: string | null };
+        Update: { status?: string; note?: string | null; back_on?: string | null };
+        Relationships: [];
+      };
       notifications: {
         Row: {
           id: string;
