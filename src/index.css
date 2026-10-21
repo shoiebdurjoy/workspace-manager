@@ -824,3 +824,131 @@ main header:has(.page-title):not(.hero-surface)::before {
 @media (prefers-reduced-motion: reduce) {
   .empty-illustration::before, .empty-illustration > span, .empty-illustration i, main header:has(.page-title) { animation: none !important; }
 }
+
+/* ==========================================================================================
+   Liquid glass (v4): macOS-style translucent material over a soft ambient canvas.
+   Layers: ambient canvas (colour to refract) > glass navigation, header and cards > brighter
+   glass for popovers, menus, dialogs and sheets. Each glass surface has a blurred, saturated
+   backdrop, a hairline border, a specular top highlight and a deep soft shadow.
+   Falls back to solid surfaces when the person asks for reduced transparency.
+   ========================================================================================== */
+:root {
+  --glass-tint: 0 0% 100%;
+  --glass-alpha: 0.62;
+  --glass-alpha-strong: 0.78;
+  --glass-edge: 0 0% 100% / 0.65;
+  --glass-line: 24 14% 6% / 0.08;
+  --glass-shadow: 0 1px 1px hsl(24 14% 6% / 0.04), 0 8px 24px -6px hsl(24 14% 6% / 0.10), 0 24px 60px -18px hsl(24 14% 6% / 0.16);
+  --glass-blur: 22px;
+  --ambient-a: 6 85% 60% / 0.10;
+  --ambient-b: 28 95% 60% / 0.09;
+  --ambient-c: 210 90% 65% / 0.06;
+}
+.dark {
+  --glass-tint: 24 12% 10%;
+  --glass-alpha: 0.55;
+  --glass-alpha-strong: 0.72;
+  --glass-edge: 0 0% 100% / 0.09;
+  --glass-line: 0 0% 100% / 0.08;
+  --glass-shadow: 0 1px 1px hsl(0 0% 0% / 0.3), 0 10px 30px -8px hsl(0 0% 0% / 0.55), 0 30px 70px -20px hsl(0 0% 0% / 0.65);
+  --ambient-a: 6 85% 50% / 0.16;
+  --ambient-b: 28 90% 50% / 0.08;
+  --ambient-c: 220 80% 55% / 0.07;
+}
+
+/* ambient canvas: soft colour fields the glass picks up as it blurs */
+.surface-canvas {
+  background:
+    radial-gradient(48rem 30rem at 85% -8rem, hsl(var(--ambient-a)), transparent 70%),
+    radial-gradient(40rem 26rem at 10% 110%, hsl(var(--ambient-b)), transparent 70%),
+    radial-gradient(36rem 24rem at 50% 45%, hsl(var(--ambient-c)), transparent 75%),
+    hsl(var(--surface-canvas));
+  background-attachment: fixed;
+}
+
+/* the shared material */
+.glass,
+.surface-card,
+.surface-glass {
+  background: linear-gradient(180deg, hsl(var(--glass-tint) / calc(var(--glass-alpha) + 0.08)), hsl(var(--glass-tint) / var(--glass-alpha)));
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(180%);
+  backdrop-filter: blur(var(--glass-blur)) saturate(180%);
+  border: 1px solid hsl(var(--glass-line));
+  box-shadow: inset 0 1px 0 hsl(var(--glass-edge)), var(--glass-shadow);
+}
+.surface-card { border-radius: 18px; }
+.surface-glass { box-shadow: inset 0 -1px 0 hsl(var(--glass-line)); border-width: 0 0 1px 0; }
+
+/* brighter glass for things that float above the page */
+.glass-pop {
+  background: linear-gradient(180deg, hsl(var(--glass-tint) / calc(var(--glass-alpha-strong) + 0.06)), hsl(var(--glass-tint) / var(--glass-alpha-strong)));
+  -webkit-backdrop-filter: blur(28px) saturate(190%);
+  backdrop-filter: blur(28px) saturate(190%);
+  border: 1px solid hsl(var(--glass-line)) !important;
+  box-shadow: inset 0 1px 0 hsl(var(--glass-edge)), 0 18px 50px -12px hsl(24 14% 6% / 0.28), 0 4px 14px -4px hsl(24 14% 6% / 0.12) !important;
+  color: hsl(var(--popover-foreground));
+  border-radius: 14px;
+}
+.glass-panel {
+  background: hsl(var(--glass-tint) / var(--glass-alpha-strong));
+  -webkit-backdrop-filter: blur(30px) saturate(190%);
+  backdrop-filter: blur(30px) saturate(190%);
+  box-shadow: inset 0 1px 0 hsl(var(--glass-edge)), 0 30px 80px -20px hsl(24 14% 6% / 0.35) !important;
+  border-color: hsl(var(--glass-line)) !important;
+}
+
+/* navigation: deep smoked glass with a brand glow */
+.nav-surface {
+  background:
+    radial-gradient(120% 50% at 0% 0%, hsl(6 80% 50% / 0.22), transparent 60%),
+    linear-gradient(180deg, hsl(24 14% 10% / 0.86), hsl(24 14% 6% / 0.92));
+  -webkit-backdrop-filter: blur(24px) saturate(160%);
+  backdrop-filter: blur(24px) saturate(160%);
+  box-shadow: inset -1px 0 0 hsl(0 0% 100% / 0.06);
+}
+.nav-active {
+  background: linear-gradient(180deg, hsl(0 0% 100% / 0.12), hsl(0 0% 100% / 0.06)) !important;
+  box-shadow: inset 0 1px 0 hsl(0 0% 100% / 0.12), 0 1px 2px hsl(0 0% 0% / 0.3);
+}
+
+/* depth on hover: cards lift and catch the light */
+.lift { transition: transform 0.35s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.35s cubic-bezier(0.22, 1, 0.36, 1); }
+.lift:hover {
+  transform: translateY(-2px);
+  box-shadow: inset 0 1px 0 hsl(var(--glass-edge)), 0 2px 4px hsl(24 14% 6% / 0.05), 0 18px 44px -14px hsl(24 14% 6% / 0.24);
+}
+.press { transition: transform 0.18s cubic-bezier(0.22, 1, 0.36, 1); }
+.press:active { transform: scale(0.97); }
+
+/* inputs read as recessed glass */
+input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+textarea,
+button[role="combobox"] {
+  transition: box-shadow 0.2s ease, border-color 0.2s ease, background-color 0.2s ease;
+}
+input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):focus-visible,
+textarea:focus-visible {
+  box-shadow: 0 0 0 4px hsl(var(--primary) / 0.14);
+}
+
+/* overlays: a frosted dim, not a black wall */
+[data-state="open"].fixed.inset-0 { -webkit-backdrop-filter: blur(8px) saturate(120%); backdrop-filter: blur(8px) saturate(120%); }
+
+/* scrollbars that disappear into the glass */
+* { scrollbar-width: thin; scrollbar-color: hsl(var(--foreground) / 0.18) transparent; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: hsl(var(--foreground) / 0.16); border-radius: 999px; border: 3px solid transparent; background-clip: content-box; }
+::-webkit-scrollbar-thumb:hover { background: hsl(var(--foreground) / 0.3); background-clip: content-box; }
+
+/* accessibility: honour reduced transparency and reduced motion */
+@media (prefers-reduced-transparency: reduce) {
+  .glass, .surface-card, .surface-glass, .glass-pop, .glass-panel, .nav-surface {
+    -webkit-backdrop-filter: none; backdrop-filter: none;
+    background: hsl(var(--card));
+  }
+  .nav-surface { background: hsl(24 14% 8%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .lift:hover { transform: none; }
+  .press:active { transform: none; }
+}
