@@ -386,3 +386,8 @@
     transform: none;
   }
 }
+
+/* Native chrome follows the theme (scrollbars, form controls) and scrollbars stay quiet. */
+:root { color-scheme: light; }
+.dark { color-scheme: dark; }
+* { scrollbar-width: thin; scrollbar-color: hsl(var(--muted-foreground) / 0.35) transparent; }

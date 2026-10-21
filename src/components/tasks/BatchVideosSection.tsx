@@ -118,7 +118,7 @@ const BatchVideosSection: React.FC<BatchVideosSectionProps> = ({ task, taskPath 
               const member = v.editorId ? lookup.get(v.editorId) : undefined;
               return (
                 <li key={v.id} className="flex items-center gap-3 py-1.5">
-                  <Link to={taskPath(v.id)} className="min-w-0 flex-1 truncate text-sm font-medium text-brand hover:underline">
+                  <Link to={taskPath(v.id)} className="min-w-0 flex-1 truncate text-sm font-medium text-foreground transition-colors hover:text-brand hover:underline">
                     {v.title}
                   </Link>
                   <TaskStatusPill status={v.status} />
