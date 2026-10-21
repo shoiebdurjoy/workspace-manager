@@ -119,6 +119,15 @@ const WorkloadPage: React.FC = () => {
         <EmptyState icon={<Clock />} title="No open work" description="When tasks are assigned to editors, their workload appears here." />
       ) : (
         <>
+          {editors.every((r) => !r.userId) && (
+            <p className="rounded-card border border-dashed border-border px-4 py-3 text-xs text-muted-foreground">
+              All open work is unassigned. Invite your editors in{' '}
+              <Link to="/team?tab=invitations" className="font-medium text-brand hover:underline">
+                Team
+              </Link>
+              , then assign each video an editor so their load shows here.
+            </p>
+          )}
           <section aria-label="Editors" className="space-y-2">
             <h2 className="section-label">Editors</h2>
             <Stagger className="space-y-2">{editors.map((r) => row(r, max, 'editor'))}</Stagger>

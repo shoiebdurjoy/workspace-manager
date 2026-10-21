@@ -44,8 +44,11 @@ const WorkflowPicker: React.FC<WorkflowPickerProps> = ({ task, members = [], var
   const editable = moves.some((m) => m.allowed);
   const needle = query.trim().toLowerCase();
   const shown = moves.filter((m) => !needle || `${m.label} ${m.to.name}`.toLowerCase().includes(needle));
-  const steps = shown.filter((m) => m.allowed && !m.override);
-  const overrides = shown.filter((m) => m.override);
+  // like ClickUp: finished stages sit in their own "Closed" group at the bottom
+  const isClosed = (m: Move) => m.to.category === 'COMPLETED';
+  const steps = shown.filter((m) => m.allowed && !m.override && !isClosed(m));
+  const overrides = shown.filter((m) => m.override && !isClosed(m));
+  const closed = shown.filter((m) => m.allowed && isClosed(m));
   const blocked = shown.filter((m) => !m.allowed);
   const stage = stageNumber(workflow, task.status);
 
@@ -125,7 +128,7 @@ const WorkflowPicker: React.FC<WorkflowPickerProps> = ({ task, members = [], var
             )}
           </div>
           <Command shouldFilter={false}>
-            <CommandInput value={query} onValueChange={setQuery} placeholder="Search stages..." aria-label="Search stages" />
+            <CommandInput value={query} onValueChange={setQuery} placeholder="Search..." aria-label="Search stages" />
             <CommandList className="max-h-80">
               {shown.length === 0 && <div className="px-3 py-4 text-center text-xs text-muted-foreground">No match.</div>}
               {steps.length > 0 && (
@@ -160,9 +163,24 @@ const WorkflowPicker: React.FC<WorkflowPickerProps> = ({ task, members = [], var
                   </CommandGroup>
                 </>
               )}
-              {blocked.length > 0 && (
+              {closed.length > 0 && (
                 <>
                   {(steps.length > 0 || overrides.length > 0) && <CommandSeparator />}
+                  <CommandGroup heading="Closed">
+                    {closed.map((m) => (
+                      <CommandItem key={m.to.key} value={`closed:${m.to.key}`} onSelect={() => choose(m)} className="gap-2">
+                        {m.override && <ShieldAlert aria-hidden className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />}
+                        <TaskStatusPill status={m.to.key} />
+                        {!m.override && <span className="truncate text-xs text-muted-foreground">{m.label}</span>}
+                        {m.override && <span className="sr-only">(override)</span>}
+                      </CommandItem>
+                    ))}
+                  </CommandGroup>
+                </>
+              )}
+              {blocked.length > 0 && (
+                <>
+                  {(steps.length > 0 || overrides.length > 0 || closed.length > 0) && <CommandSeparator />}
                   <CommandGroup heading="Not available">
                     {blocked.map((m) => (
                       <CommandItem key={m.to.key} value={`blocked:${m.to.key}`} disabled className="flex-col items-start gap-0.5 py-1.5">

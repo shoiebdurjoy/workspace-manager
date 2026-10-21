@@ -82,7 +82,9 @@ const ReportsPage: React.FC = () => {
           <Skeleton className="h-64 rounded-card" />
         </div>
       ) : data.totals.videos === 0 ? (
-        <EmptyState icon={<TrendingUp />} title="No finished first cuts in this period" description="When editors send videos to QC for the first time, their output, turnaround and revisions are reported here." />
+        <EmptyState icon={<TrendingUp />} title="No finished first cuts in this period" description="When editors send videos to QC for the first time, their output, turnaround and revisions are reported here. Try a longer range, or check that videos are moving to QC- FIRST APPROVAL."
+          action={weeks < 26 ? <button type="button" className="press rounded-control bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground" onClick={() => setWeeks(26)}>Show 6 months</button> : undefined}
+        />
       ) : (
         <>
           <Stagger className="grid gap-3 sm:grid-cols-3">
