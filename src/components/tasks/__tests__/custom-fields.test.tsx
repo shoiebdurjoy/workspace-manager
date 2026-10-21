@@ -233,6 +233,13 @@ describe('Settings page', () => {
   it.each(['OWNER', 'ADMIN', 'PRODUCTION_MANAGER'] as TbbRole[])('%s manages custom fields', async (role) => {
     setup();
     renderWithAuth(<Settings />, { auth: makeAuth(role) });
+    // tucked away until opened; Owner / Admin also get the status editor, so they pick the fields tab
+    expect(screen.queryByRole('region', { name: 'Custom fields' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Customize workspace/ }));
+    const fieldsTab = screen.queryByRole('tab', { name: 'Custom fields' });
+    expect(!!fieldsTab).toBe(role !== 'PRODUCTION_MANAGER');
+    expect(!!screen.queryByRole('tab', { name: 'Statuses & moves' })).toBe(role !== 'PRODUCTION_MANAGER');
+    if (fieldsTab) fireEvent.click(fieldsTab);
     expect(await screen.findByRole('region', { name: 'Custom fields' })).toBeInTheDocument();
   });
 

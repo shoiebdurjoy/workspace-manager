@@ -857,10 +857,11 @@ console.log('\n== Phase 7: workflow engine ==');
   }
   r = await as('anon', `SELECT * FROM public.workflow_statuses`);
   record('anon cannot read the workflow', !!r.error);
-  r = await as(owner, `INSERT INTO public.workflow_statuses (workflow_id, key, name, category, color, position) VALUES ($1, 'HACK', 'HACK', 'READY', '#000000', 99)`, [wf]);
-  record('even the owner cannot add stages through the API', !!r.error);
-  r = await as(owner, `UPDATE public.workflow_transitions SET roles = ARRAY['EDITOR'] WHERE workflow_id = $1 RETURNING to_key`, [wf]);
-  record('nobody can rewrite who may take a transition', !!r.error || r.rows.length === 0);
+  // only Owner / Admin customize the workflow (migration 27, tested under "Customize: status editor")
+  r = await as(editor, `INSERT INTO public.workflow_statuses (workflow_id, key, name, category, color, position) VALUES ($1, 'HACK', 'HACK', 'READY', '#000000', 99)`, [wf]);
+  record('an editor cannot add stages through the API', !!r.error);
+  r = await as(qc, `UPDATE public.workflow_transitions SET roles = ARRAY['EDITOR'] WHERE workflow_id = $1 RETURNING to_key`, [wf]);
+  record('QC cannot rewrite who may take a transition', !!r.error || r.rows.length === 0);
   r = await as(admin, `DELETE FROM public.workflows WHERE id = $1 RETURNING id`, [wf]);
   record('nobody can delete the workflow through the API', !!r.error || r.rows.length === 0);
 
@@ -2614,6 +2615,47 @@ console.log('\n== Phase 12f: default QC reviewer per folder / list ==');
   record('with the list\'s reviewer on leave, the folder\'s reviewer is used', (await qcOf(t4)) === myla, String(await qcOf(t4)));
   r = await as(edD, `SELECT private.default_qc_for_task($1)`, [t4]);
   record('the default lookup cannot be called by signed-in users', !!r.error);
+}
+
+console.log('\n== Customize: status editor ==');
+{
+  const oS = await mkUser('se-owner@tbb.test', {}, true);
+  const adS = await mkUser('se-admin@tbb.test', {}, true);
+  const pmS = await mkUser('se-pm@tbb.test', {}, true);
+  const edS = await mkUser('se-editor@tbb.test', {}, true);
+  const wsS = (await svc(`INSERT INTO public.workspaces (name, slug, owner_id) VALUES ('SE','se-status',$1) RETURNING id`, [oS]))[0].id;
+  await svc(`INSERT INTO public.workspace_members (workspace_id, user_id, role) VALUES ($1,$2,'ADMIN'), ($1,$3,'PRODUCTION_MANAGER'), ($1,$4,'EDITOR') ON CONFLICT DO NOTHING`, [wsS, adS, pmS, edS]);
+  const wfS = (await svc(`SELECT id FROM public.workflows WHERE workspace_id = $1 AND is_default`, [wsS]))[0].id;
+  r = await as(adS, `UPDATE public.workflow_statuses SET name = 'EDITING', color = '#123456', position = 30 WHERE workflow_id = $1 AND key = 'STARTED_EDITING' RETURNING name`, [wfS]);
+  record('an admin renames, recolours and re-orders a status', !r.error && r.rows[0]?.name === 'EDITING', r.error?.message);
+  r = await as(pmS, `UPDATE public.workflow_statuses SET name = 'X' WHERE workflow_id = $1 AND key = 'IN_EDIT' RETURNING key`, [wfS]);
+  record('a production manager cannot edit statuses', !!r.error || r.rows.length === 0);
+  r = await as(edS, `UPDATE public.workflow_statuses SET name = 'X' WHERE workflow_id = $1 AND key = 'IN_EDIT' RETURNING key`, [wfS]);
+  record('an editor cannot edit statuses', !!r.error || r.rows.length === 0);
+  r = await as(adS, `UPDATE public.workflow_statuses SET key = 'RENAMED' WHERE workflow_id = $1 AND key = 'IN_EDIT'`, [wfS]);
+  record('a status key can never change', !!r.error);
+  r = await as(adS, `UPDATE public.workflow_statuses SET requires_note = true WHERE workflow_id = $1 AND key = 'IN_EDIT'`, [wfS]);
+  record('the rule flags stay system-owned', !!r.error);
+  r = await as(oS, `INSERT INTO public.workflow_statuses (workflow_id, key, name, category, color, position) VALUES ($1,'COLOR_GRADING','COLOR GRADING','IN_PROGRESS','#8B5CF6',35)`, [wfS]);
+  record('the owner adds a new status', !r.error, r.error?.message);
+  r = await as(oS, `INSERT INTO public.workflow_transitions (workflow_id, from_key, to_key, label, kind, roles) VALUES ($1,'STARTED_EDITING','COLOR_GRADING','Send to grading','forward',ARRAY['OWNER','ADMIN','EDITOR'])`, [wfS]);
+  record('...and a move into it, with the roles that may make it', !r.error, r.error?.message);
+  r = await as(edS, `INSERT INTO public.workflow_transitions (workflow_id, from_key, to_key, label, kind, roles) VALUES ($1,'COLOR_GRADING','CLOSED','Skip','forward',ARRAY['EDITOR'])`, [wfS]);
+  record('an editor cannot add moves', !!r.error);
+  const spS = (await as(oS, `INSERT INTO public.spaces (workspace_id, name, slug) VALUES ($1,'S','s') RETURNING id`, [wsS])).rows[0]?.id;
+  const lS = (await as(oS, `INSERT INTO public.lists (space_id, name) VALUES ($1,'L') RETURNING id`, [spS])).rows[0]?.id;
+  await svc(`INSERT INTO public.tasks (workspace_id, list_id, title, status) VALUES ($1,$2,'in grading','COLOR_GRADING')`, [wsS, lS]);
+  r = await as(adS, `DELETE FROM public.workflow_statuses WHERE workflow_id = $1 AND key = 'COLOR_GRADING'`, [wfS]);
+  record('a status that holds tasks cannot be deleted', r.error?.code === '23503', r.error?.message ?? 'was deleted');
+  await svc(`UPDATE public.tasks SET status = 'STARTED_EDITING' WHERE workspace_id = $1`, [wsS]);
+  r = await as(adS, `DELETE FROM public.workflow_statuses WHERE workflow_id = $1 AND key = 'COLOR_GRADING' RETURNING key`, [wfS]);
+  record('...once empty it can, and its moves go with it', !r.error && r.rows.length === 1 && (await svc(`SELECT count(*)::int n FROM public.workflow_transitions WHERE workflow_id = $1 AND (to_key = 'COLOR_GRADING' OR from_key = 'COLOR_GRADING')`, [wfS]))[0].n === 0, r.error?.message);
+  r = await as(adS, `DELETE FROM public.workflow_statuses WHERE workflow_id = $1 AND key = 'TO_BE_EDITED'`, [wfS]);
+  record('the starting status cannot be deleted', !!r.error);
+  r = await as(adS, `DELETE FROM public.workflow_statuses WHERE workflow_id = $1 AND key = 'QC_FIRST_APPROVAL'`, [wfS]);
+  record('the production-credit stage cannot be deleted', !!r.error);
+  r = await as(adS, `UPDATE public.workflow_statuses SET name = 'X' WHERE workflow_id = $1 RETURNING key`, [(await svc(`SELECT id FROM public.workflows WHERE workspace_id <> $1 LIMIT 1`, [wsS]))[0].id]);
+  record('an admin cannot touch another workspace\'s statuses', !!r.error || r.rows.length === 0);
 }
 
 console.log('\n== Phase 12e: list templates ==');

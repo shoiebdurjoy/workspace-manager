@@ -174,3 +174,67 @@ export async function getLatestRevisionRequest(taskId: string): Promise<StatusEv
   const row = (data ?? [])[0];
   return row ? mapEvent(row) : null;
 }
+
+// ------------------------------------------------------------------------------------------------
+// Customize (Owner / Admin, migration 27): presentational columns of statuses and the moves between
+// them. Keys and rule flags stay system-owned; the database refuses anything else.
+// ------------------------------------------------------------------------------------------------
+
+// the generated types still describe these tables as read-only (they predate migration 27)
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const writable = () => getSupabaseClient() as unknown as { from: (table: string) => any };
+
+export interface StatusPatch {
+  name?: string;
+  color?: string;
+  category?: WorkflowStatus['category'];
+  position?: number;
+  description?: string | null;
+}
+
+/** "Color grading!" -> "COLOR_GRADING" (unique within the workflow). */
+export function statusKeyFor(name: string, taken: readonly string[]): string {
+  const base = (name.toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'STATUS').replace(/^(\d)/, 'S_$1').slice(0, 44);
+  let key = base.length >= 2 ? base : `${base}_X`;
+  for (let i = 2; taken.includes(key); i += 1) key = `${base}_${i}`;
+  return key;
+}
+
+export async function updateWorkflowStatus(workflowId: string, key: string, patch: StatusPatch): Promise<void> {
+  const name = patch.name?.trim();
+  if (patch.name !== undefined && !name) throw new ValidationError('A status needs a name.');
+  const { error } = await writable()
+    .from('workflow_statuses')
+    .update({ ...patch, ...(name !== undefined ? { name } : {}) })
+    .eq('workflow_id', workflowId)
+    .eq('key', key);
+  if (error) throw toDatabaseError('save the status', error);
+}
+
+export async function createWorkflowStatus(
+  workflowId: string,
+  input: { key: string; name: string; color: string; category: WorkflowStatus['category']; position: number }
+): Promise<void> {
+  if (!input.name.trim()) throw new ValidationError('A status needs a name.');
+  const { error } = await writable()
+    .from('workflow_statuses')
+    .insert({ workflow_id: workflowId, key: input.key, name: input.name.trim(), color: input.color, category: input.category, position: input.position });
+  if (error) throw toDatabaseError('add the status', error);
+}
+
+export async function deleteWorkflowStatus(workflowId: string, key: string): Promise<void> {
+  const { error } = await writable().from('workflow_statuses').delete().eq('workflow_id', workflowId).eq('key', key);
+  if (error) throw toDatabaseError('delete the status', error);
+}
+
+export async function saveWorkflowTransition(workflowId: string, t: WorkflowTransition): Promise<void> {
+  const { error } = await writable()
+    .from('workflow_transitions')
+    .upsert({ workflow_id: workflowId, from_key: t.from, to_key: t.to, label: t.label.trim() || 'Move', kind: t.kind, roles: t.roles }, { onConflict: 'workflow_id,from_key,to_key' });
+  if (error) throw toDatabaseError('save the move', error);
+}
+
+export async function deleteWorkflowTransition(workflowId: string, from: string, to: string): Promise<void> {
+  const { error } = await writable().from('workflow_transitions').delete().eq('workflow_id', workflowId).eq('from_key', from).eq('to_key', to);
+  if (error) throw toDatabaseError('remove the move', error);
+}

@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import CustomFieldsManager from '@/components/settings/CustomFieldsManager';
+import CustomizePanel from '@/components/customize/CustomizePanel';
 import { FieldError, FormError } from '@/components/auth/AuthLayout';
 
 /**
@@ -56,7 +56,7 @@ const Settings: React.FC = () => {
   };
 
   return (
-    <div className="max-w-2xl space-y-4">
+    <div className="max-w-4xl space-y-4">
       <header className="space-y-1 pt-1">
         <h1 className="page-title">Settings</h1>
         <p className="page-description">Workspace details for everyone at TBB.</p>
@@ -109,7 +109,7 @@ const Settings: React.FC = () => {
         )}
       </form>
 
-      {can(role, 'fields:manage') && <CustomFieldsManager />}
+      <CustomizePanel />
     </div>
   );
 };
