@@ -2068,6 +2068,268 @@ console.log('\n== Phase 11: Home, Inbox and My Tasks ==');
   record('the Inbox index exists (not-done notifications per person, newest first)', r.length === 1 && /WHERE \(archived_at IS NULL\)/.test(r[0].indexdef), r[0]?.indexdef);
 }
 
+console.log('\n== Phase 12: custom fields ==');
+{
+  const cf = (who, type, name, opts = null, w = ws) =>
+    as(who, `INSERT INTO public.custom_fields (workspace_id, name, field_type, options) VALUES ($1,$2,$3,$4::jsonb) RETURNING id`, [w, name, type, opts === null ? null : JSON.stringify(opts)]);
+  const setv = (who, t, f, v) =>
+    as(who, `INSERT INTO public.custom_field_values (task_id, field_id, workspace_id, value) VALUES ($1,$2,$3,$4::jsonb) RETURNING value`, [t, f, ws, JSON.stringify(v)]);
+
+  const mkTask = async (title, w = ws, l = list) => (await svc(`INSERT INTO public.tasks (workspace_id, list_id, title) VALUES ($1,$2,$3) RETURNING id`, [w, l, title]))[0].id;
+  const T1 = await mkTask('P12 assigned to editor');
+  const T2 = await mkTask('P12 not assigned');
+  const TB = await mkTask('P12 foreign', wsB, listB);
+  await svc(`INSERT INTO public.task_assignees (task_id, workspace_id, role_type, user_id) VALUES ($1,$2,'EDITOR',$3)`, [T1, ws, editor]);
+
+  console.log('  -- definitions');
+  const ids = {};
+  for (const [who, label] of [[owner, 'owner'], [admin, 'admin'], [pm, 'production manager']]) {
+    r = await cf(who, 'text', `P12 text by ${label}`);
+    record(`${label} can create a field`, !r.error, r.error?.message);
+  }
+  for (const [who, label] of [[qc, 'QC specialist'], [editor, 'editor'], [client, 'client viewer'], [stranger, 'non-member']]) {
+    r = await cf(who, 'text', `P12 nope ${label}`);
+    record(`${label} cannot create a field`, !!r.error);
+  }
+  r = await cf(pm, 'text', 'A) Link note'); ids.text = r.rows[0]?.id;
+  r = await cf(pm, 'url', 'F) Loom video'); ids.url = r.rows[0]?.id;
+  r = await cf(pm, 'number', 'HOOK VARIATION'); ids.num = r.rows[0]?.id;
+  r = await cf(pm, 'dropdown', 'Video Format Needed', ['16:9', '9:16', '1:1']); ids.dd = r.rows[0]?.id;
+  r = await cf(pm, 'date', 'Shoot date'); ids.date = r.rows[0]?.id;
+  record('all five types can be created', Object.values(ids).length === 5 && Object.values(ids).every(Boolean));
+  r = await cf(pm, 'text', 'a) link NOTE');
+  record('a name is unique per workspace ignoring case', r.error?.code === '23505', r.error?.message ?? 'was allowed');
+  r = await cf(pm, 'text', 'A) Link note', null, wsB);
+  record('a manager of workspace B can use the same name there (unique per workspace)', !r.error, r.error?.message);
+  r = await cf(owner, 'text', 'P12 owner in B', null, wsB);
+  record('a manager of this workspace cannot create fields in workspace B', !!r.error);
+  r = await cf(pm, 'text', '');
+  record('an empty name is refused', !!r.error);
+  r = await cf(pm, 'text', '   ');
+  record('a blank name is refused', !!r.error);
+  r = await cf(pm, 'text', 'x'.repeat(61));
+  record('a name over 60 characters is refused', !!r.error);
+  r = await cf(pm, 'text', 'x'.repeat(60));
+  record('a name of exactly 60 characters is fine', !r.error, r.error?.message);
+  r = await cf(pm, 'checkbox', 'P12 bad type');
+  record('an unknown type is refused', !!r.error);
+  r = await cf(pm, 'dropdown', 'P12 dd none');
+  record('a dropdown without choices is refused', !!r.error);
+  r = await cf(pm, 'dropdown', 'P12 dd empty', []);
+  record('a dropdown with an empty list is refused', !!r.error);
+  r = await cf(pm, 'dropdown', 'P12 dd blank', ['a', ' ']);
+  record('a blank choice is refused', !!r.error);
+  r = await cf(pm, 'dropdown', 'P12 dd dup', ['a', 'a']);
+  record('duplicate choices are refused', !!r.error);
+  r = await cf(pm, 'dropdown', 'P12 dd long', ['x'.repeat(61)]);
+  record('a choice over 60 characters is refused', !!r.error);
+  r = await cf(pm, 'dropdown', 'P12 dd many', Array.from({ length: 31 }, (_, i) => `c${i}`));
+  record('more than 30 choices are refused', !!r.error);
+  r = await cf(pm, 'dropdown', 'P12 dd 30', Array.from({ length: 30 }, (_, i) => `c${i}`));
+  record('exactly 30 choices are fine', !r.error, r.error?.message);
+  r = await as(pm, `INSERT INTO public.custom_fields (workspace_id, name, field_type, options) VALUES ($1,'P12 dd notstr','dropdown','[1,2]'::jsonb)`, [ws]);
+  record('non-string choices are refused', !!r.error);
+  r = await cf(pm, 'text', 'P12 text with options', ['a']);
+  record('options on a non-dropdown field are refused', !!r.error);
+
+  r = await as(editor, `SELECT id FROM public.custom_fields WHERE workspace_id = $1`, [ws]);
+  record('an editor can read the definitions', !r.error && r.rows.length >= 5);
+  r = await as(qc, `SELECT id FROM public.custom_fields WHERE workspace_id = $1`, [ws]);
+  record('a QC specialist can read the definitions', !r.error && r.rows.length >= 5);
+  r = await as(client, `SELECT id FROM public.custom_fields WHERE workspace_id = $1`, [ws]);
+  record('a client viewer reads no definitions', !r.error && r.rows.length === 0);
+  r = await as(stranger, `SELECT id FROM public.custom_fields`);
+  record('a non-member reads no definitions', !r.error && r.rows.length === 0);
+  r = await as('anon', `SELECT id FROM public.custom_fields`);
+  record('anon cannot read definitions', !!r.error);
+
+  r = await as(pm, `UPDATE public.custom_fields SET name = 'A) Link note (renamed)', position = 3 WHERE id = $1 RETURNING name, position`, [ids.text]);
+  record('a manager can rename and re-order a field', !r.error && r.rows[0]?.name === 'A) Link note (renamed)' && r.rows[0].position === 3, r.error?.message);
+  r = await as(pm, `UPDATE public.custom_fields SET name = 'HOOK VARIATION' WHERE id = $1 RETURNING id`, [ids.text]);
+  record('renaming onto another field\'s name is refused', r.error?.code === '23505');
+  r = await as(pm, `UPDATE public.custom_fields SET field_type = 'number' WHERE id = $1 RETURNING id`, [ids.text]);
+  record('the type cannot be changed by a signed-in person (no column grant)', !!r.error);
+  try {
+    await svc(`UPDATE public.custom_fields SET field_type = 'number' WHERE id = $1`, [ids.text]);
+    record('...and not even by a privileged writer (guard trigger)', false, 'was allowed');
+  } catch (e) { record('...and not even by a privileged writer (guard trigger)', /cannot be changed/.test(e.message), e.message); }
+  r = await as(pm, `UPDATE public.custom_fields SET workspace_id = $1 WHERE id = $2 RETURNING id`, [wsB, ids.text]);
+  record('a field cannot move to another workspace', !!r.error);
+  r = await as(pm, `UPDATE public.custom_fields SET options = '["a"]'::jsonb WHERE id = $1 RETURNING id`, [ids.text]);
+  record('choices cannot be added to a non-dropdown', !!r.error);
+  r = await as(pm, `UPDATE public.custom_fields SET options = '[]'::jsonb WHERE id = $1 RETURNING id`, [ids.dd]);
+  record('a dropdown cannot be emptied of choices', !!r.error);
+  for (const [who, label] of [[qc, 'QC specialist'], [editor, 'editor'], [client, 'client viewer']]) {
+    r = await as(who, `UPDATE public.custom_fields SET name = 'hax' WHERE id = $1 RETURNING id`, [ids.text]);
+    blocked(`${label} cannot rename a field`, r);
+    r = await as(who, `DELETE FROM public.custom_fields WHERE id = $1 RETURNING id`, [ids.text]);
+    blocked(`${label} cannot delete a field`, r);
+  }
+  r = await svc(`SELECT name FROM public.custom_fields WHERE id = $1`, [ids.text]);
+  record('...and the field is unchanged', r[0]?.name === 'A) Link note (renamed)');
+
+  console.log('  -- values: who may write');
+  r = await setv(pm, T1, ids.text, 'raw footage is on the drive');
+  record('a manager can set a value on any task', !r.error, r.error?.message);
+  r = await setv(admin, T2, ids.text, 'admin note');
+  record('an admin can set a value on any task', !r.error, r.error?.message);
+  r = await setv(qc, T2, ids.num, 3);
+  record('a QC specialist can set a value on any task', !r.error, r.error?.message);
+  r = await setv(editor, T1, ids.num, 7);
+  record('an editor can set a value on a task assigned to them', !r.error, r.error?.message);
+  r = await setv(editor, T2, ids.date, '2030-01-01');
+  record('an editor cannot set a value on a task that is not theirs', !!r.error);
+  r = await as(editor, `UPDATE public.custom_field_values SET value = '9'::jsonb WHERE task_id = $1 AND field_id = $2 RETURNING value`, [T2, ids.num]);
+  blocked('an editor cannot change a value on a task that is not theirs', r);
+  r = await as(editor, `DELETE FROM public.custom_field_values WHERE task_id = $1 AND field_id = $2 RETURNING task_id`, [T2, ids.num]);
+  blocked('an editor cannot delete a value on a task that is not theirs', r);
+  r = await setv(client, T1, ids.text, 'client');
+  record('a client viewer cannot set a value', !!r.error);
+  r = await setv(stranger, T1, ids.url, 'https://example.com');
+  record('a non-member cannot set a value', !!r.error);
+  r = await as('anon', `INSERT INTO public.custom_field_values (task_id, field_id, value) VALUES ($1,$2,'"x"')`, [T1, ids.text]);
+  record('anon cannot set a value', !!r.error);
+
+  r = await as(editor, `SELECT value FROM public.custom_field_values WHERE task_id = $1 AND field_id = $2`, [T2, ids.num]);
+  record('every staff member can read values, even on tasks that are not theirs', !r.error && r.rows.length === 1 && r.rows[0].value === 3);
+  r = await as(client, `SELECT value FROM public.custom_field_values`);
+  record('a client viewer reads no values', !r.error && r.rows.length === 0);
+  r = await as(stranger, `SELECT value FROM public.custom_field_values`);
+  record('a non-member reads no values', !r.error && r.rows.length === 0);
+
+  r = await as(editor, `UPDATE public.custom_field_values SET value = '8'::jsonb WHERE task_id = $1 AND field_id = $2 RETURNING value, updated_by`, [T1, ids.num]);
+  record('an editor can change a value on their task; the editor of the change is the signed-in person',
+    !r.error && r.rows[0]?.value === 8 && r.rows[0].updated_by === editor, r.error?.message);
+  r = await as(editor, `UPDATE public.custom_field_values SET updated_by = $1, updated_at = '2000-01-01' WHERE task_id = $2 AND field_id = $3 RETURNING updated_by`, [owner, T1, ids.num]);
+  record('updated_by / updated_at cannot be set directly (no column grant)', !!r.error);
+  r = await as(editor, `UPDATE public.custom_field_values SET task_id = $1 WHERE task_id = $2 AND field_id = $3 RETURNING task_id`, [T2, T1, ids.num]);
+  record('a value cannot be moved to another task', !!r.error);
+  r = await as(editor, `UPDATE public.custom_field_values SET workspace_id = $1 WHERE task_id = $2 AND field_id = $3 RETURNING task_id`, [wsB, T1, ids.num]);
+  record('...or another workspace', !!r.error);
+  r = await as(pm, `INSERT INTO public.custom_field_values (task_id, field_id, workspace_id, value, updated_by) VALUES ($1,$2,$3,'"http://ok.example"'::jsonb,$4) RETURNING workspace_id, updated_by`, [T1, ids.url, wsB, owner]);
+  record('a forged workspace_id / updated_by on insert is overwritten from the task and the caller',
+    !r.error && r.rows[0]?.workspace_id === ws && r.rows[0].updated_by === pm, r.error?.message ?? JSON.stringify(r.rows));
+  r = await as(pm, `DELETE FROM public.custom_field_values WHERE task_id = $1 AND field_id = $2 RETURNING task_id`, [T1, ids.url]);
+  record('a manager can clear a value (the row is deleted)', !r.error && r.rows.length === 1);
+
+  console.log('  -- values: validation per type');
+  const bad = async (label, f, v) => {
+    const x = await setv(pm, T2, f, v);
+    record(label, !!x.error, 'was allowed');
+    await svc(`DELETE FROM public.custom_field_values WHERE task_id = $1 AND field_id = $2 AND $3::boolean`, [T2, f, !x.error]);
+  };
+  const good = async (label, f, v) => {
+    const x = await setv(pm, T2, f, v);
+    record(label, !x.error, x.error?.message);
+    await svc(`DELETE FROM public.custom_field_values WHERE task_id = $1 AND field_id = $2`, [T2, f]);
+  };
+  await svc(`DELETE FROM public.custom_field_values WHERE task_id = $1`, [T2]);
+  await good('text: a string is stored', ids.text, 'hello');
+  await good('text: 2000 characters is fine', ids.text, 'x'.repeat(2000));
+  await bad('text: 2001 characters is refused', ids.text, 'x'.repeat(2001));
+  await bad('text: an empty string is refused (clear = delete)', ids.text, '');
+  await bad('text: a number is refused', ids.text, 5);
+  await bad('text: an object is refused', ids.text, { a: 1 });
+  await good('url: an https link is stored', ids.url, 'https://www.loom.com/share/abc?x=1#t');
+  await good('url: an http link is stored', ids.url, 'http://example.com');
+  await bad('url: no scheme is refused', ids.url, 'example.com');
+  await bad('url: javascript: is refused', ids.url, 'javascript:alert(1)');
+  await bad('url: ftp is refused', ids.url, 'ftp://example.com/x');
+  await bad('url: a link with spaces is refused', ids.url, 'https://example.com/a b');
+  await bad('url: over 2048 characters is refused', ids.url, 'https://example.com/' + 'a'.repeat(2040));
+  await good('number: an integer is stored', ids.num, 12);
+  await good('number: a decimal is stored', ids.num, -3.5);
+  await bad('number: a numeric string is refused', ids.num, '12');
+  await bad('number: a boolean is refused', ids.num, true);
+  await good('dropdown: one of the choices is stored', ids.dd, '9:16');
+  await bad('dropdown: something that is not a choice is refused', ids.dd, '4:3');
+  await bad('dropdown: a choice with a trailing space is refused', ids.dd, '9:16 ');
+  await bad('dropdown: an array of choices is refused', ids.dd, ['9:16']);
+  await good('date: a real date is stored', ids.date, '2030-02-28');
+  await good('date: a leap day is stored', ids.date, '2032-02-29');
+  await bad('date: a non-leap 29 February is refused', ids.date, '2031-02-29');
+  await bad('date: month 13 is refused', ids.date, '2030-13-01');
+  await bad('date: a different format is refused', ids.date, '28/02/2030');
+  await bad('date: a timestamp is refused', ids.date, '2030-02-28T10:00:00Z');
+  await bad('date: a number is refused', ids.date, 20300228);
+  r = await as(pm, `INSERT INTO public.custom_field_values (task_id, field_id, value) VALUES ($1,$2,'null'::jsonb)`, [T2, ids.text]);
+  record('a JSON null value is refused', !!r.error);
+  r = await as(pm, `INSERT INTO public.custom_field_values (task_id, field_id, value) VALUES ($1,$2,NULL)`, [T2, ids.text]);
+  record('a missing (SQL NULL) value is refused', !!r.error);
+  await as(pm, `INSERT INTO public.custom_field_values (task_id, field_id, value) VALUES ($1,$2,'"x"'::jsonb)`, [T2, ids.text]);
+  r = await as(pm, `UPDATE public.custom_field_values SET value = 'null'::jsonb WHERE task_id = $1 AND field_id = $2`, [T2, ids.text]);
+  record('an update to JSON null is refused too', !!r.error);
+  r = await as(pm, `UPDATE public.custom_field_values SET value = '"y"'::jsonb WHERE task_id = $1 AND field_id = $2 RETURNING value`, [T2, ids.text]);
+  record('an update to a valid value works', !r.error && r.rows[0]?.value === 'y');
+  r = await as(pm, `UPDATE public.custom_field_values SET value = '5'::jsonb WHERE task_id = $1 AND field_id = $2`, [T2, ids.text]);
+  record('an update to a value of the wrong type is refused', !!r.error);
+  await svc(`DELETE FROM public.custom_field_values WHERE task_id = $1 AND field_id = $2`, [T2, ids.text]);
+
+  console.log('  -- values: cross-workspace');
+  const fB = (await svc(`INSERT INTO public.custom_fields (workspace_id, name, field_type) VALUES ($1,'P12 B field','text') RETURNING id`, [wsB]))[0].id;
+  r = await setv(pm, T1, fB, 'x');
+  record('a field of another workspace cannot be attached to this workspace\'s task', !!r.error, r.error?.message);
+  r = await as(pm, `INSERT INTO public.custom_field_values (task_id, field_id, value) VALUES ($1,$2,'"x"'::jsonb)`, [TB, ids.text]);
+  record('a field of this workspace cannot be set on another workspace\'s task', !!r.error);
+  r = await as(admin, `INSERT INTO public.custom_field_values (task_id, field_id, value) VALUES ($1,$2,'"x"'::jsonb)`, [TB, fB]);
+  record('a manager of this workspace cannot write values in workspace B', !!r.error);
+  r = await svc(`SELECT 1 FROM public.custom_field_values WHERE field_id = $1`, [fB]);
+  record('...and nothing was stored there', r.length === 0);
+  r = await as(admin, `SELECT id FROM public.custom_fields WHERE id = $1`, [fB]);
+  record('a staff member cannot read another workspace\'s definitions', !r.error && r.rows.length === 0);
+  r = await as(admin, `UPDATE public.custom_fields SET name = 'hax' WHERE id = $1 RETURNING id`, [fB]);
+  blocked('...nor rename them', r);
+  r = await as(admin, `DELETE FROM public.custom_fields WHERE id = $1 RETURNING id`, [fB]);
+  blocked('...nor delete them', r);
+
+  console.log('  -- choices, cascades, limits');
+  await svc(`INSERT INTO public.custom_field_values (task_id, field_id, workspace_id, value) VALUES ($1,$2,$3,'"1:1"'::jsonb)`, [T1, ids.dd, ws]);
+  r = await as(pm, `UPDATE public.custom_fields SET options = '["16:9","9:16"]'::jsonb WHERE id = $1 RETURNING id`, [ids.dd]);
+  record('a manager can remove a choice that is in use', !r.error, r.error?.message);
+  r = await as(editor, `SELECT value FROM public.custom_field_values WHERE task_id = $1 AND field_id = $2`, [T1, ids.dd]);
+  record('...the stored value stays readable as it was', r.rows[0]?.value === '1:1');
+  r = await as(pm, `UPDATE public.custom_field_values SET value = '"1:1"'::jsonb WHERE task_id = $1 AND field_id = $2 RETURNING value`, [T1, ids.dd]);
+  record('...saving the same value again does not fail', !r.error, r.error?.message);
+  r = await as(pm, `UPDATE public.custom_field_values SET value = '"4:3"'::jsonb WHERE task_id = $1 AND field_id = $2 RETURNING value`, [T1, ids.dd]);
+  record('...but changing it to something that is not on the list is refused', !!r.error);
+  r = await as(pm, `UPDATE public.custom_field_values SET value = '"16:9"'::jsonb WHERE task_id = $1 AND field_id = $2 RETURNING value`, [T1, ids.dd]);
+  record('...and changing it to a current choice works', !r.error && r.rows[0]?.value === '16:9');
+
+  const Tc = await mkTask('P12 cascade');
+  const fc = (await svc(`INSERT INTO public.custom_fields (workspace_id, name, field_type) VALUES ($1,'P12 cascade field','text') RETURNING id`, [ws]))[0].id;
+  await svc(`INSERT INTO public.custom_field_values (task_id, field_id, workspace_id, value) VALUES ($1,$2,$3,'"a"'::jsonb), ($4,$2,$3,'"b"'::jsonb)`, [Tc, fc, ws, T2]);
+  r = await as(pm, `DELETE FROM public.custom_fields WHERE id = $1 RETURNING id`, [fc]);
+  const left = await svc(`SELECT 1 FROM public.custom_field_values WHERE field_id = $1`, [fc]);
+  record('deleting a field deletes all its values', !r.error && r.rows.length === 1 && left.length === 0);
+  const fd = (await svc(`INSERT INTO public.custom_fields (workspace_id, name, field_type) VALUES ($1,'P12 cascade 2','text') RETURNING id`, [ws]))[0].id;
+  await svc(`INSERT INTO public.custom_field_values (task_id, field_id, workspace_id, value) VALUES ($1,$2,$3,'"a"'::jsonb)`, [Tc, fd, ws]);
+  await svc(`DELETE FROM public.tasks WHERE id = $1`, [Tc]);
+  const left2 = await svc(`SELECT 1 FROM public.custom_field_values WHERE task_id = $1`, [Tc]);
+  record('deleting a task deletes its values (the field stays)', left2.length === 0 && (await svc(`SELECT 1 FROM public.custom_fields WHERE id = $1`, [fd])).length === 1);
+
+  // the limit: top workspace B up to 50, the 51st is refused
+  const nB = (await svc(`SELECT count(*)::int AS n FROM public.custom_fields WHERE workspace_id = $1`, [wsB]))[0].n;
+  await svc(`INSERT INTO public.custom_fields (workspace_id, name, field_type) SELECT $1, 'P12 limit ' || g, 'text' FROM generate_series(1, $2::int) g`, [wsB, 50 - nB]);
+  r = await as(pm, `INSERT INTO public.custom_fields (workspace_id, name, field_type) VALUES ($1,'P12 one too many','text')`, [wsB]);
+  record('a workspace cannot have more than 50 fields', !!r.error && /at most 50/.test(r.error.message), r.error?.message ?? 'was allowed');
+  await svc(`DELETE FROM public.custom_fields WHERE workspace_id = $1 AND name LIKE 'P12 limit %'`, [wsB]);
+
+  console.log('  -- grants');
+  r = await svc(`SELECT table_name, privilege_type FROM information_schema.role_table_grants
+    WHERE table_schema='public' AND table_name IN ('custom_fields','custom_field_values') AND grantee='anon'`);
+  record('anon has no privilege on either table', r.length === 0, JSON.stringify(r));
+  r = await svc(`SELECT table_name, privilege_type FROM information_schema.role_table_grants
+    WHERE table_schema='public' AND table_name IN ('custom_fields','custom_field_values') AND grantee='authenticated' ORDER BY 1,2`);
+  record('signed-in people get select / insert / delete only at table level (no truncate, no table-wide update)',
+    r.map((x) => `${x.table_name}:${x.privilege_type}`).join() === 'custom_field_values:DELETE,custom_field_values:INSERT,custom_field_values:SELECT,custom_fields:DELETE,custom_fields:INSERT,custom_fields:SELECT', JSON.stringify(r));
+  r = await svc(`SELECT table_name, column_name FROM information_schema.column_privileges
+    WHERE table_schema='public' AND table_name IN ('custom_fields','custom_field_values') AND grantee='authenticated' AND privilege_type='UPDATE' ORDER BY 1,2`);
+  record('...and update only on name / options / position, and on value',
+    r.map((x) => `${x.table_name}.${x.column_name}`).join() === 'custom_field_values.value,custom_fields.name,custom_fields.options,custom_fields.position', JSON.stringify(r));
+  r = await svc(`SELECT relname FROM pg_class WHERE relname IN ('custom_fields','custom_field_values') AND relrowsecurity`);
+  record('row level security is on for both tables', r.length === 2);
+}
+
 console.log('\n== Deactivation & service role ==');
 await svc(`UPDATE public.profiles SET is_active = false WHERE id = $1`, [editor]);
 r = await as(editor, `SELECT id FROM public.tasks`);

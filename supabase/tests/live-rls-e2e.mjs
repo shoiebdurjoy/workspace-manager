@@ -1246,6 +1246,9 @@ VALUES (gen_random_uuid(), '${u.id}', '${u.id}', jsonb_build_object('sub','${u.i
     runSql(`INSERT INTO public.tasks (list_id, title, description, priority)
             SELECT '${lp}', 'perf ${Z} video ' || g || CASE WHEN g % 1000 = 0 THEN ' marlin${RUN}' ELSE '' END, 'brief ' || g, 'MEDIUM'
             FROM generate_series(1, 3000) g;`);
+    // the database refreshes table statistics by itself about a minute after a bulk insert (autovacuum); do it now so
+    // the timings below measure the search, not the minute in which the planner still believes the list is nearly empty
+    runSql('ANALYZE public.tasks');
     const t0 = Date.now();
     res = await clients.editor.rpc('search_tasks', { p_workspace_id: ws, p_query: `marlin${RUN}`, p_filters: {} });
     const ms = Date.now() - t0;
@@ -1775,6 +1778,84 @@ VALUES (gen_random_uuid(), '${u.id}', '${u.id}', jsonb_build_object('sub','${u.i
     res = await clients.editor.from('notifications').select('id', { count: 'exact', head: true }).is('archived_at', null).is('read_at', null);
     rec('the Inbox badge query (unread and not Done) works through the API', !res.error && typeof res.count === 'number', res.error?.message);
       grantRefusals = grantsBefore11;
+  }
+
+  console.log('\n== Phase 12: custom fields (live) ==');
+  {
+    const grantsBefore12 = grantRefusals; // refusals by design (roles, column grants, anon) are not missing grants
+    res = await clients.pm.from('lists').insert({ space_id: space, folder_id: folder, name: `P12 LIVE ${RUN}` }).select().single();
+    const lp12 = res.data?.id;
+    const mk12 = async (title, o = {}) => (await clients.pm.rpc('create_task', { p_list_id: lp12, p_title: title, p_editor_id: o.editor ?? null, p_qc_id: null, p_review_link: null })).data?.id;
+    const mine12 = await mk12(`P12 mine ${RUN}`, { editor: U.editor.id });
+    const other12 = await mk12(`P12 other ${RUN}`);
+    const field12 = (who, name, type, options = null) => clients[who].from('custom_fields').insert({ workspace_id: ws, name: `${name} ${RUN}`, field_type: type, options }).select().single();
+    const val12 = (who, task, field, value) => clients[who].from('custom_field_values').insert({ task_id: task, field_id: field, workspace_id: ws, value }).select().single();
+
+    res = await field12('pm', 'Brand guidelines', 'url');
+    const fUrl = res.data?.id;
+    rec('a manager defines a URL field', !res.error && !!fUrl, res.error?.message);
+    res = await field12('pm', 'Hook variation', 'number');
+    const fNum = res.data?.id;
+    res = await field12('pm', 'Video format', 'dropdown', ['Reel', 'YouTube', 'Ad']);
+    const fDrop = res.data?.id;
+    res = await field12('pm', 'Assigned date', 'date');
+    const fDate = res.data?.id;
+    rec('...and a number, a dropdown and a date field', !!fNum && !!fDrop && !!fDate);
+    res = await field12('pm', 'Bad dropdown', 'dropdown', null);
+    rec('a dropdown without choices is refused', !!res.error);
+    res = await field12('pm', 'Brand guidelines', 'text');
+    rec('a duplicate name in the workspace is refused', !!res.error);
+    res = await field12('editor', 'Editor field', 'text');
+    rec('an editor cannot define fields', !!res.error);
+    res = await field12('qc', 'QC field', 'text');
+    rec('a QC specialist cannot define fields', !!res.error);
+    res = await clients.client.from('custom_fields').select('id');
+    rec('a client viewer sees no field definitions', !res.error && (res.data ?? []).length === 0);
+    res = await clients.editor.from('custom_fields').select('id').in('id', [fUrl, fNum, fDrop, fDate]);
+    rec('staff can read the definitions', !res.error && (res.data ?? []).length === 4, res.error?.message);
+    res = await clients.pm.from('custom_fields').update({ field_type: 'text' }).eq('id', fUrl).select('id');
+    rec('the type of a field cannot be changed', !!res.error);
+
+    res = await val12('editor', mine12, fUrl, 'https://drive.google.com/brand');
+    rec('an editor sets a value on a task assigned to them', !res.error, res.error?.message);
+    res = await val12('editor', other12, fUrl, 'https://drive.google.com/x');
+    rec('...but not on a task that is not theirs', !!res.error);
+    res = await val12('qc', other12, fNum, 3);
+    rec('a QC specialist sets a value on any task', !res.error, res.error?.message);
+    res = await val12('pm', other12, fDrop, 'Reel');
+    rec('a manager sets a dropdown value that is one of the choices', !res.error, res.error?.message);
+    res = await val12('pm', other12, fDate, '2026-10-21');
+    rec('...and a real date', !res.error, res.error?.message);
+    for (const [what, who, task, f, v] of [
+      ['a link that is not http(s)', 'pm', mine12, fUrl, 'javascript:alert(1)'],
+      ['a number field given text', 'pm', mine12, fNum, 'three'],
+      ['a dropdown value that is not a choice', 'pm', mine12, fDrop, 'Podcast'],
+      ['an impossible date', 'pm', mine12, fDate, '2026-02-31'],
+      ['a null value', 'pm', mine12, fNum, null],
+    ]) {
+      res = await val12(who, task, f, v);
+      rec(`${what} is refused by the database`, !!res.error);
+    }
+    res = await clients.client.from('custom_field_values').select('task_id');
+    rec('a client viewer sees no values', !res.error && (res.data ?? []).length === 0);
+    res = await clients.stranger.from('custom_field_values').select('task_id');
+    rec('a non-member sees no values', !res.error && (res.data ?? []).length === 0);
+    res = await clients.editor.from('custom_field_values').update({ value: 'https://example.com/new' }).eq('task_id', mine12).eq('field_id', fUrl).select('value');
+    rec('an editor edits a value on their own task', !res.error && res.data?.length === 1, res.error?.message);
+    res = await clients.editor.from('custom_field_values').update({ field_id: fNum }).eq('task_id', mine12).eq('field_id', fUrl).select('task_id');
+    rec('a value cannot be re-pointed at another field (column grant)', !!res.error);
+    res = await clients.editor.from('custom_field_values').delete().eq('task_id', other12).eq('field_id', fNum).select('task_id');
+    rec('an editor cannot delete a value on a task that is not theirs', !res.error && (res.data ?? []).length === 0, res.error?.message);
+
+    // deleting a field takes its values with it; deleting the task does too
+    res = await clients.pm.from('custom_fields').delete().eq('id', fNum).select('id');
+    rec('a manager deletes a field', !res.error && res.data?.length === 1, res.error?.message);
+    res = await clients.pm.from('custom_field_values').select('field_id').eq('field_id', fNum);
+    rec('...and its values are gone', !res.error && (res.data ?? []).length === 0);
+    res = await clients.pm.from('tasks').delete().eq('id', other12).select('id');
+    res = await clients.pm.from('custom_field_values').select('field_id').eq('task_id', other12);
+    rec('deleting a task removes its values', !res.error && (res.data ?? []).length === 0);
+    grantRefusals = grantsBefore12;
   }
 
   console.log('\n== Deactivation (flag flipped by the service owner) ==');

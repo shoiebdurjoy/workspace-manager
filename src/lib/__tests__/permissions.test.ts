@@ -71,6 +71,11 @@ describe('permission matrix (docs/TBB_PERMISSION_MODEL.md)', () => {
     expect(can(null, 'production:view')).toBe(false);
   });
 
+  it('custom fields: Owner, Admin and Production Manager manage them', () => {
+    expect(ROLES.filter((r) => can(r, 'fields:manage'))).toEqual([OWNER, ADMIN, PM]);
+    expect(can(null, 'fields:manage')).toBe(false);
+  });
+
   it('team capabilities: staff view, admins manage pods, managers manage pod members', () => {
     expect(ROLES.filter((r) => can(r, 'team:view'))).toEqual([OWNER, ADMIN, PM, QC, EDITOR]);
     expect(ROLES.filter((r) => can(r, 'team:manage-pods'))).toEqual([OWNER, ADMIN]);

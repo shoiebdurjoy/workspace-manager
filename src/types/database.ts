@@ -324,6 +324,23 @@ export interface TaskAttachment {
   createdAt: string;
 }
 
+export type CustomFieldType = 'text' | 'url' | 'number' | 'dropdown' | 'date';
+
+/** A workspace-level field definition (Phase 12). `options` is set for dropdowns only. */
+export interface CustomField {
+  id: string;
+  workspaceId: string;
+  name: string;
+  type: CustomFieldType;
+  options: string[] | null;
+  position: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** A stored value: text/url/date/dropdown are strings, number is a number. An empty field has no value. */
+export type CustomFieldValue = string | number;
+
 export type ActivityKind = 'created' | 'updated' | 'assigned' | 'unassigned' | 'commented' | 'attachment_added' | 'attachment_removed';
 
 /** One row of a task's feed: a task_activity row, or a status change (task_status_events). */

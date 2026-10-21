@@ -27,6 +27,13 @@ const db = vi.hoisted(() => {
     listNotifications: vi.fn(),
     searchTasks: vi.fn(),
     getWorkflow: vi.fn(),
+    // Settings shows the custom fields manager to managers (covered by custom-fields.test.tsx)
+    listCustomFields: vi.fn(),
+    createCustomField: vi.fn(),
+    updateCustomField: vi.fn(),
+    deleteCustomField: vi.fn(),
+    reorderCustomFields: vi.fn(),
+    countFieldValues: vi.fn(),
   };
 });
 vi.mock('@/database', () => db);
@@ -41,6 +48,7 @@ beforeEach(() => {
   ]);
   db.listTeams.mockResolvedValue([{ id: 't1' }]);
   db.getWorkspaceHierarchy.mockResolvedValue([]);
+  db.listCustomFields.mockResolvedValue([]);
   db.getHomeSummary.mockResolvedValue({
     role: null,
     mine: { total: 0, overdue: 0, dueToday: 0, dueThisWeek: 0, later: 0, finished: 0 },

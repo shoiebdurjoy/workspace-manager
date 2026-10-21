@@ -583,6 +583,42 @@ export interface Database {
           { foreignKeyName: 'task_attachments_task_id_fkey'; columns: ['task_id']; referencedRelation: 'tasks'; referencedColumns: ['id'] },
         ];
       };
+      custom_fields: {
+        Row: {
+          id: string;
+          workspace_id: string;
+          name: string;
+          field_type: 'text' | 'url' | 'number' | 'dropdown' | 'date';
+          options: Json | null;
+          position: number;
+          created_by: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        // the type is fixed at creation (guard_custom_field); only name, options and position can change
+        Insert: { id?: string; workspace_id: string; name: string; field_type: 'text' | 'url' | 'number' | 'dropdown' | 'date'; options?: Json | null; position?: number };
+        Update: { name?: string; options?: Json | null; position?: number };
+        Relationships: [
+          { foreignKeyName: 'custom_fields_workspace_id_fkey'; columns: ['workspace_id']; referencedRelation: 'workspaces'; referencedColumns: ['id'] },
+        ];
+      };
+      custom_field_values: {
+        Row: {
+          task_id: string;
+          field_id: string;
+          workspace_id: string;
+          value: Json;
+          updated_by: string | null;
+          updated_at: string;
+        };
+        // workspace, editor and time are set by the database (guard_custom_field_value)
+        Insert: { task_id: string; field_id: string; value: Json };
+        Update: { value?: Json };
+        Relationships: [
+          { foreignKeyName: 'custom_field_values_task_id_fkey'; columns: ['task_id']; referencedRelation: 'tasks'; referencedColumns: ['id'] },
+          { foreignKeyName: 'custom_field_values_field_id_fkey'; columns: ['field_id']; referencedRelation: 'custom_fields'; referencedColumns: ['id'] },
+        ];
+      };
       task_activity: {
         Row: {
           id: string;

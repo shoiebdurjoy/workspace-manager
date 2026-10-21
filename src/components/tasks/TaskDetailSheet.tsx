@@ -43,6 +43,7 @@ import { useWorkflow } from '@/hooks/use-workflow';
 import type { AspectRatio, AssigneeRole, HierarchyFolder, HierarchyList, HierarchySpace, TaskPriority } from '@/types/database';
 import TaskCollaboration from '@/components/collaboration/TaskCollaboration';
 import BriefEditor from './BriefEditor';
+import CustomFieldsSection from './CustomFieldsSection';
 import DatePicker, { DateValue } from './DatePicker';
 import DeleteTaskDialog from './DeleteTaskDialog';
 import LinkRow from './LinkRow';
@@ -415,6 +416,8 @@ const TaskDetailSheet: React.FC<TaskDetailSheetProps> = ({ taskId, space, folder
               ))}
             </div>
           </Section>
+
+          <CustomFieldsSection taskId={task.id} isAssignedEditor={!!user && task.editorId === user.id} />
 
           <Section title="Brief">
             <BriefEditor

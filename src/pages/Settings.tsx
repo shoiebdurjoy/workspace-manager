@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import CustomFieldsManager from '@/components/settings/CustomFieldsManager';
 import { FieldError, FormError } from '@/components/auth/AuthLayout';
 
 /**
@@ -107,6 +108,8 @@ const Settings: React.FC = () => {
           <p className="text-[11px] text-muted-foreground">Only the workspace Owner can change these settings.</p>
         )}
       </form>
+
+      {can(role, 'fields:manage') && <CustomFieldsManager />}
     </div>
   );
 };
