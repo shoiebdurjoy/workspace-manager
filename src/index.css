@@ -769,3 +769,58 @@ button, a, [role='button'], [role='tab'], [role='menuitem'], [role='option'], in
   .auth-orb, .auth-logo-glow { animation: none; }
   .btn-shine::after { display: none; }
 }
+
+/* ==========================================================================================
+   Page header band: every page title sits on a soft glass band with a brand light
+   ========================================================================================== */
+main header:has(.page-title):not(.hero-surface) {
+  position: relative;
+  overflow: hidden;
+  padding: 1.25rem 1.5rem;
+  border-radius: 18px;
+  border: 1px solid hsl(var(--border) / 0.7);
+  background:
+    radial-gradient(40rem 12rem at 100% 0%, hsl(var(--primary) / 0.10), transparent 60%),
+    linear-gradient(180deg, hsl(var(--card)), hsl(var(--card) / 0.75));
+  box-shadow: var(--shadow-soft);
+  animation: rise-in 520ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+main header:has(.page-title):not(.hero-surface)::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 18%;
+  bottom: 18%;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: linear-gradient(180deg, hsl(var(--primary)), hsl(24 94% 58%));
+}
+.dark main header:has(.page-title):not(.hero-surface) {
+  box-shadow: inset 0 1px 0 hsl(0 0% 100% / 0.05);
+  border-color: hsl(0 0% 100% / 0.07);
+}
+
+/* Empty states: a small animated illustration (orbiting ring, floating tile) */
+.empty-illustration { position: relative; width: 5.5rem; height: 5.5rem; margin-bottom: 1rem; }
+.empty-illustration::before,
+.empty-illustration::after {
+  content: ''; position: absolute; inset: 0; border-radius: 9999px;
+}
+.empty-illustration::before { border: 1.5px dashed hsl(var(--primary) / 0.35); animation: empty-spin 18s linear infinite; }
+.empty-illustration::after { inset: 0.85rem; background: radial-gradient(circle, hsl(var(--primary) / 0.16), transparent 70%); }
+.empty-illustration > span {
+  position: absolute; inset: 1.35rem; z-index: 1; display: flex; align-items: center; justify-content: center;
+  border-radius: 16px; color: hsl(var(--primary));
+  background: linear-gradient(135deg, hsl(var(--card)), hsl(var(--brand-subtle)));
+  box-shadow: 0 10px 24px -10px hsl(var(--primary) / 0.45), inset 0 0 0 1px hsl(var(--primary) / 0.15);
+  animation: empty-float 4.5s ease-in-out infinite;
+}
+.empty-illustration i { position: absolute; width: 6px; height: 6px; border-radius: 9999px; background: hsl(var(--primary) / 0.6); }
+.empty-illustration i:nth-of-type(1) { top: 4px; left: 50%; animation: empty-twinkle 3s ease-in-out infinite; }
+.empty-illustration i:nth-of-type(2) { bottom: 10px; right: 2px; background: hsl(24 94% 58% / 0.7); animation: empty-twinkle 3.6s 0.6s ease-in-out infinite; }
+@keyframes empty-spin { to { transform: rotate(360deg); } }
+@keyframes empty-float { 50% { transform: translateY(-5px); } }
+@keyframes empty-twinkle { 50% { opacity: 0.25; transform: scale(0.6); } }
+@media (prefers-reduced-motion: reduce) {
+  .empty-illustration::before, .empty-illustration > span, .empty-illustration i, main header:has(.page-title) { animation: none !important; }
+}

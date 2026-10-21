@@ -22,18 +22,20 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
   return (
     <div
       className={cn(
-        "flex min-h-[260px] w-full flex-col items-center justify-center rounded-xl border border-dashed border-border/80 bg-muted/20 p-8 text-center animate-in fade-in-50",
+        "relative flex min-h-[280px] w-full flex-col items-center justify-center overflow-hidden rounded-[18px] border border-border/70 bg-[radial-gradient(30rem_14rem_at_50%_0%,hsl(var(--primary)/0.07),transparent_70%)] bg-card p-10 text-center shadow-[var(--shadow-soft)] animate-in fade-in-50 zoom-in-[0.98] duration-500",
         className
       )}
     >
-      <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted text-muted-foreground shadow-xs mb-3.5">
-        {icon || <FolderOpen className="h-6 w-6 text-muted-foreground/80" />}
+      <div aria-hidden className="empty-illustration">
+        <span className="[&_svg]:h-6 [&_svg]:w-6">{icon || <FolderOpen />}</span>
+        <i />
+        <i />
       </div>
-      <h3 className="text-base font-semibold text-foreground tracking-tight mb-1">
+      <h3 className="mb-1 text-lg font-semibold tracking-[-0.02em] text-foreground">
         {title}
       </h3>
       {description && (
-        <p className="max-w-sm text-xs text-muted-foreground leading-relaxed mb-4">
+        <p className="mb-5 max-w-sm text-sm leading-relaxed text-muted-foreground">
           {description}
         </p>
       )}
