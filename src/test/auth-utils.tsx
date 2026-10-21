@@ -58,6 +58,7 @@ export function makeAuth(
     role,
     error: null,
     signIn: vi.fn().mockResolvedValue({ ok: true }),
+    signInWithGoogle: vi.fn().mockResolvedValue({ ok: true }),
     signUp: vi.fn().mockResolvedValue({ ok: true, needsConfirmation: true }),
     signOut: vi.fn().mockResolvedValue(undefined),
     requestPasswordReset: vi.fn().mockResolvedValue({ ok: true }),

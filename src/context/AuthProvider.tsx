@@ -132,6 +132,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, []);
 
+  const signInWithGoogle = useCallback(async (): Promise<ActionResult> => {
+    try {
+      const { error: oauthError } = await getSupabaseClient().auth.signInWithOAuth({
+        provider: 'google',
+        // back to the app's callback; the invitation for this e-mail is claimed there like any sign-in
+        options: { redirectTo: getAuthCallbackUrl(), queryParams: { prompt: 'select_account' } },
+      });
+      if (oauthError) return { ok: false, message: describeAuthError(oauthError) };
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, message: describeAuthError(err) };
+    }
+  }, []);
+
   const signUp = useCallback(
     async (fullName: string, email: string, password: string): Promise<SignUpResult> => {
       try {
@@ -220,6 +234,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       role: activeMembership?.role ?? null,
       error,
       signIn,
+      signInWithGoogle,
       signUp,
       signOut,
       requestPasswordReset,
@@ -233,6 +248,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     accountStatus,
     error,
     signIn,
+    signInWithGoogle,
     signUp,
     signOut,
     requestPasswordReset,

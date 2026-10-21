@@ -33,6 +33,8 @@ export interface AuthContextValue {
   role: TbbRole | null;
   error: string | null;
   signIn: (email: string, password: string) => Promise<ActionResult>;
+  /** Google sign-in (redirects away; access still comes from an invitation to that e-mail). */
+  signInWithGoogle: () => Promise<ActionResult>;
   signUp: (fullName: string, email: string, password: string) => Promise<SignUpResult>;
   signOut: () => Promise<void>;
   requestPasswordReset: (email: string) => Promise<ActionResult>;

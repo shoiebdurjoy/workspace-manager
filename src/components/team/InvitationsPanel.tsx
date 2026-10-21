@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { Loader2, MailPlus, Trash2 } from 'lucide-react';
+import { Link2, Loader2, MailPlus, Trash2 } from 'lucide-react';
+import { toast } from 'sonner';
 import { useAuth } from '@/hooks/use-auth';
 import { useInvitations, useInvite, useRevokeInvitation } from '@/hooks/use-team';
 import { invitableRoles, ROLE_DESCRIPTIONS, ROLE_LABELS } from '@/lib/permissions';
@@ -116,6 +117,20 @@ const InvitationsPanel: React.FC = () => {
                     </div>
                     <div className="flex items-center gap-2">
                       <RoleBadge role={inv.role} />
+                      <IconButton
+                        aria-label={`Copy sign-in link for ${inv.email}`}
+                        tooltip="Copy sign-in link (send it on WhatsApp)"
+                        icon={<Link2 className="h-3.5 w-3.5" />}
+                        variant="ghost"
+                        size="xs"
+                        onClick={() => {
+                          const text = `You're invited to TBB Workspace as ${ROLE_LABELS[inv.role]}. Sign in with Google using ${inv.email}: ${window.location.origin}/login`;
+                          void navigator.clipboard?.writeText(text).then(
+                            () => toast.success('Invitation message copied'),
+                            () => toast.error('Could not copy. Share this link: ' + window.location.origin + '/login')
+                          );
+                        }}
+                      />
                       <IconButton
                         aria-label={`Revoke invitation for ${inv.email}`}
                         tooltip="Revoke"

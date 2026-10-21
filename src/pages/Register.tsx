@@ -4,7 +4,7 @@ import { Loader2, MailCheck } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import AuthLayout, { FieldError, FormError } from '@/components/auth/AuthLayout';
+import AuthLayout, { FieldError, FormError, GoogleButton, OrDivider } from '@/components/auth/AuthLayout';
 import { useAuth } from '@/hooks/use-auth';
 import { validateEmail, validatePassword } from '@/lib/auth-errors';
 
@@ -14,13 +14,14 @@ import { validateEmail, validatePassword } from '@/lib/auth-errors';
  * an Owner/Admin (or, for the very first person, from creating the TBB workspace).
  */
 const Register: React.FC = () => {
-  const { signUp, status } = useAuth();
+  const { signUp, signInWithGoogle, status } = useAuth();
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [googleBusy, setGoogleBusy] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string | null>>({});
   const [sentTo, setSentTo] = useState<string | null>(null);
 
@@ -29,6 +30,16 @@ const Register: React.FC = () => {
   }, []);
 
   if (status === 'authenticated') return <Navigate to="/home" replace />;
+
+  const onGoogle = async () => {
+    setGoogleBusy(true);
+    setFormError(null);
+    const result = await signInWithGoogle();
+    if (!result.ok) {
+      setGoogleBusy(false);
+      setFormError(result.message);
+    }
+  };
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -127,6 +138,8 @@ const Register: React.FC = () => {
     >
       <form className="space-y-4" onSubmit={onSubmit} noValidate>
         <FormError message={formError} />
+        <GoogleButton busy={googleBusy} onClick={onGoogle} label="Sign up with Google" />
+        <OrDivider />
         {field('fullName', 'Full name', fullName, setFullName, 'text', 'name')}
         {field('email', 'Work e-mail', email, setEmail, 'email', 'email')}
         {field(

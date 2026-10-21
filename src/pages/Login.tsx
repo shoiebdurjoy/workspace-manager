@@ -3,7 +3,7 @@ import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { ArrowRight, Loader2, Lock, Mail } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
-import AuthLayout, { FieldError, FormError, IconField } from '@/components/auth/AuthLayout';
+import AuthLayout, { FieldError, FormError, GoogleButton, IconField, OrDivider } from '@/components/auth/AuthLayout';
 import { useAuth } from '@/hooks/use-auth';
 import { validateEmail } from '@/lib/auth-errors';
 import { safeRedirectTarget } from '@/lib/redirect';
@@ -13,7 +13,7 @@ interface LocationState {
 }
 
 const Login: React.FC = () => {
-  const { signIn, status } = useAuth();
+  const { signIn, signInWithGoogle, status } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const target = safeRedirectTarget((location.state as LocationState | null)?.from);
@@ -22,6 +22,7 @@ const Login: React.FC = () => {
   const [password, setPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [googleBusy, setGoogleBusy] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<{ email?: string | null; password?: string | null }>({});
 
   useEffect(() => {
@@ -31,6 +32,17 @@ const Login: React.FC = () => {
   if (status === 'authenticated' || status === 'error' || status === 'deactivated') {
     return <Navigate to={target} replace />;
   }
+
+  const onGoogle = async () => {
+    setGoogleBusy(true);
+    setFormError(null);
+    const result = await signInWithGoogle();
+    // on success the browser leaves for Google; only a failure comes back here
+    if (!result.ok) {
+      setGoogleBusy(false);
+      setFormError(result.message);
+    }
+  };
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -67,6 +79,8 @@ const Login: React.FC = () => {
     >
       <form className="space-y-4" onSubmit={onSubmit} noValidate>
         <FormError message={formError} />
+        <GoogleButton busy={googleBusy} onClick={onGoogle} />
+        <OrDivider />
         <div className="space-y-1.5">
           <Label htmlFor="email" className="text-xs">
             E-mail
