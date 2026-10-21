@@ -1,10 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowUp, CheckCircle2, Loader2, RotateCcw, Sparkles } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { ArrowRight, ArrowUp, CheckCircle2, Loader2, RotateCcw, Sparkles } from 'lucide-react';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
-import { getSupabaseClient } from '@/database/client';
+import { assistantExecutor, loadAssistantSnapshot } from '@/database/assistant';
 import { useAuth } from '@/hooks/use-auth';
+import { createEngine, type Reply } from '@/lib/assistant/engine';
 import { cn } from '@/lib/utils';
 
 interface Message {
@@ -12,6 +14,9 @@ interface Message {
   content: string;
   actions?: string[];
   error?: boolean;
+  link?: { label: string; to: string };
+  /** a change waiting for Confirm (its plan lives in `plans`, not in storage) */
+  pendingId?: string;
 }
 
 const MANAGERS = ['OWNER', 'ADMIN', 'PRODUCTION_MANAGER'];
@@ -19,17 +24,19 @@ const MANAGERS = ['OWNER', 'ADMIN', 'PRODUCTION_MANAGER'];
 const ASSISTANT_CHAT_STORAGE_KEY = 'tbb-assistant-chat';
 
 const SUGGESTIONS = [
+  'How many clients are in each folder?',
   'Which clients have the most open videos?',
-  'What is waiting for QC right now, and with whom?',
-  'Shift THE CONNECTORS from Zim to Myla',
-  'Make Zim the QC for the CONTENT PIPELINE - ZIM folder',
-  'Which videos are overdue?',
+  'What is waiting for QC?',
+  'Shift connectors to myla',
+  'Who is QC for whoosh?',
+  'help',
 ];
 
 const load = (): Message[] => {
   try {
     const raw = localStorage.getItem(ASSISTANT_CHAT_STORAGE_KEY);
-    return raw ? (JSON.parse(raw) as Message[]) : [];
+    // a change that was never confirmed cannot be confirmed after a reload
+    return raw ? (JSON.parse(raw) as Message[]).map(({ pendingId: _drop, ...m }) => m) : [];
   } catch {
     return [];
   }
@@ -48,6 +55,7 @@ export const AssistantButton: React.FC = () => {
   const [draft, setDraft] = useState('');
   const [busy, setBusy] = useState(false);
   const end = useRef<HTMLDivElement>(null);
+  const plans = useRef(new Map<string, Extract<Reply, { kind: 'action' }>>());
 
   useEffect(() => {
     try {
@@ -72,32 +80,47 @@ export const AssistantButton: React.FC = () => {
 
   if (!role || !MANAGERS.includes(role)) return null;
 
+  const say = (m: Message) => setMessages((all) => [...all, m]);
+
+  /** Understands the sentence on this device (no outside service) against fresh workspace data. */
   const send = async (text: string) => {
     const question = text.trim();
-    if (!question || busy) return;
-    const next: Message[] = [...messages, { role: 'user', content: question }];
-    setMessages(next);
+    if (!question || busy || !workspace) return;
+    say({ role: 'user', content: question });
     setDraft('');
     setBusy(true);
     try {
-      const { data, error } = await getSupabaseClient().functions.invoke('admin-assistant', {
-        body: { workspaceId: workspace?.id, messages: next.filter((m) => !m.error).map(({ role: r, content }) => ({ role: r, content })) },
-      });
-      if (error) {
-        // the function answers {error} with a readable reason (not set up, no permission, ...): show it
-        const ctx = (error as { context?: Response }).context;
-        let reason: string | undefined;
-        try {
-          reason = ctx ? (JSON.parse(await ctx.clone().text()) as { error?: string }).error : undefined;
-        } catch {
-          reason = undefined;
-        }
-        throw new Error(reason ?? 'The assistant could not be reached.');
+      const reply = createEngine(await loadAssistantSnapshot(workspace.id)).understand(question);
+      if (reply.kind === 'action') {
+        const id = `${Date.now()}`;
+        plans.current.set(id, reply);
+        say({ role: 'assistant', content: reply.summary, pendingId: id });
+      } else {
+        say({ role: 'assistant', content: reply.text, link: reply.kind === 'answer' ? reply.link : undefined });
       }
-      setMessages((m) => [...m, { role: 'assistant', content: data.reply, actions: data.actions }]);
-      if (data.actions?.length) void queryClient.invalidateQueries();
     } catch (e) {
-      setMessages((m) => [...m, { role: 'assistant', content: e instanceof Error ? e.message : 'Something went wrong.', error: true }]);
+      say({ role: 'assistant', content: e instanceof Error ? e.message : 'Something went wrong.', error: true });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /** Runs a confirmed change with the signed-in person's own permissions. */
+  const decide = async (id: string, go: boolean) => {
+    const plan = plans.current.get(id);
+    plans.current.delete(id);
+    setMessages((all) => all.map((m) => (m.pendingId === id ? { ...m, pendingId: undefined } : m)));
+    if (!go || !plan || !workspace) {
+      say({ role: 'assistant', content: 'Cancelled. Nothing changed.' });
+      return;
+    }
+    setBusy(true);
+    try {
+      const done = await plan.run(assistantExecutor(workspace.id));
+      say({ role: 'assistant', content: 'Done.', actions: [done] });
+      void queryClient.invalidateQueries();
+    } catch (e) {
+      say({ role: 'assistant', content: `That did not work: ${e instanceof Error ? e.message : 'unknown error'}. Nothing else was changed after that.`, error: true });
     } finally {
       setBusy(false);
     }
@@ -132,7 +155,7 @@ export const AssistantButton: React.FC = () => {
                 </button>
               )}
             </div>
-            <SheetDescription className="text-xs">Ask anything about your workspace, or tell it what to change. It can only do what you can do.</SheetDescription>
+            <SheetDescription className="text-xs">Built into TBB: ask about your workspace or tell it what to change. Changes wait for your Confirm and use your own permissions.</SheetDescription>
           </SheetHeader>
 
           <div className="flex-1 space-y-3 overflow-y-auto px-4 py-4" aria-live="polite">
@@ -171,6 +194,21 @@ export const AssistantButton: React.FC = () => {
                     )}
                   >
                     {m.content}
+                    {m.pendingId && (
+                      <div className="mt-2 flex gap-2 border-t border-border/60 pt-2">
+                        <button type="button" disabled={busy} onClick={() => void decide(m.pendingId as string, true)} className="press rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground disabled:opacity-50">
+                          Confirm
+                        </button>
+                        <button type="button" disabled={busy} onClick={() => void decide(m.pendingId as string, false)} className="press rounded-md px-3 py-1 text-xs text-muted-foreground hover:bg-background">
+                          Cancel
+                        </button>
+                      </div>
+                    )}
+                    {m.link && (
+                      <Link to={m.link.to} onClick={() => setOpen(false)} className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-brand hover:underline">
+                        Open {m.link.label} <ArrowRight aria-hidden className="h-3 w-3" />
+                      </Link>
+                    )}
                     {m.actions && m.actions.length > 0 && (
                       <ul className="mt-2 space-y-1 border-t border-border/60 pt-2">
                         {m.actions.map((a, j) => (
