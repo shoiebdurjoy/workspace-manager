@@ -20,8 +20,18 @@ function timeZones(current: string): string[] {
 // the zones TBB's team and clients actually work in, offered first
 const COMMON_ZONES = ['Asia/Dhaka', 'America/New_York', 'America/Chicago', 'America/Los_Angeles', 'Europe/London', 'Australia/Sydney', 'UTC'];
 
-/** "Asia/Dhaka (GMT+6)": the zone's current offset beside its name. */
+const labelCache = new Map<string, string>();
+
+/** "Asia/Dhaka (GMT+6)": the zone's current offset beside its name (computed once per zone). */
 function zoneLabel(zone: string): string {
+  const cached = labelCache.get(zone);
+  if (cached) return cached;
+  const label = computeZoneLabel(zone);
+  labelCache.set(zone, label);
+  return label;
+}
+
+function computeZoneLabel(zone: string): string {
   try {
     const offset = new Intl.DateTimeFormat('en-US', { timeZone: zone, timeZoneName: 'shortOffset' })
       .formatToParts(new Date())
