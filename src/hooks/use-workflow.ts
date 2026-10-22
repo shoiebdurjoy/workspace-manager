@@ -28,8 +28,12 @@ export function useWorkflow() {
     queryKey: workflowKeys.workflow(workspaceId),
     queryFn: () => getWorkflow(workspaceId),
     enabled: !!workspaceId && can(role, 'hierarchy:view'),
-    // configuration: it changes when an admin changes the workflow, not while someone works
-    staleTime: 10 * 60_000,
+    // configuration an admin can change at any time (Customize workspace): re-checked often and on returning to
+    // the tab, so a change (like no longer asking for links) reaches everyone within moments
+    staleTime: 30_000,
+    refetchOnWindowFocus: true,
+    refetchInterval: 60_000,
+    refetchIntervalInBackground: false,
   });
 }
 
