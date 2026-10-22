@@ -1,3 +1,4 @@
+import SavedViewsMenu from './SavedViewsMenu';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { format } from 'date-fns';
@@ -382,7 +383,12 @@ const TaskWorkspace: React.FC<TaskWorkspaceProps> = ({ scope, selectedTaskId, on
             onView={updateView}
             onClear={reset}
             onNewTask={canCreate ? () => setCreating(true) : undefined}
-            lead={<ViewSwitcher mode={mode} onChange={setMode} />}
+            lead={
+              <span className="inline-flex items-center gap-2">
+                <ViewSwitcher mode={mode} onChange={setMode} />
+                <SavedViewsMenu scope={scopeKey} mode={mode} />
+              </span>
+            }
             hideGroup={mode === 'board'}
             groupOptions={groupOptionsFor(everything, mineScope)}
             scopeOptions={scopeOptions}

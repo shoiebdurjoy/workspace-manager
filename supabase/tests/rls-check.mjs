@@ -2805,6 +2805,48 @@ console.log('\n== Customize: automations ==');
   record('QC cannot read automations', !r.error && r.rows.length === 0);
 }
 
+console.log('\n== Saved views ==');
+{
+  const oV = await mkUser('sv-owner@tbb.test', {}, true);
+  const pmV = await mkUser('sv-pm@tbb.test', {}, true);
+  const edV = await mkUser('sv-editor@tbb.test', {}, true);
+  const ed2V = await mkUser('sv-editor2@tbb.test', {}, true);
+  const clV = await mkUser('sv-client@tbb.test', {}, true);
+  const wsV = (await svc(`INSERT INTO public.workspaces (name, slug, owner_id) VALUES ('SV','sv-views',$1) RETURNING id`, [oV]))[0].id;
+  await svc(`INSERT INTO public.workspace_members (workspace_id, user_id, role) VALUES ($1,$2,'PRODUCTION_MANAGER'), ($1,$3,'EDITOR'), ($1,$4,'EDITOR'), ($1,$5,'CLIENT_VIEWER') ON CONFLICT DO NOTHING`, [wsV, pmV, edV, ed2V, clV]);
+  const spV = (await as(oV, `INSERT INTO public.spaces (workspace_id, name, slug) VALUES ($1,'S','s') RETURNING id`, [wsV])).rows[0]?.id;
+  const lV = (await as(oV, `INSERT INTO public.lists (space_id, name) VALUES ($1,'L') RETURNING id`, [spV])).rows[0]?.id;
+  const view = (who, name, extra = {}) =>
+    as(who, `INSERT INTO public.saved_views (workspace_id, scope, name, query, mode, is_shared, is_default) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id, owner_id`,
+      [wsV, extra.scope ?? lV, name, extra.query ?? 'status=QC_FIRST_APPROVAL', extra.mode ?? 'board', extra.shared ?? false, extra.def ?? false]);
+  r = await view(edV, 'My QC queue', { def: true });
+  const mine = r.rows[0]?.id;
+  record('an editor saves a private view (owner set by the database)', !r.error && r.rows[0]?.owner_id === edV, r.error?.message);
+  r = await as(ed2V, `SELECT id FROM public.saved_views WHERE workspace_id = $1`, [wsV]);
+  record('another editor does not see it', !r.error && r.rows.length === 0);
+  r = await view(edV, 'Team view', { shared: true });
+  record('an editor cannot share a view with the team', r.error?.code === '42501', r.error?.message ?? 'was allowed');
+  r = await view(pmV, 'Overdue', { shared: true, def: true, query: 'overdue=1' });
+  const shared = r.rows[0]?.id;
+  record('a production manager shares a default view', !r.error, r.error?.message);
+  r = await as(ed2V, `SELECT name FROM public.saved_views WHERE workspace_id = $1`, [wsV]);
+  record('...which the whole team sees', !r.error && r.rows.length === 1 && r.rows[0].name === 'Overdue');
+  r = await as(edV, `UPDATE public.saved_views SET name = 'Mine now' WHERE id = $1 RETURNING id`, [shared]);
+  record('an editor cannot change a shared view', !!r.error || r.rows.length === 0);
+  r = await view(pmV, 'Overdue 2', { shared: true, def: true });
+  record('a new shared default replaces the old one', !r.error && (await svc(`SELECT is_default FROM public.saved_views WHERE id = $1`, [shared]))[0].is_default === false, r.error?.message);
+  record('...without touching anyone\'s private default', (await svc(`SELECT is_default FROM public.saved_views WHERE id = $1`, [mine]))[0].is_default === true);
+  r = await view(clV, 'Client', {});
+  record('a client viewer cannot save views', !!r.error);
+  const lOther = (await svc(`SELECT id FROM public.lists WHERE workspace_id = $1 LIMIT 1`, [wsB]))[0]?.id;
+  r = await view(oV, 'Elsewhere', { scope: lOther });
+  record('a view cannot point at another workspace\'s list', !!r.error);
+  r = await view(oV, 'Everything', { scope: 'everything', mode: 'table' });
+  record('views can belong to Everything', !r.error, r.error?.message);
+  r = await as(edV, `DELETE FROM public.saved_views WHERE id = $1 RETURNING id`, [mine]);
+  record('the owner deletes their own view', !r.error && r.rows.length === 1, r.error?.message);
+}
+
 console.log('\n== Customize: status editor ==');
 {
   const oS = await mkUser('se-owner@tbb.test', {}, true);
