@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import type { Session } from '@supabase/supabase-js';
+import { getDatabaseConfig } from '@/database/config';
 import { getSupabaseClient } from '@/database/client';
 import { getMyMemberships } from '@/database/memberships';
 import { getProfileById } from '@/database/profiles';
@@ -134,6 +135,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const signInWithGoogle = useCallback(async (): Promise<ActionResult> => {
     try {
+      // ask the project first: if Google is not switched on there, say so here instead of sending the person to a
+      // raw error page on the Supabase domain
+      try {
+        const config = getDatabaseConfig();
+        const res = await fetch(`${config.supabaseUrl}/auth/v1/settings`, { headers: { apikey: config.supabaseAnonKey } });
+        if (res.ok && (await res.json())?.external?.google === false) {
+          return { ok: false, message: 'Google sign-in is not switched on for this workspace yet. Sign in with your e-mail and password, or ask an admin.' };
+        }
+      } catch {
+        // the check itself failed (offline, blocked): carry on and let the normal flow report any problem
+      }
       const { error: oauthError } = await getSupabaseClient().auth.signInWithOAuth({
         provider: 'google',
         // back to the app's callback; the invitation for this e-mail is claimed there like any sign-in
