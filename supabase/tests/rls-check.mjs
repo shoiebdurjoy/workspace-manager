@@ -2847,6 +2847,74 @@ console.log('\n== Saved views ==');
   record('the owner deletes their own view', !r.error && r.rows.length === 1, r.error?.message);
 }
 
+console.log('\n== Client brief forms ==');
+{
+  const oB = await mkUser('bf-owner@tbb.test', {}, true);
+  const pmB = await mkUser('bf-pm@tbb.test', {}, true);
+  const edB = await mkUser('bf-editor@tbb.test', {}, true);
+  const wsBF = (await svc(`INSERT INTO public.workspaces (name, slug, owner_id) VALUES ('BF','bf-brief',$1) RETURNING id`, [oB]))[0].id;
+  await svc(`INSERT INTO public.workspace_members (workspace_id, user_id, role) VALUES ($1,$2,'PRODUCTION_MANAGER'), ($1,$3,'EDITOR') ON CONFLICT DO NOTHING`, [wsBF, pmB, edB]);
+  const spBF = (await as(oB, `INSERT INTO public.spaces (workspace_id, name, slug) VALUES ($1,'S','s') RETURNING id`, [wsBF])).rows[0]?.id;
+  const lBF = (await as(oB, `INSERT INTO public.lists (space_id, name) VALUES ($1,'3. THE CONNECTORS') RETURNING id`, [spBF])).rows[0]?.id;
+  const fFormat = (await as(oB, `INSERT INTO public.custom_fields (workspace_id, name, field_type, options) VALUES ($1,'Format','dropdown','["9:16","16:9"]') RETURNING id`, [wsBF])).rows[0]?.id;
+  await svc(`UPDATE public.custom_fields SET is_required = true WHERE id = $1`, [fFormat]);
+  const fOther = (await svc(`INSERT INTO public.custom_fields (workspace_id, name, field_type) VALUES ($1,'Theirs','text') RETURNING id`, [wsB]))[0].id;
+
+  r = await as(edB, `INSERT INTO public.brief_forms (workspace_id, list_id, title) VALUES ($1,$2,'x')`, [wsBF, lBF]);
+  record('an editor cannot create brief forms', !!r.error);
+  r = await as(pmB, `INSERT INTO public.brief_forms (workspace_id, list_id, title, intro, fields) VALUES ($1,$2,'Connectors brief','Tell us about the video',$3) RETURNING id, token, fields`,
+    [wsBF, lBF, JSON.stringify([fFormat, fOther])]);
+  const form = r.rows[0];
+  record('a production manager creates a form with a long random token', !r.error && /^[0-9a-f]{64}$/.test(form?.token ?? ''), r.error?.message);
+  record('...and only this workspace\'s fields are kept in it', form?.fields?.length === 1 && form.fields[0].name === 'Format' && form.fields[0].required === true, JSON.stringify(form?.fields));
+
+  // the public page: anon, with or without the right token header
+  const anon = async (token, sql, params = []) => {
+    await db.exec(`RESET ROLE; SELECT set_config('request.jwt.claim.sub', '', false); SELECT set_config('request.headers', '${JSON.stringify(token ? { 'x-brief-token': token } : {})}', false);`);
+    await db.exec('SET ROLE anon');
+    try { return { rows: (await db.query(sql, params)).rows, error: null }; }
+    catch (e) { return { rows: [], error: e }; }
+    finally { await db.exec(`RESET ROLE; SELECT set_config('request.headers', '{}', false);`); }
+  };
+  r = await anon(form.token, `SELECT id, title, intro, fields FROM public.brief_forms`);
+  record('with its token, anyone reads exactly that one form', !r.error && r.rows.length === 1 && r.rows[0].title === 'Connectors brief', r.error?.message);
+  r = await anon(null, `SELECT id FROM public.brief_forms`);
+  record('without a token nobody can list forms', !r.error && r.rows.length === 0, r.error?.message);
+  r = await anon('f'.repeat(64), `SELECT id FROM public.brief_forms`);
+  record('a guessed token reads nothing', !r.error && r.rows.length === 0);
+  r = await anon(form.token, `SELECT workspace_id, list_id, created_by FROM public.brief_forms`);
+  record('the public page cannot read the workspace, list or author', !!r.error);
+  r = await anon(form.token, `SELECT id FROM public.tasks`);
+  record('the public page cannot read tasks', !!r.error || r.rows.length === 0);
+
+  const submit = (token, title, answers, extra = {}) =>
+    anon(token, `INSERT INTO public.brief_submissions (form_id, title, brief, contact_name, contact_email, answers) VALUES ($1,$2,$3,$4,$5,$6)`,
+      [extra.formId ?? form.id, title, extra.brief ?? 'Hook, then 3 beats', extra.name ?? 'Jane Client', extra.email ?? 'jane@brand.com', JSON.stringify(answers)]);
+  r = await submit(form.token, 'Midtown promo', {});
+  record('a required field left empty is refused', r.error?.code === '23514', r.error?.message ?? 'was accepted');
+  r = await submit(form.token, 'Midtown promo', { [fFormat]: '4:3' });
+  record('an answer that does not fit the field is refused', !!r.error, r.error?.message ?? 'was accepted');
+  r = await submit(form.token, 'Midtown promo', { [fFormat]: '9:16' });
+  record('a valid brief is accepted', !r.error, r.error?.message);
+  const made = await svc(`SELECT t.id, t.title, t.status, t.description, (SELECT value FROM public.custom_field_values v WHERE v.task_id = t.id AND v.field_id = $2) AS fmt
+    FROM public.tasks t WHERE t.list_id = $1`, [lBF, fFormat]);
+  record('...and becomes a video in the form\'s list, at the starting status, with its field and the client\'s contact', made.length === 1 && made[0].title === 'Midtown promo' && made[0].status === 'TO_BE_EDITED' && made[0].fmt === '9:16' && /jane@brand.com/.test(made[0].description), JSON.stringify(made));
+  r = await submit(null, 'No token', { [fFormat]: '9:16' });
+  record('a brief without the token is refused', !!r.error);
+  r = await anon(form.token, `SELECT * FROM public.brief_submissions`);
+  record('the public page cannot read submissions back', !!r.error || r.rows.length === 0);
+  record('the form counts its submissions', (await svc(`SELECT submission_count FROM public.brief_forms WHERE id = $1`, [form.id]))[0].submission_count === 1);
+  r = await as(pmB, `UPDATE public.brief_forms SET submission_count = 999, token = 'x' WHERE id = $1`, [form.id]);
+  record('a manager cannot forge the counter or the token', !!r.error);
+  await as(pmB, `UPDATE public.brief_forms SET enabled = false WHERE id = $1`, [form.id]);
+  r = await submit(form.token, 'After closing', { [fFormat]: '9:16' });
+  record('a disabled form takes no more briefs', !!r.error);
+  r = await as(pmB, `SELECT title, contact_email FROM public.brief_submissions WHERE form_id = $1`, [form.id]);
+  record('managers read the submissions', !r.error && r.rows.length === 1 && r.rows[0].contact_email === 'jane@brand.com', r.error?.message);
+  r = await as(edB, `SELECT * FROM public.brief_submissions`);
+  record('editors do not see submissions', !r.error && r.rows.length === 0);
+}
+
 console.log('\n== Customize: status editor ==');
 {
   const oS = await mkUser('se-owner@tbb.test', {}, true);

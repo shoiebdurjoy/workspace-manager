@@ -31,6 +31,7 @@ const ListPage = lazy(() => import('@/pages/ListPage'));
 const TaskRedirect = lazy(() => import('@/pages/TaskRedirect'));
 const Profile = lazy(() => import('@/pages/Profile'));
 const Settings = lazy(() => import('@/pages/Settings'));
+const BriefPage = lazy(() => import('@/pages/BriefPage'));
 const Unauthorized = lazy(() => import('@/pages/Unauthorized'));
 const NotFound = lazy(() => import('@/pages/NotFound'));
 const DesignSystemShowcase = lazy(() => import('@/pages/DesignSystemShowcase'));
@@ -80,6 +81,8 @@ const App = () => (
 
               {/* Signed-out screens */}
               <Route path="/login" element={<Login />} />
+              {/* Public client brief form: no account, reads one form by its token */}
+              <Route path="/brief/:token" element={<BriefPage />} />
               <Route path="/register" element={<Register />} />
               <Route path="/forgot-password" element={<ForgotPassword />} />
               <Route path="/reset-password" element={<ResetPassword />} />
