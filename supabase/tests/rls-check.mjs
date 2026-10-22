@@ -2733,6 +2733,78 @@ console.log('\n== Customize: tags ==');
   record('tags can be switched off as a feature', !r.error && r.rows[0]?.f?.tags === false, r.error?.message);
 }
 
+console.log('\n== Customize: automations ==');
+{
+  const oA = await mkUser('au-owner@tbb.test', {}, true);
+  const pmA = await mkUser('au-pm@tbb.test', {}, true);
+  const edA = await mkUser('au-editor@tbb.test', {}, true);
+  const qcA = await mkUser('au-qc@tbb.test', {}, true);
+  const wsA = (await svc(`INSERT INTO public.workspaces (name, slug, owner_id) VALUES ('AU','au-auto',$1) RETURNING id`, [oA]))[0].id;
+  await svc(`INSERT INTO public.workspace_members (workspace_id, user_id, role) VALUES ($1,$2,'PRODUCTION_MANAGER'), ($1,$3,'EDITOR'), ($1,$4,'QC_SPECIALIST') ON CONFLICT DO NOTHING`, [wsA, pmA, edA, qcA]);
+  const spA = (await as(oA, `INSERT INTO public.spaces (workspace_id, name, slug) VALUES ($1,'S','s') RETURNING id`, [wsA])).rows[0]?.id;
+  const fA = (await as(oA, `INSERT INTO public.folders (space_id, name) VALUES ($1,'ZIM') RETURNING id`, [spA])).rows[0]?.id;
+  const lA = (await as(oA, `INSERT INTO public.lists (space_id, folder_id, name) VALUES ($1,$2,'1. CLIENT') RETURNING id`, [spA, fA])).rows[0]?.id;
+  const lOut = (await as(oA, `INSERT INTO public.lists (space_id, name) VALUES ($1,'Elsewhere') RETURNING id`, [spA])).rows[0]?.id;
+  const tagRush = (await as(oA, `INSERT INTO public.tags (workspace_id, name) VALUES ($1,'Rush') RETURNING id`, [wsA])).rows[0]?.id;
+  const mkAuto = (who, name, trig, actions, extra = {}) =>
+    as(who, `INSERT INTO public.automations (workspace_id, name, trigger_type, trigger_status, trigger_tag_id, folder_id, actions) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
+      [wsA, name, trig, extra.status ?? null, extra.tag ?? null, extra.folder ?? null, JSON.stringify(actions)]);
+
+  r = await mkAuto(pmA, 'x', 'task_created', [{ type: 'set_priority', priority: 'HIGH' }]);
+  record('a production manager cannot create automations', !!r.error);
+  r = await mkAuto(oA, 'bad', 'task_created', [{ type: 'launch_rocket' }]);
+  record('an unknown action is refused', r.error?.code === '23514', r.error?.message ?? 'was allowed');
+  r = await mkAuto(oA, 'bad', 'task_created', [{ type: 'assign_editor', user_id: oA === edA ? oA : '00000000-0000-0000-0000-000000000000' }]);
+  record('assigning someone outside the workspace is refused', r.error?.code === '23514', r.error?.message ?? 'was allowed');
+
+  r = await mkAuto(oA, 'New ZIM video', 'task_created', [{ type: 'assign_editor', user_id: edA }, { type: 'add_tag', tag_id: tagRush }, { type: 'set_due_in_days', days: 2 }], { folder: fA });
+  record('the owner creates an automation for new videos in a folder', !r.error, r.error?.message);
+  r = await mkAuto(oA, 'Client wants changes', 'status_changed', [{ type: 'set_priority', priority: 'URGENT' }, { type: 'notify', to: 'editor', message: 'Client asked for changes' }], { status: 'IN_EDIT' });
+  record('...and one for a status move', !r.error, r.error?.message);
+  const autoStatus = r.rows[0]?.id;
+  r = await mkAuto(oA, 'Rush means QC', 'tag_added', [{ type: 'assign_qc', user_id: qcA }], { tag: tagRush });
+  record('...and one for a tag', !r.error, r.error?.message);
+
+  const t1 = (await as(pmA, `INSERT INTO public.tasks (list_id, title) VALUES ($1,'video 1') RETURNING id`, [lA])).rows[0]?.id;
+  const people = await svc(`SELECT role_type, user_id FROM public.task_assignees WHERE task_id = $1 ORDER BY role_type`, [t1]);
+  record('a new video in the folder gets its editor', people.some((p) => p.role_type === 'EDITOR' && p.user_id === edA), JSON.stringify(people));
+  record('...its tag', (await svc(`SELECT count(*)::int n FROM public.task_tags WHERE task_id = $1 AND tag_id = $2`, [t1, tagRush]))[0].n === 1);
+  record('...a due date two days out', (await svc(`SELECT (due_date::date - now()::date) AS d FROM public.tasks WHERE id = $1`, [t1]))[0].d === 2);
+  record('...but adding the tag BY an automation starts no further automation (no loops)', !people.some((p) => p.role_type === 'QC_REVIEWER'));
+
+  const t2 = (await as(pmA, `INSERT INTO public.tasks (list_id, title) VALUES ($1,'video 2') RETURNING id`, [lOut])).rows[0]?.id;
+  record('a video outside the folder is untouched', (await svc(`SELECT count(*)::int n FROM public.task_assignees WHERE task_id = $1`, [t2]))[0].n === 0);
+
+  r = await as(pmA, `INSERT INTO public.task_tags (task_id, tag_id) VALUES ($1,$2)`, [t2, tagRush]);
+  record('a person adding the tag starts the tag automation', !r.error && (await svc(`SELECT user_id FROM public.task_assignees WHERE task_id = $1 AND role_type = 'QC_REVIEWER'`, [t2]))[0]?.user_id === qcA, r.error?.message);
+
+  // an EDITOR's own move triggers a priority change the editor could not make by hand
+  await svc(`INSERT INTO public.task_assignees (task_id, role_type, user_id) VALUES ($1,'EDITOR',$2) ON CONFLICT DO NOTHING`, [t2, edA]);
+  r = await as(pmA, `SELECT public.transition_task($1, 'IN_EDIT')`, [t2]);
+  const pr = (await svc(`SELECT priority FROM public.tasks WHERE id = $1`, [t2]))[0].priority;
+  record('a status move runs its automation (priority set to URGENT)', !r.error && pr === 'URGENT', r.error?.message ?? pr);
+  r = await svc(`SELECT data FROM public.notifications WHERE task_id = $1 AND user_id = $2 AND data->>'automation' = 'Client wants changes'`, [t2, edA]);
+  record('...and notifies the editor with its message', r.length === 1 && r[0].data.message === 'Client asked for changes', JSON.stringify(r));
+  record('...and counts the run', (await svc(`SELECT run_count FROM public.automations WHERE id = $1`, [autoStatus]))[0].run_count === 1);
+  r = await as(edA, `UPDATE public.tasks SET priority = 'LOW' WHERE id = $1`, [t2]);
+  record('the editor still cannot change priority by hand', !!r.error);
+
+  await as(oA, `UPDATE public.automations SET enabled = false WHERE id = $1`, [autoStatus]);
+  await as(pmA, `SELECT public.transition_task($1, 'TO_BE_EDITED')`, [t2]);
+  await svc(`UPDATE public.tasks SET priority = 'LOW' WHERE id = $1`, [t2]);
+  await as(pmA, `SELECT public.transition_task($1, 'IN_EDIT')`, [t2]);
+  record('a switched-off automation does nothing', (await svc(`SELECT priority FROM public.tasks WHERE id = $1`, [t2]))[0].priority === 'LOW');
+
+  // an action that cannot apply is skipped without blocking the change
+  await svc(`DELETE FROM public.workspace_members WHERE workspace_id = $1 AND user_id = $2`, [wsA, edA]);
+  r = await as(pmA, `INSERT INTO public.tasks (list_id, title) VALUES ($1,'video 3') RETURNING id`, [lA]);
+  record('an action that no longer fits (editor left) is skipped, the video is still created', !r.error && !!r.rows[0]?.id, r.error?.message);
+  r = await as(pmA, `SELECT * FROM public.automations WHERE workspace_id = $1`, [wsA]);
+  record('a production manager can read automations', !r.error && r.rows.length === 3);
+  r = await as(qcA, `SELECT * FROM public.automations WHERE workspace_id = $1`, [wsA]);
+  record('QC cannot read automations', !r.error && r.rows.length === 0);
+}
+
 console.log('\n== Customize: status editor ==');
 {
   const oS = await mkUser('se-owner@tbb.test', {}, true);

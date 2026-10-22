@@ -17,6 +17,7 @@ export * from './batches';
 export * from './customFields';
 export * from './workflow';
 export * from './tags';
+export * from './automations';
 export * from './production';
 export * from './home';
 export * from './availability';

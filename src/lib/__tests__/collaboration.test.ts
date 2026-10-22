@@ -404,3 +404,16 @@ describe('Inbox (Phase 11)', () => {
     expect(groupByDay([], now)).toEqual([]);
   });
 });
+
+describe('automation notices', () => {
+  it('show the automation message instead of a stage move', async () => {
+    const { describeNotification } = await import('../collaboration');
+    const d = describeNotification(
+      { id: 'n', kind: 'status', actorId: null, readAt: null, createdAt: '2026-10-22T00:00:00Z', taskId: 't', workspaceId: 'w', userId: 'u', data: { automation: 'Client wants changes', message: 'Client asked for changes', task_title: 'CC R01' } } as never,
+      new Map() as never,
+      null
+    );
+    expect(d.headline).toBe('Client asked for changes');
+    expect(d.detail).toMatch(/automation "Client wants changes"/);
+  });
+});

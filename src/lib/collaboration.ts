@@ -437,6 +437,12 @@ export function describeNotification(n: AppNotification, members: MemberLookup, 
       headline = n.actorId ? `${actor} assigned you as ${ROLE_WORD[String(n.data.role_type)] ?? 'assignee'}` : `You were assigned as ${ROLE_WORD[String(n.data.role_type)] ?? 'assignee'}`;
       break;
     case 'status': {
+      // an automation's notice carries its own message
+      if (typeof n.data.automation === 'string' && typeof n.data.message === 'string') {
+        headline = n.data.message;
+        detail = `${title} · automation "${n.data.automation}"`;
+        break;
+      }
       const to = typeof n.data.to === 'string' ? statusName(workflow, n.data.to) : 'a new stage';
       headline = `${actor} moved a task to ${to}`;
       break;
