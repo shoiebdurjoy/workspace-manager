@@ -3120,6 +3120,34 @@ console.log('\n== Trash: trace and restore deletes ==');
   record('the public restore function runs with the caller\'s rights', r[0]?.prosecdef === false);
 }
 
+console.log('\n== Smooth moves: no link or note asked ==');
+{
+  const oM = await mkUser('sm-owner@tbb.test', {}, true);
+  const edM = await mkUser('sm-editor@tbb.test', {}, true);
+  const qcM = await mkUser('sm-qc@tbb.test', {}, true);
+  const wsM = (await svc(`INSERT INTO public.workspaces (name, slug, owner_id) VALUES ('SM','sm-smooth',$1) RETURNING id`, [oM]))[0].id;
+  await svc(`INSERT INTO public.workspace_members (workspace_id, user_id, role) VALUES ($1,$2,'EDITOR'), ($1,$3,'QC_SPECIALIST') ON CONFLICT DO NOTHING`, [wsM, edM, qcM]);
+  // what migration 40 did to the existing workspace, applied to this new one
+  await svc(`UPDATE public.workflow_statuses s SET requires_review_link = false, requires_final_export = false, requires_note = false FROM public.workflows w WHERE w.id = s.workflow_id AND w.workspace_id = $1`, [wsM]);
+  const spM = (await as(oM, `INSERT INTO public.spaces (workspace_id, name, slug) VALUES ($1,'S','s') RETURNING id`, [wsM])).rows[0]?.id;
+  const lM = (await as(oM, `INSERT INTO public.lists (space_id, name) VALUES ($1,'L') RETURNING id`, [spM])).rows[0]?.id;
+  const tM = (await as(oM, `INSERT INTO public.tasks (list_id, title) VALUES ($1,'v') RETURNING id`, [lM])).rows[0]?.id;
+  await svc(`INSERT INTO public.task_assignees (task_id, role_type, user_id) VALUES ($1,'EDITOR',$2)`, [tM, edM]);
+  for (const step of ['IN_EDIT', 'ASSIGNED']) await as(oM, `SELECT public.transition_task($1, $2)`, [tM, step]);
+  await as(edM, `SELECT public.transition_task($1, 'STARTED_EDITING')`, [tM]);
+  r = await as(edM, `SELECT public.transition_task($1, 'QC_FIRST_APPROVAL')`, [tM]);
+  record('the editor sends a cut to QC without any link', !r.error, r.error?.message);
+  record('...and QC is still assigned automatically', (await svc(`SELECT user_id FROM public.task_assignees WHERE task_id = $1 AND role_type = 'QC_REVIEWER'`, [tM]))[0]?.user_id === qcM);
+  r = await as(qcM, `SELECT public.transition_task($1, 'QC_REVISION_NEEDED')`, [tM]);
+  record('QC requests a revision without writing a note', !r.error, r.error?.message);
+  record('...which still counts as a revision', (await svc(`SELECT revision_count FROM public.tasks WHERE id = $1`, [tM]))[0].revision_count === 1);
+  r = await as(edM, `SELECT public.transition_task($1, 'QC_FINAL_APPROVAL')`, [tM]);
+  record('the editor resubmits without a link', !r.error, r.error?.message);
+  await as(qcM, `SELECT public.transition_task($1, 'QC_APPROVED_RTD')`, [tM]);
+  r = await as(qcM, `SELECT public.transition_task($1, 'SENT_TO_CLIENT')`, [tM]);
+  record('QC delivers without a final export link', !r.error, r.error?.message);
+}
+
 console.log('\n== Customize: status editor ==');
 {
   const oS = await mkUser('se-owner@tbb.test', {}, true);

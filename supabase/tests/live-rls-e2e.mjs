@@ -2011,6 +2011,33 @@ VALUES (gen_random_uuid(), '${u.id}', '${u.id}', jsonb_build_object('sub','${u.i
     rec('EDITOR: got the mention', en.some((n) => n.kind === 'mention'), JSON.stringify(en.map((n) => n.kind)));
     rec('EDITOR: got the automation message', en.some((n) => n.data?.automation === 'Changes needed' && n.data?.message === 'QC asked for changes'));
 
+    // --- FINAL APPROVAL: the revised cut goes back to the same QC, who is told
+    res = await C.editor.rpc('transition_task', { p_task_id: vid, p_to: 'QC_FINAL_APPROVAL', p_note: null, p_review_link: 'https://frame.io/r/e2e-v2', p_final_export_link: null, p_expected_from: null });
+    rec('EDITOR: sends the revised cut to final approval', !res.error, res.error?.message);
+    await wait(300);
+    res = await C.pm.from('task_assignees').select('user_id').eq('task_id', vid).eq('role_type', 'QC_REVIEWER');
+    rec('FINAL APPROVAL: the same QC stays in People', res.data?.length === 1 && res.data[0].user_id === U.qc.id, JSON.stringify(res.data));
+    rec('FINAL APPROVAL: QC is notified the cut is back', (await notes('qc', { task: vid })).some((n) => n.kind === 'status' && n.data?.to === 'QC_FINAL_APPROVAL'));
+
+    // --- a cut reaching FINAL APPROVAL with nobody in QC gets the folder's QC automatically
+    const vf = (await C.pm.rpc('create_task', { p_list_id: list, p_title: `Final only ${RUN}`, p_description: null, p_priority: 'MEDIUM', p_aspect_ratio: null })).data?.id;
+    await C.pm.rpc('set_task_assignee', { p_task_id: vf, p_role_type: 'EDITOR', p_user_id: U.editor.id });
+    for (const step of ['IN_EDIT', 'ASSIGNED']) await C.pm.rpc('transition_task', { p_task_id: vf, p_to: step, p_note: null, p_review_link: null, p_final_export_link: null, p_expected_from: null });
+    await C.editor.rpc('transition_task', { p_task_id: vf, p_to: 'STARTED_EDITING', p_note: null, p_review_link: null, p_final_export_link: null, p_expected_from: null });
+    await C.editor.rpc('transition_task', { p_task_id: vf, p_to: 'QC_FIRST_APPROVAL', p_note: null, p_review_link: 'https://frame.io/r/f1', p_final_export_link: null, p_expected_from: null });
+    await C.pm.rpc('transition_task', { p_task_id: vf, p_to: 'QC_REVISION_NEEDED', p_note: 'Shorter please', p_review_link: null, p_final_export_link: null, p_expected_from: null });
+    res = await C.pm.rpc('set_task_assignee', { p_task_id: vf, p_role_type: 'QC_REVIEWER', p_user_id: null });
+    rec('PRODUCTION MANAGER: takes the QC off a video', !res.error, res.error?.message);
+    const qcNotesBefore = (await notes('qc', { task: vf })).filter((n) => n.kind === 'assigned').length;
+    res = await C.editor.rpc('transition_task', { p_task_id: vf, p_to: 'QC_FINAL_APPROVAL', p_note: null, p_review_link: 'https://frame.io/r/f2', p_final_export_link: null, p_expected_from: null });
+    rec('EDITOR: sends it to final approval with nobody in QC', !res.error, res.error?.message);
+    await wait(300);
+    res = await C.pm.from('task_assignees').select('user_id').eq('task_id', vf).eq('role_type', 'QC_REVIEWER');
+    rec('FINAL APPROVAL: the folder QC is put in People automatically', res.data?.[0]?.user_id === U.qc.id, JSON.stringify(res.data));
+    rec('FINAL APPROVAL: and QC is notified of the assignment', (await notes('qc', { task: vf })).filter((n) => n.kind === 'assigned').length === qcNotesBefore + 1);
+    res = await C.editor.from('tasks').select('id, task_assignees(role_type,user_id)').eq('id', vf).single();
+    rec('EDITOR: sees QC in the video\'s People', (res.data?.task_assignees ?? []).some((a) => a.role_type === 'QC_REVIEWER' && a.user_id === U.qc.id), res.error?.message);
+
     // --- notification settings save and apply
     res = await C.editor.from('notification_prefs').insert({ user_id: U.editor.id, workspace_id: ws, muted_kinds: ['comment', 'mention'], muted_list_ids: [] });
     rec('EDITOR: mutes comments and mentions (saved)', !res.error, res.error?.message);
