@@ -48,8 +48,9 @@ const InvitationsPanel: React.FC = () => {
         <div>
           <h3 className="section-label">Invite someone</h3>
           <p className="text-[11px] text-muted-foreground">
-            They get access with this role as soon as they sign in with a confirmed account for this address. Nothing is
-            e-mailed automatically yet: let them know to register at TBB Workspace.
+            TBB does not send e-mails. Adding someone only gives <strong>that e-mail address</strong> permission to join with this role.
+            After you add them, press the link button beside their invitation to copy a ready message, and send it to them on
+            WhatsApp or e-mail.
           </p>
         </div>
         <div className="flex flex-col gap-2 sm:flex-row sm:items-start">
@@ -124,7 +125,15 @@ const InvitationsPanel: React.FC = () => {
                         variant="ghost"
                         size="xs"
                         onClick={() => {
-                          const text = `You're invited to TBB Workspace as ${ROLE_LABELS[inv.role]}. Sign in with Google using ${inv.email}: ${window.location.origin}/login`;
+                          const text =
+                            `You're invited to TBB Workspace as ${ROLE_LABELS[inv.role]}.
+
+` +
+                            `1. Open ${window.location.origin}/register
+` +
+                            `2. Create your account with THIS e-mail: ${inv.email} (or choose "Continue with Google" with the same address)
+` +
+                            `3. Confirm your e-mail if asked, then sign in. You will land in the workspace.`;
                           void navigator.clipboard?.writeText(text).then(
                             () => toast.success('Invitation message copied'),
                             () => toast.error('Could not copy. Share this link: ' + window.location.origin + '/login')
