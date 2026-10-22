@@ -128,7 +128,16 @@ const Profile: React.FC = () => {
         </div>
       </header>
 
-      <form onSubmit={onSaveProfile} noValidate className="space-y-4 surface-card p-4">
+      {/* saves by itself when you leave the form with changes */}
+      <form
+        onSubmit={onSaveProfile}
+        onBlur={(e) => {
+          const dirty = fullName.trim() !== (profile.fullName ?? '') || (phone.trim() || null) !== (profile.phone ?? null) || timezone !== (profile.timezone ?? 'UTC');
+          if (dirty && fullName.trim() && !saving && !e.currentTarget.contains(e.relatedTarget as Node | null)) void onSaveProfile(e as unknown as React.FormEvent);
+        }}
+        noValidate
+        className="space-y-4 surface-card p-4"
+      >
         <h2 className="section-label">Personal details</h2>
         <FormError message={profileError} />
         <div className="grid gap-4 sm:grid-cols-2">

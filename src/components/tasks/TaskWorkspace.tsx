@@ -542,7 +542,7 @@ const TaskWorkspace: React.FC<TaskWorkspaceProps> = ({ scope, selectedTaskId, on
                 Delete {bulkDeleting.length} {bulkDeleting.length === 1 ? 'task' : 'tasks'}?
               </AlertDialogTitle>
               <AlertDialogDescription>
-                The selected tasks, their assignments and their subtasks will be permanently deleted. This cannot be undone.
+                The selected tasks, their assignments and their subtasks will be deleted. It goes to the trash: an owner, admin or production manager can restore it for 30 days (Settings &rarr; Customize workspace &rarr; Trash).
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>

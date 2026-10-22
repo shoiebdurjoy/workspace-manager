@@ -3057,6 +3057,69 @@ console.log('\n== Recurring videos, dependencies, time tracking ==');
   record('an editor cannot change the estimate', !!r.error);
 }
 
+console.log('\n== Trash: trace and restore deletes ==');
+{
+  const oT = await mkUser('tr-owner@tbb.test', {}, true);
+  const pmT = await mkUser('tr-pm@tbb.test', {}, true);
+  const edT = await mkUser('tr-editor@tbb.test', {}, true);
+  const wsT = (await svc(`INSERT INTO public.workspaces (name, slug, owner_id) VALUES ('TR','tr-trash',$1) RETURNING id`, [oT]))[0].id;
+  await svc(`INSERT INTO public.workspace_members (workspace_id, user_id, role) VALUES ($1,$2,'PRODUCTION_MANAGER'), ($1,$3,'EDITOR') ON CONFLICT DO NOTHING`, [wsT, pmT, edT]);
+  const spT = (await as(oT, `INSERT INTO public.spaces (workspace_id, name, slug) VALUES ($1,'S','s') RETURNING id`, [wsT])).rows[0]?.id;
+  const lT = (await as(oT, `INSERT INTO public.lists (space_id, name) VALUES ($1,'7. CLIENT') RETURNING id`, [spT])).rows[0]?.id;
+  const fT = (await as(oT, `INSERT INTO public.custom_fields (workspace_id, name, field_type) VALUES ($1,'Hook','text') RETURNING id`, [wsT])).rows[0]?.id;
+  const tagT = (await as(oT, `INSERT INTO public.tags (workspace_id, name) VALUES ($1,'Rush') RETURNING id`, [wsT])).rows[0]?.id;
+  const t = (await as(pmT, `INSERT INTO public.tasks (list_id, title) VALUES ($1,'Promo cut') RETURNING id`, [lT])).rows[0]?.id;
+  await as(pmT, `SELECT public.set_task_assignee($1, 'EDITOR', $2)`, [t, edT]);
+  await as(pmT, `INSERT INTO public.custom_field_values (task_id, field_id, value) VALUES ($1,$2,'"Open on the product"')`, [t, fT]);
+  await as(pmT, `INSERT INTO public.task_tags (task_id, tag_id) VALUES ($1,$2)`, [t, tagT]);
+  await as(edT, `INSERT INTO public.task_comments (task_id, workspace_id, author_id, body) VALUES ($1,$2,$3,'first pass done')`, [t, wsT, edT]);
+  await svc(`UPDATE public.tasks SET status = 'QC_REVISION_NEEDED', revision_count = 2 WHERE id = $1`, [t]);
+  const before = (await svc(`SELECT status, revision_count, created_at FROM public.tasks WHERE id = $1`, [t]))[0];
+  await as(edT, `INSERT INTO public.time_entries (task_id, started_at, ended_at) VALUES ($1, now() - interval '2 hours', now() - interval '1 hour')`, [t]);
+
+  r = await as(oT, `DELETE FROM public.lists WHERE id = $1 RETURNING id`, [lT]);
+  record('the owner deletes a client list (with its video)', !r.error && r.rows.length === 1, r.error?.message);
+  record('...and the video is gone', (await svc(`SELECT count(*)::int n FROM public.tasks WHERE id = $1`, [t]))[0].n === 0);
+  const trash = await svc(`SELECT batch, table_name, deleted_by, label FROM public.trash_items WHERE workspace_id = $1`, [wsT]);
+  const kinds = new Set(trash.map((x) => x.table_name));
+  record('the trash holds the list, the video and its parts, all in one batch, with who deleted it',
+    ['lists', 'tasks', 'task_assignees', 'custom_field_values', 'task_tags', 'task_comments', 'time_entries'].every((k) => kinds.has(k)) && new Set(trash.map((x) => String(x.batch))).size === 1 && trash.every((x) => x.deleted_by === oT),
+    JSON.stringify([...kinds]));
+  const batch = trash[0]?.batch;
+  r = await as(edT, `SELECT * FROM public.trash_items WHERE workspace_id = $1`, [wsT]);
+  record('editors cannot see the trash', !r.error && r.rows.length === 0);
+  r = await as(edT, `SELECT public.restore_trash_batch($1, $2)`, [batch, wsT]);
+  record('editors cannot restore', !!r.error);
+  r = await as(edT, `DELETE FROM public.trash_items WHERE workspace_id = $1`, [wsT]);
+  record('nobody can delete from the trash through the API', !!r.error || (await svc(`SELECT count(*)::int n FROM public.trash_items WHERE workspace_id = $1`, [wsT]))[0].n === trash.length);
+
+  const notesBefore = (await svc(`SELECT count(*)::int n FROM public.notifications WHERE workspace_id = $1`, [wsT]))[0].n;
+  r = await as(pmT, `SELECT public.restore_trash_batch($1, $2) AS res`, [batch, wsT]);
+  record('a manager restores the batch', !r.error && r.rows[0]?.res?.skipped === 0 && r.rows[0]?.res?.restored === trash.length, r.error?.message ?? JSON.stringify(r.rows[0]?.res));
+  const after = (await svc(`SELECT status, revision_count, created_at, list_id FROM public.tasks WHERE id = $1`, [t]))[0];
+  record('...the video is back as it was (status, revisions, dates, list)', after && after.status === before.status && after.revision_count === before.revision_count && before.revision_count > 0 && +new Date(after.created_at) === +new Date(before.created_at) && after.list_id === lT, JSON.stringify(after));
+  record('...with its editor, field, tag, comment and time',
+    (await svc(`SELECT user_id FROM public.task_assignees WHERE task_id = $1`, [t]))[0]?.user_id === edT &&
+    (await svc(`SELECT value FROM public.custom_field_values WHERE task_id = $1`, [t]))[0]?.value === 'Open on the product' &&
+    (await svc(`SELECT count(*)::int n FROM public.task_tags WHERE task_id = $1`, [t]))[0].n === 1 &&
+    (await svc(`SELECT author_id FROM public.task_comments WHERE task_id = $1`, [t]))[0]?.author_id === edT &&
+    (await svc(`SELECT user_id FROM public.time_entries WHERE task_id = $1`, [t]))[0]?.user_id === edT);
+  record('...without sending notifications again', (await svc(`SELECT count(*)::int n FROM public.notifications WHERE workspace_id = $1`, [wsT]))[0].n === notesBefore);
+  record('the trash marks the batch restored, by whom', (await svc(`SELECT count(*)::int n FROM public.trash_items WHERE batch = $1 AND restored_by = $2`, [batch, pmT]))[0].n === trash.length);
+  r = await as(pmT, `SELECT public.restore_trash_batch($1, $2)`, [batch, wsT]);
+  record('a batch cannot be restored twice', !!r.error);
+
+  // a video deleted on its own, whose list was then deleted too: restoring only the video skips it
+  const t2 = (await as(pmT, `INSERT INTO public.tasks (list_id, title) VALUES ($1,'Alone') RETURNING id`, [lT])).rows[0]?.id;
+  await as(oT, `DELETE FROM public.tasks WHERE id = $1`, [t2]);
+  const b2 = (await svc(`SELECT batch FROM public.trash_items WHERE item_id = $1`, [t2]))[0].batch;
+  await as(oT, `DELETE FROM public.lists WHERE id = $1`, [lT]);
+  r = await as(pmT, `SELECT public.restore_trash_batch($1, $2) AS res`, [b2, wsT]);
+  record('a video whose list is gone is skipped and counted, not half-restored', !r.error && r.rows[0]?.res?.skipped >= 1 && r.rows[0]?.res?.restored === 0, r.error?.message ?? JSON.stringify(r.rows[0]?.res));
+  r = await svc(`SELECT prosecdef FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'public' AND proname = 'restore_trash_batch'`);
+  record('the public restore function runs with the caller\'s rights', r[0]?.prosecdef === false);
+}
+
 console.log('\n== Customize: status editor ==');
 {
   const oS = await mkUser('se-owner@tbb.test', {}, true);

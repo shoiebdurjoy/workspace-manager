@@ -62,7 +62,16 @@ const Settings: React.FC = () => {
         <p className="page-description">Workspace details for everyone at TBB.</p>
       </header>
 
-      <form onSubmit={onSave} noValidate className="space-y-4 surface-card p-4">
+      {/* saves by itself when you leave the form with changes; the button stays for those who like to press it */}
+      <form
+        onSubmit={onSave}
+        onBlur={(e) => {
+          const dirty = name.trim() !== workspace.name || (description.trim() || null) !== (workspace.description ?? null);
+          if (editable && dirty && name.trim() && !e.currentTarget.contains(e.relatedTarget as Node | null)) void onSave(e as unknown as React.FormEvent);
+        }}
+        noValidate
+        className="space-y-4 surface-card p-4"
+      >
         <h2 className="section-label">Workspace</h2>
         <FormError message={formError} />
         <div className="space-y-1.5">

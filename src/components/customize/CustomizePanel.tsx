@@ -9,9 +9,10 @@ import StatusEditor from './StatusEditor';
 import FeatureSwitches from './FeatureSwitches';
 import AutomationsEditor from './AutomationsEditor';
 import BriefFormsEditor from './BriefFormsEditor';
+import TrashBin from './TrashBin';
 import { TagsEditor } from '@/components/tags/Tags';
 
-type Tab = 'statuses' | 'fields' | 'tags' | 'automations' | 'briefs' | 'features';
+type Tab = 'statuses' | 'fields' | 'tags' | 'automations' | 'briefs' | 'trash' | 'features';
 
 /**
  * "Customize workspace": tucked away until an admin opens it, so everyday screens stay clean. Statuses are
@@ -28,6 +29,7 @@ const CustomizePanel: React.FC = () => {
     { id: 'tags', label: 'Tags', show: canFields },
     { id: 'automations', label: 'Automations', show: canFields },
     { id: 'briefs', label: 'Brief forms', show: canFields },
+    { id: 'trash', label: 'Trash', show: canFields },
     { id: 'features', label: 'Features', show: isAdmin },
   ];
   const visible = tabs.filter((t) => t.show);
@@ -47,7 +49,7 @@ const CustomizePanel: React.FC = () => {
         </span>
         <span className="min-w-0 flex-1">
           <span className="block text-sm font-semibold">Customize workspace</span>
-          <span className="block text-xs text-muted-foreground">Statuses and moves, custom fields, tags, automations, client brief forms, and which features are switched on. Open only when you need it.</span>
+          <span className="block text-xs text-muted-foreground">Statuses and moves, custom fields, tags, automations, client brief forms, the trash (restore anything deleted), and which features are switched on. Open only when you need it.</span>
         </span>
         <ChevronDown aria-hidden className={cn('h-4 w-4 text-muted-foreground transition-transform duration-300', open && 'rotate-180')} />
       </button>
@@ -64,7 +66,7 @@ const CustomizePanel: React.FC = () => {
                   ))}
                 </div>
               )}
-              {tab === 'statuses' && isAdmin ? <StatusEditor /> : tab === 'features' && isAdmin ? <FeatureSwitches /> : tab === 'tags' ? <TagsEditor /> : tab === 'automations' ? <AutomationsEditor /> : tab === 'briefs' ? <BriefFormsEditor /> : <CustomFieldsManager />}
+              {tab === 'statuses' && isAdmin ? <StatusEditor /> : tab === 'features' && isAdmin ? <FeatureSwitches /> : tab === 'tags' ? <TagsEditor /> : tab === 'automations' ? <AutomationsEditor /> : tab === 'briefs' ? <BriefFormsEditor /> : tab === 'trash' ? <TrashBin /> : <CustomFieldsManager />}
             </div>
           </motion.div>
         )}

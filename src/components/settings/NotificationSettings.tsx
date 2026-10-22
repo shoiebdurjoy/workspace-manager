@@ -2,7 +2,6 @@ import React, { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { BellRing, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { getNotificationPrefs, saveNotificationPrefs, type MutableNotificationKind, type NotificationPrefs } from '@/database';
@@ -43,23 +42,24 @@ const NotificationSettings: React.FC = () => {
     if (prefs.data && !draft) setDraft(prefs.data);
   }, [prefs.data, draft]);
 
+  // every change saves itself a moment later (no Save button to forget)
+  useEffect(() => {
+    if (!draft || !prefs.data || JSON.stringify(draft) === JSON.stringify(prefs.data)) return;
+    const t = window.setTimeout(() => {
+      setSaving(true);
+      saveNotificationPrefs(ws, me, draft)
+        .then(() => qc.invalidateQueries({ queryKey: key }))
+        .catch((e: unknown) => toast.error(e instanceof Error ? e.message : 'That did not save.'))
+        .finally(() => setSaving(false));
+    }, 600);
+    return () => window.clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draft]);
+
   if (!draft) return <div className="surface-card p-4 text-sm text-muted-foreground">Loading your notification settings...</div>;
   const preset = PRESETS.find((p) => p.muted.length === draft.mutedKinds.length && p.muted.every((k) => draft.mutedKinds.includes(k)))?.id ?? 'custom';
-  const dirty = JSON.stringify(draft) !== JSON.stringify(prefs.data);
   const shownLists = allLists.filter((l) => !filter.trim() || l.name.toLowerCase().includes(filter.trim().toLowerCase()));
 
-  const save = async () => {
-    setSaving(true);
-    try {
-      await saveNotificationPrefs(ws, me, draft);
-      await qc.invalidateQueries({ queryKey: key });
-      toast.success('Notification settings saved');
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'That did not save.');
-    } finally {
-      setSaving(false);
-    }
-  };
 
   return (
     <section aria-label="Notifications" className="space-y-4 surface-card p-4">
@@ -131,9 +131,9 @@ const NotificationSettings: React.FC = () => {
           }}
         />
       </div>
-      <Button type="button" size="sm" disabled={!dirty || saving} onClick={() => void save()}>
-        {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Save notification settings
-      </Button>
+      <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground" role="status">
+        {saving ? <><Loader2 className="h-3 w-3 animate-spin" /> Saving...</> : 'Changes save automatically.'}
+      </p>
     </section>
   );
 };

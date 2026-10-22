@@ -233,10 +233,10 @@ const DeleteFieldDialog: React.FC<{ field: CustomField; onClose: () => void }> =
   const description = count.isLoading
     ? 'Checking how many tasks use this field...'
     : count.isError
-      ? 'Every value saved in this field, on every task, will be permanently deleted. This cannot be undone.'
+      ? 'Every value saved in this field, on every task, will be deleted. It goes to the trash: an owner, admin or production manager can restore it for 30 days (Settings > Customize workspace > Trash).'
       : count.data
-        ? `The field and its ${count.data} saved ${count.data === 1 ? 'value' : 'values'} on tasks will be permanently deleted. This cannot be undone.`
-        : 'No task has a value in this field. The field will be permanently deleted.';
+        ? `The field and its ${count.data} saved ${count.data === 1 ? 'value' : 'values'} on tasks will be deleted. It goes to the trash: an owner, admin or production manager can restore it for 30 days (Settings > Customize workspace > Trash).`
+        : 'No task has a value in this field. The field will be deleted. It goes to the trash: an owner, admin or production manager can restore it for 30 days (Settings > Customize workspace > Trash).';
 
   const confirm = async (e: React.MouseEvent) => {
     e.preventDefault();

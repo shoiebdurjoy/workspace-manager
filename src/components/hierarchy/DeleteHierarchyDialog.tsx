@@ -61,14 +61,14 @@ const DeleteHierarchyDialog: React.FC<Props> = ({ request, onClose, onDeleted })
     title = `Delete space "${request.space.name}"?`;
     body =
       folders + lists === 0
-        ? 'This space is empty. It will be permanently deleted.'
-        : `This permanently deletes the space together with ${plural(folders, 'folder')} and ${plural(lists, 'list')} inside it, and everything in them. This cannot be undone.`;
+        ? 'This space is empty. It will be deleted. It goes to the trash: an owner, admin or production manager can restore it for 30 days (Settings > Customize workspace > Trash).'
+        : `This deletes the space together with ${plural(folders, 'folder')} and ${plural(lists, 'list')} inside it, and everything in them. It goes to the trash: an owner, admin or production manager can restore it for 30 days (Settings > Customize workspace > Trash).`;
   } else if (request.type === 'delete-folder') {
     title = `Delete folder "${request.folder.name}"?`;
-    body = 'The empty folder will be permanently deleted. This cannot be undone.';
+    body = 'The empty folder will be deleted. It goes to the trash: an owner, admin or production manager can restore it for 30 days (Settings > Customize workspace > Trash).';
   } else {
     title = `Delete list "${request.list.name}"?`;
-    body = 'The list and everything in it will be permanently deleted. This cannot be undone.';
+    body = 'The list and everything in it will be deleted. It goes to the trash: an owner, admin or production manager can restore it for 30 days (Settings > Customize workspace > Trash).';
   }
 
   const confirm = async (e: React.MouseEvent) => {

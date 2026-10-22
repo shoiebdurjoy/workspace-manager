@@ -41,8 +41,8 @@ const DeleteTaskDialog: React.FC<Props> = ({ task, subtaskCount = 0, onClose, on
           <AlertDialogTitle>Delete task "{task.title}"?</AlertDialogTitle>
           <AlertDialogDescription>
             {subtaskCount > 0
-              ? `The task, its assignments and its ${subtaskCount} ${subtaskCount === 1 ? 'subtask' : 'subtasks'} will be permanently deleted. This cannot be undone.`
-              : 'The task and its assignments will be permanently deleted. This cannot be undone.'}
+              ? `The task, its assignments and its ${subtaskCount} ${subtaskCount === 1 ? 'subtask' : 'subtasks'} will be deleted. It goes to the trash: an owner, admin or production manager can restore it for 30 days (Settings > Customize workspace > Trash).`
+              : 'The task and its assignments will be deleted. It goes to the trash: an owner, admin or production manager can restore it for 30 days (Settings > Customize workspace > Trash).'}
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
