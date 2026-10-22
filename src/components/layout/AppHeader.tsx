@@ -27,6 +27,7 @@ import { AvailabilityRing, MyStatusButton } from "@/components/team/Availability
 import AssistantButton from "@/components/assistant/AssistantPanel";
 import { useAvailability } from "@/hooks/use-availability";
 import { useAuth } from "@/hooks/use-auth";
+import { useFeatures } from "@/hooks/use-features";
 import { can } from "@/lib/permissions";
 import { useHierarchy } from "@/hooks/use-hierarchy";
 import { breadcrumbFor } from "@/lib/hierarchy";
@@ -53,6 +54,7 @@ const PAGE_TITLES: Record<string, string> = {
 
 export const AppHeader: React.FC<AppHeaderProps> = ({ onToggleMobileSidebar, onOpenSearch }) => {
   const { profile, role, workspace, signOut, user } = useAuth();
+  const on = useFeatures();
   const availability = useAvailability();
   const location = useLocation();
   const navigate = useNavigate();
@@ -141,8 +143,8 @@ export const AppHeader: React.FC<AppHeaderProps> = ({ onToggleMobileSidebar, onO
           className="md:hidden"
         />
 
-        <AssistantButton />
-        {can(role, "comments:view-internal") && <MyStatusButton />}
+        {on("assistant") && <AssistantButton />}
+        {can(role, "comments:view-internal") && on("availability") && <MyStatusButton />}
 
         <NotificationBell />
 

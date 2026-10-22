@@ -6,8 +6,9 @@ import { useAuth } from '@/hooks/use-auth';
 import { can } from '@/lib/permissions';
 import { cn } from '@/lib/utils';
 import StatusEditor from './StatusEditor';
+import FeatureSwitches from './FeatureSwitches';
 
-type Tab = 'statuses' | 'fields';
+type Tab = 'statuses' | 'fields' | 'features';
 
 /**
  * "Customize workspace": tucked away until an admin opens it, so everyday screens stay clean. Statuses are
@@ -21,6 +22,7 @@ const CustomizePanel: React.FC = () => {
   const tabs: { id: Tab; label: string; show: boolean }[] = [
     { id: 'statuses', label: 'Statuses & moves', show: isAdmin },
     { id: 'fields', label: 'Custom fields', show: canFields },
+    { id: 'features', label: 'Features', show: isAdmin },
   ];
   const visible = tabs.filter((t) => t.show);
   const [tab, setTab] = useState<Tab>(visible[0]?.id ?? 'fields');
@@ -39,7 +41,7 @@ const CustomizePanel: React.FC = () => {
         </span>
         <span className="min-w-0 flex-1">
           <span className="block text-sm font-semibold">Customize workspace</span>
-          <span className="block text-xs text-muted-foreground">Statuses, the moves between them and who can make them, custom fields. Open only when you need it.</span>
+          <span className="block text-xs text-muted-foreground">Statuses and moves, custom fields, and which features are switched on. Open only when you need it.</span>
         </span>
         <ChevronDown aria-hidden className={cn('h-4 w-4 text-muted-foreground transition-transform duration-300', open && 'rotate-180')} />
       </button>
@@ -56,7 +58,7 @@ const CustomizePanel: React.FC = () => {
                   ))}
                 </div>
               )}
-              {tab === 'statuses' && isAdmin ? <StatusEditor /> : <CustomFieldsManager />}
+              {tab === 'statuses' && isAdmin ? <StatusEditor /> : tab === 'features' && isAdmin ? <FeatureSwitches /> : <CustomFieldsManager />}
             </div>
           </motion.div>
         )}

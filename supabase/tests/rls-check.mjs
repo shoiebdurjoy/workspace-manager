@@ -2672,6 +2672,30 @@ console.log('\n== Customize: more field types ==');
   record('a field limited to some folders gives no default elsewhere', r[0].n === 0);
 }
 
+console.log('\n== Customize: feature switches ==');
+{
+  const oW = await mkUser('fs-owner@tbb.test', {}, true);
+  const adW = await mkUser('fs-admin@tbb.test', {}, true);
+  const pmW = await mkUser('fs-pm@tbb.test', {}, true);
+  const wsW = (await svc(`INSERT INTO public.workspaces (name, slug, owner_id) VALUES ('FS','fs-switch',$1) RETURNING id`, [oW]))[0].id;
+  await svc(`INSERT INTO public.workspace_members (workspace_id, user_id, role) VALUES ($1,$2,'ADMIN'), ($1,$3,'PRODUCTION_MANAGER') ON CONFLICT DO NOTHING`, [wsW, adW, pmW]);
+  const sw = (who, f, on, ws = wsW) => as(who, `SELECT public.set_workspace_feature($1, $2, $3) AS f`, [ws, f, on]);
+  r = await sw(adW, 'reports', false);
+  record('an admin switches a feature off', !r.error && r.rows[0]?.f?.reports === false, r.error?.message);
+  r = await sw(oW, 'priorities', false);
+  record('...the owner too, and both switches are kept', !r.error && r.rows[0]?.f?.reports === false && r.rows[0]?.f?.priorities === false, JSON.stringify(r.rows[0]?.f));
+  r = await sw(adW, 'reports', true);
+  record('switching back on removes the entry (missing = on)', !r.error && !('reports' in (r.rows[0]?.f ?? {})), JSON.stringify(r.rows[0]?.f));
+  r = await sw(pmW, 'reports', false);
+  record('a production manager cannot switch features', r.error?.code === '42501', r.error?.message ?? 'was allowed');
+  r = await sw(oW, 'make_coffee', false);
+  record('an unknown feature is refused', r.error?.code === '22023', r.error?.message ?? 'was allowed');
+  r = await sw(oW, 'reports', false, wsB);
+  record('a feature of another workspace cannot be switched', r.error?.code === '42501', r.error?.message ?? 'was allowed');
+  r = await as('anon', `SELECT public.set_workspace_feature($1, 'reports', false)`, [wsW]);
+  record('anon cannot switch features', !!r.error);
+}
+
 console.log('\n== Customize: status editor ==');
 {
   const oS = await mkUser('se-owner@tbb.test', {}, true);

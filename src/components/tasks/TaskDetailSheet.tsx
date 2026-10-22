@@ -24,6 +24,7 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import type { TaskPatch } from '@/database';
 import { useAuth } from '@/hooks/use-auth';
+import { useFeatures } from '@/hooks/use-features';
 import { useSaveIndicator } from '@/hooks/use-save-indicator';
 import { useListTasks, useSetAssignee, useTask, useUpdateTask } from '@/hooks/use-tasks';
 import { useWorkspaceMembers } from '@/hooks/use-team';
@@ -111,6 +112,7 @@ const TaskDetailSheet: React.FC<TaskDetailSheetProps> = ({ taskId, space, folder
   const navigate = useNavigate();
   const { search } = useLocation();
   const { user, role } = useAuth();
+  const on = useFeatures();
   const malformed = !isUuid(taskId);
   const { data: task, isLoading, isError, error, refetch } = useTask(malformed ? undefined : taskId);
   const { data: members = [] } = useWorkspaceMembers();
@@ -311,6 +313,7 @@ const TaskDetailSheet: React.FC<TaskDetailSheetProps> = ({ taskId, space, folder
                 <WorkflowPicker variant="field" task={task} members={members} />
               </PropertyRow>
 
+              {on('priorities') && (
               <PropertyRow label="Priority">
                 <PriorityControl
                   variant="field"
@@ -319,6 +322,7 @@ const TaskDetailSheet: React.FC<TaskDetailSheetProps> = ({ taskId, space, folder
                   onChange={(priority: TaskPriority) => saveQuietly({ priority })}
                 />
               </PropertyRow>
+              )}
 
               <PropertyRow label="Editor" htmlFor="task-editor">
                 {access.assign ? (
@@ -364,6 +368,7 @@ const TaskDetailSheet: React.FC<TaskDetailSheetProps> = ({ taskId, space, folder
                 )}
               </PropertyRow>
 
+              {on('client_deadline') && (
               <PropertyRow label="Client deadline" htmlFor="task-client">
                 {access.editBrief ? (
                   <DatePicker
@@ -377,7 +382,9 @@ const TaskDetailSheet: React.FC<TaskDetailSheetProps> = ({ taskId, space, folder
                   <DateValue label="Client deadline" value={task.clientDeadline} finished={finished} />
                 )}
               </PropertyRow>
+              )}
 
+              {on('aspect_ratio') && (
               <PropertyRow label="Aspect ratio" htmlFor="task-ratio">
                 {access.editBrief ? (
                   <Select
@@ -402,6 +409,7 @@ const TaskDetailSheet: React.FC<TaskDetailSheetProps> = ({ taskId, space, folder
                   <div className={STATIC_VALUE}>{ratio ? ratio.label : <span className="text-muted-foreground">Not set</span>}</div>
                 )}
               </PropertyRow>
+              )}
             </div>
             {warning && (
               <p className="text-xs text-muted-foreground" role="status">
@@ -420,8 +428,9 @@ const TaskDetailSheet: React.FC<TaskDetailSheetProps> = ({ taskId, space, folder
             />
           </Section>
 
-          <CustomFieldsSection taskId={task.id} isAssignedEditor={!!user && task.editorId === user.id} folderId={folder?.id ?? list.folderId ?? null} />
+          {on('custom_fields') && <CustomFieldsSection taskId={task.id} isAssignedEditor={!!user && task.editorId === user.id} folderId={folder?.id ?? list.folderId ?? null} />}
 
+          {on('production_links') && (
           <Section title="Production links">
             <div className="divide-y divide-border/50">
               {LINK_FIELDS.map(({ key, label }) => (
@@ -443,12 +452,15 @@ const TaskDetailSheet: React.FC<TaskDetailSheetProps> = ({ taskId, space, folder
               ))}
             </div>
           </Section>
+          )}
 
+          {on('subtasks') && (
           <Section title="Subtasks">
             <SubtaskChecklist taskId={task.id} subtasks={task.subtasks} access={access} />
           </Section>
+          )}
 
-          <BatchVideosSection task={task} taskPath={(id) => (taskPath ? taskPath(id) : hierarchyPaths.task(space.id, list.id, id))} />
+          {on('batch_videos') && <BatchVideosSection task={task} taskPath={(id) => (taskPath ? taskPath(id) : hierarchyPaths.task(space.id, list.id, id))} />}
 
           <footer className="border-t border-border/70 pt-4 text-[11px] text-muted-foreground">
             Created {new Date(task.createdAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}

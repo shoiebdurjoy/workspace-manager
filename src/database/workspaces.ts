@@ -164,3 +164,13 @@ export async function deleteWorkspace(workspaceId: string): Promise<void> {
     throw new DatabaseError(`Failed to delete workspace: ${error.message}`, error.code, error);
   }
 }
+
+/** Switches one feature on or off (Owner / Admin; the database checks). Returns the switched-off map. */
+export async function setWorkspaceFeature(workspaceId: string, feature: string, enabled: boolean): Promise<Record<string, boolean>> {
+  const { data, error } = await (getSupabaseClient() as unknown as { rpc: (fn: string, args: Record<string, unknown>) => Promise<{ data: unknown; error: { message: string } | null }> }).rpc(
+    'set_workspace_feature',
+    { p_workspace_id: workspaceId, p_feature: feature, p_enabled: enabled }
+  );
+  if (error) throw new DatabaseError(error.message);
+  return (data as Record<string, boolean>) ?? {};
+}
