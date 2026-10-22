@@ -1,3 +1,5 @@
+import CustomizeHome from '@/components/home/CustomizeHome';
+import { useLayout } from '@/hooks/use-layout';
 import React, { useEffect, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { AlertTriangle, ArrowRight, CalendarClock, CalendarDays, CircleDot, Layers, ListTodo, MailPlus, Plus, ShieldCheck, UserX, Users, UsersRound } from 'lucide-react';
@@ -110,6 +112,7 @@ const QueueRow: React.FC<{ item: HomeQueueItem; who?: string | null }> = ({ item
  */
 const Home: React.FC = () => {
   const { profile, role, workspace, user } = useAuth();
+  const { layout, update } = useLayout();
   const members = useWorkspaceMembers();
   const teams = useTeams();
   const invitations = useInvitations();
@@ -157,26 +160,9 @@ const Home: React.FC = () => {
             ? 'Nothing overdue and nothing due today. A clear runway.'
             : 'Nothing assigned to you yet. Enjoy the calm.';
 
-  return (
-    <div className="space-y-6">
-      <header className="hero-surface relative overflow-hidden rounded-card px-6 py-7 sm:px-8 sm:py-9">
-        <div aria-hidden className="hero-glow" />
-        <div className="relative flex flex-wrap items-end justify-between gap-4">
-          <div className="space-y-1.5">
-            <p className="section-label">
-              {workspace?.name} · {todayLabel}
-            </p>
-            <h1 className="page-title text-3xl sm:text-4xl">
-              {greeting}, {firstName}
-            </h1>
-            <p className="max-w-xl text-sm text-muted-foreground">{headline}</p>
-          </div>
-          {role && <RoleBadge role={role} className="text-[11px]" />}
-        </div>
-      </header>
-
-      {canSeeSpaces && (
-        <>
+  // Home is a stack of cards each person can hide and re-order (Customize Home); conditions keep role rules
+  const blocks: { id: string; label: string; show: boolean; node: React.ReactNode }[] = [
+    { id: 'mywork', label: 'My work', show: canSeeSpaces, node: (
           <section aria-label="My work" className="space-y-2">
             <div className="flex items-center justify-between">
               <h2 className="section-label">My work</h2>
@@ -200,7 +186,8 @@ const Home: React.FC = () => {
               </Stagger>
             )}
           </section>
-
+    ) },
+    { id: 'inbox', label: 'Notifications and recent tasks', show: canSeeSpaces, node: (
           <div className="grid gap-3 lg:grid-cols-2">
             <Card title="Unread notifications" to="/inbox" toLabel="Open Inbox">
               {inbox.isLoading ? (
@@ -251,8 +238,9 @@ const Home: React.FC = () => {
               )}
             </Card>
           </div>
+    ) },
+    { id: 'queues', label: 'QC queue and revisions', show: !!(canSeeSpaces && showQueues && s), node: s && (<>
 
-          {showQueues && s && (
             <div className="grid gap-3 lg:grid-cols-2">
               <Card title={isManager ? 'Waiting for QC' : 'My QC queue'}>
                 {s.qcQueue.length === 0 ? (
@@ -277,11 +265,11 @@ const Home: React.FC = () => {
                 )}
               </Card>
             </div>
-          )}
+          
+    </>) },
+    { id: 'insights', label: 'Insights (charts)', show: canSeeSpaces && isManager, node: <AdminInsights /> },
+    { id: 'across', label: 'Across the workspace', show: !!(canSeeSpaces && isManager && s?.manager), node: s && s.manager && (<>
 
-          {isManager && <AdminInsights />}
-
-          {isManager && s?.manager && (
             <section aria-label="Across the workspace" className="space-y-2">
               <h2 className="section-label">Across the workspace</h2>
               <div className="stat-grid grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -291,11 +279,10 @@ const Home: React.FC = () => {
                 <Stat label="No QC reviewer" value={s.manager.noQc} icon={<UserX className="h-4 w-4" />} to="/everything?qc=none&hide=1" />
               </div>
             </section>
-          )}
-        </>
-      )}
+          
+    </>) },
+    { id: 'summary', label: 'Workspace summary', show: canSeeTeam, node: (<>
 
-      {canSeeTeam && (
         <section className="stat-grid grid gap-3 sm:grid-cols-2 lg:grid-cols-3" aria-label="Workspace summary">
           <Stat label="Spaces" value={totals?.spaces} icon={<Layers className="h-4 w-4" />} />
           <Stat label="Lists" value={totals?.lists} icon={<ListTodo className="h-4 w-4" />} />
@@ -310,9 +297,10 @@ const Home: React.FC = () => {
             />
           )}
         </section>
-      )}
+      
+    </>) },
+    { id: 'spaces', label: 'Spaces', show: canSeeSpaces, node: (<>
 
-      {canSeeSpaces && (
         <section aria-label="Spaces" className="space-y-2">
           <div className="flex items-center justify-between">
             <h2 className="section-label">Spaces</h2>
@@ -356,8 +344,9 @@ const Home: React.FC = () => {
             </div>
           )}
         </section>
-      )}
-
+      
+    </>) },
+    { id: 'access', label: 'Your access', show: true, node: (
       <section className="surface-card p-4">
         <div className="flex items-center gap-2">
           <ShieldCheck className="h-4 w-4 text-muted-foreground" />
@@ -381,6 +370,47 @@ const Home: React.FC = () => {
           </Button>
         </div>
       </section>
+    ) },
+  ];
+  const order = layout.home?.order ?? [];
+  const hidden = layout.home?.hidden ?? [];
+  const available = blocks.filter((b) => b.show);
+  const arranged = [...available].sort((x, y) => {
+    const ix = order.indexOf(x.id);
+    const iy = order.indexOf(y.id);
+    return (ix === -1 ? 1000 + blocks.indexOf(x) : ix) - (iy === -1 ? 1000 + blocks.indexOf(y) : iy);
+  });
+
+  return (
+    <div className="space-y-6">
+      <header className="hero-surface relative overflow-hidden rounded-card px-6 py-7 sm:px-8 sm:py-9">
+        <div aria-hidden className="hero-glow" />
+        <div className="relative flex flex-wrap items-end justify-between gap-4">
+          <div className="space-y-1.5">
+            <p className="section-label">
+              {workspace?.name} · {todayLabel}
+            </p>
+            <h1 className="page-title text-3xl sm:text-4xl">
+              {greeting}, {firstName}
+            </h1>
+            <p className="max-w-xl text-sm text-muted-foreground">{headline}</p>
+          </div>
+          <div className="flex items-center gap-2">
+            {role && <RoleBadge role={role} className="text-[11px]" />}
+            <CustomizeHome
+              blocks={arranged.map((b) => ({ id: b.id, label: b.label }))}
+              hidden={hidden}
+              onChange={(nextOrder, nextHidden) => update((l) => ({ ...l, home: { order: nextOrder, hidden: nextHidden } }))}
+            />
+          </div>
+        </div>
+      </header>
+
+      {arranged
+        .filter((b) => !hidden.includes(b.id))
+        .map((b) => (
+          <React.Fragment key={b.id}>{b.node}</React.Fragment>
+        ))}
     </div>
   );
 };

@@ -2949,6 +2949,26 @@ console.log('\n== Notification settings ==');
   record('only known kinds can be muted', !!r.error);
 }
 
+console.log('\n== Personal layout ==');
+{
+  const oL = await mkUser('ul-owner@tbb.test', {}, true);
+  const edL = await mkUser('ul-editor@tbb.test', {}, true);
+  const wsL = (await svc(`INSERT INTO public.workspaces (name, slug, owner_id) VALUES ('UL','ul-layout',$1) RETURNING id`, [oL]))[0].id;
+  await svc(`INSERT INTO public.workspace_members (workspace_id, user_id, role) VALUES ($1,$2,'EDITOR') ON CONFLICT DO NOTHING`, [wsL, edL]);
+  r = await as(edL, `INSERT INTO public.user_layouts (user_id, workspace_id, layout) VALUES ($1,$2,'{"favorites":["a"],"home":{"hidden":["insights"]}}')`, [edL, wsL]);
+  record('a person saves their own layout', !r.error, r.error?.message);
+  r = await as(oL, `SELECT * FROM public.user_layouts`);
+  record('even the owner cannot read someone else\'s layout', !r.error && r.rows.length === 0);
+  r = await as(oL, `UPDATE public.user_layouts SET layout = '{}' WHERE user_id = $1 RETURNING user_id`, [edL]);
+  record('...or change it', !!r.error || r.rows.length === 0);
+  r = await as(edL, `INSERT INTO public.user_layouts (user_id, workspace_id) VALUES ($1,$2)`, [edL, wsB]);
+  record('a layout cannot be saved for a workspace one is not in', !!r.error);
+  r = await as(edL, `UPDATE public.user_layouts SET layout = jsonb_build_object('junk', repeat(md5(random()::text), 1000)) WHERE user_id = $1`, [edL]);
+  record('a layout is capped at 16 KB', !!r.error);
+  r = await as(edL, `UPDATE public.user_layouts SET layout = '[]' WHERE user_id = $1`, [edL]);
+  record('a layout must be an object', !!r.error);
+}
+
 console.log('\n== Customize: status editor ==');
 {
   const oS = await mkUser('se-owner@tbb.test', {}, true);

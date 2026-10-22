@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react';
 import { Link, matchPath, useLocation } from 'react-router-dom';
-import { ChevronDown, ChevronRight, Folder, FolderOpen, Layers, ListTodo, Plus } from 'lucide-react';
+import { ChevronDown, ChevronRight, Folder, FolderOpen, Layers, ListTodo, Plus, Star } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { IconButton } from '@/components/ui/icon-button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -8,10 +8,11 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { useAuth } from '@/hooks/use-auth';
 import { useHierarchy } from '@/hooks/use-hierarchy';
 import { useListOpenCounts } from '@/hooks/use-list-counts';
+import { useLayout } from '@/hooks/use-layout';
 import { useHierarchyDialogs } from '@/hooks/use-hierarchy-dialogs';
 import { useExpandedNodes } from '@/hooks/use-expanded-nodes';
 import { can } from '@/lib/permissions';
-import { findList, hierarchyPaths } from '@/lib/hierarchy';
+import { findList, findListById, hierarchyPaths } from '@/lib/hierarchy';
 import type { HierarchyFolder, HierarchyList, HierarchySpace } from '@/types/database';
 import SpaceIcon from './SpaceIcon';
 import { FolderMenu, ListMenu, SpaceMenu } from './NodeMenus';
@@ -46,8 +47,10 @@ const ListRow: React.FC<{
   list: HierarchyList;
   active: boolean;
   count?: number;
+  favorite?: boolean;
+  onFavorite?: () => void;
   onNavigate?: () => void;
-}> = ({ space, folder, list, active, count, onNavigate }) => (
+}> = ({ space, folder, list, active, count, favorite, onFavorite, onNavigate }) => (
   <div className={cn(rowBase, 'pl-1', active && activeRow)}>
     <Link
       to={hierarchyPaths.list(space.id, list.id)}
@@ -63,6 +66,17 @@ const ListRow: React.FC<{
         </span>
       ) : null}
     </Link>
+    {onFavorite && (
+      <button
+        type="button"
+        aria-label={`${favorite ? 'Remove' : 'Add'} ${list.name} ${favorite ? 'from' : 'to'} favorites`}
+        aria-pressed={!!favorite}
+        onClick={onFavorite}
+        className={cn('shrink-0 rounded p-0.5 text-muted-foreground hover:text-amber-400', favorite ? 'opacity-100' : MENU_REVEAL)}
+      >
+        <Star className={cn('h-3 w-3', favorite && 'fill-amber-400 text-amber-400')} />
+      </button>
+    )}
     <ListMenu space={space} folder={folder} list={list} className={MENU_REVEAL} />
   </div>
 );
@@ -74,6 +88,7 @@ const SpacesTree: React.FC<SpacesTreeProps> = ({ collapsed, onNavigate }) => {
   const dialogs = useHierarchyDialogs();
   const { expanded, toggle, reveal } = useExpandedNodes();
   const counts = useListOpenCounts().data;
+  const { layout, isFavorite, toggleFavorite } = useLayout();
   const canCreateSpace = can(role, 'space:create');
 
   const spaceMatch = matchPath('/spaces/:spaceId/*', pathname);
@@ -179,6 +194,25 @@ const SpacesTree: React.FC<SpacesTreeProps> = ({ collapsed, onNavigate }) => {
         </div>
       )}
 
+      {tree && (layout.favorites ?? []).length > 0 && (
+        <div className="mb-2 space-y-0.5">
+          <p className="flex items-center gap-1.5 px-2 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+            <Star className="h-3 w-3" /> Favorites
+          </p>
+          <ul>
+            {(layout.favorites ?? []).map((id) => {
+              const found = findListById(tree, id);
+              if (!found) return null;
+              return (
+                <li key={`fav-${id}`}>
+                  <ListRow space={found.space} folder={found.folder} list={found.list} active={activeListId === id} count={counts?.get(id)} favorite onFavorite={() => toggleFavorite(id)} onNavigate={onNavigate} />
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
+
       {tree && tree.length > 0 && (
         <ul className="space-y-0.5">
           {tree.map((space) => {
@@ -232,6 +266,8 @@ const SpacesTree: React.FC<SpacesTreeProps> = ({ collapsed, onNavigate }) => {
                                     folder={folder}
                                     list={list}
                                     count={counts?.get(list.id)}
+                                    favorite={isFavorite(list.id)}
+                                    onFavorite={() => toggleFavorite(list.id)}
                                     active={activeListId === list.id}
                                     onNavigate={onNavigate}
                                   />
@@ -244,7 +280,7 @@ const SpacesTree: React.FC<SpacesTreeProps> = ({ collapsed, onNavigate }) => {
                     })}
                     {space.folderlessLists.map((list) => (
                       <li key={list.id}>
-                        <ListRow space={space} folder={null} list={list} count={counts?.get(list.id)} active={activeListId === list.id} onNavigate={onNavigate} />
+                        <ListRow space={space} folder={null} list={list} count={counts?.get(list.id)} favorite={isFavorite(list.id)} onFavorite={() => toggleFavorite(list.id)} active={activeListId === list.id} onNavigate={onNavigate} />
                       </li>
                     ))}
                     {space.folders.length === 0 && space.folderlessLists.length === 0 && (
