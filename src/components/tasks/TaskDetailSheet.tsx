@@ -26,6 +26,8 @@ import type { TaskPatch } from '@/database';
 import { useAuth } from '@/hooks/use-auth';
 import { useFeatures } from '@/hooks/use-features';
 import { TaskTagsField } from '@/components/tags/Tags';
+import { DependenciesField, RepeatField, TimeSection } from './TaskExtras';
+import { canEditFieldValue } from '@/lib/custom-fields';
 import { useSaveIndicator } from '@/hooks/use-save-indicator';
 import { useListTasks, useSetAssignee, useTask, useUpdateTask } from '@/hooks/use-tasks';
 import { useWorkspaceMembers } from '@/hooks/use-team';
@@ -320,6 +322,18 @@ const TaskDetailSheet: React.FC<TaskDetailSheetProps> = ({ taskId, space, folder
                 </PropertyRow>
               )}
 
+              {on('recurring') && (
+                <PropertyRow label="Repeat">
+                  <RepeatField taskId={task.id} />
+                </PropertyRow>
+              )}
+
+              {on('dependencies') && (
+                <PropertyRow label="Waiting on">
+                  <DependenciesField taskId={task.id} />
+                </PropertyRow>
+              )}
+
               {on('priorities') && (
               <PropertyRow label="Priority">
                 <PriorityControl
@@ -459,6 +473,12 @@ const TaskDetailSheet: React.FC<TaskDetailSheetProps> = ({ taskId, space, folder
               ))}
             </div>
           </Section>
+          )}
+
+          {on('time_tracking') && (
+            <Section title="Time">
+              <TimeSection taskId={task.id} canLog={canEditFieldValue(role, !!user && task.editorId === user.id)} />
+            </Section>
           )}
 
           {on('subtasks') && (

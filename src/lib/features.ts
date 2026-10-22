@@ -19,7 +19,10 @@ export type FeatureKey =
   | 'workload'
   | 'reports'
   | 'production'
-  | 'tags';
+  | 'tags'
+  | 'recurring'
+  | 'dependencies'
+  | 'time_tracking';
 
 export const FEATURES: { key: FeatureKey; group: 'Tasks' | 'Team' | 'Pages'; label: string; hint: string }[] = [
   { key: 'priorities', group: 'Tasks', label: 'Priorities', hint: 'Urgent / High / Normal / Low on every video' },
@@ -29,6 +32,9 @@ export const FEATURES: { key: FeatureKey; group: 'Tasks' | 'Team' | 'Pages'; lab
   { key: 'custom_fields', group: 'Tasks', label: 'Custom fields', hint: 'The Fields section on each video' },
   { key: 'subtasks', group: 'Tasks', label: 'Subtasks', hint: 'Checklist steps inside a video' },
   { key: 'tags', group: 'Tasks', label: 'Tags', hint: 'Coloured tags such as Reshoot or Urgent client' },
+  { key: 'recurring', group: 'Tasks', label: 'Recurring videos', hint: 'Repeat a video every N days, weeks or months' },
+  { key: 'dependencies', group: 'Tasks', label: 'Dependencies', hint: 'A video can wait on other videos' },
+  { key: 'time_tracking', group: 'Tasks', label: 'Time tracking', hint: 'Timers, logged time and estimates on videos' },
   { key: 'batch_videos', group: 'Tasks', label: 'Batch videos', hint: 'Child videos under a batch task' },
   { key: 'availability', group: 'Team', label: 'Availability status', hint: 'Free / Working / Busy / On leave in the top bar' },
   { key: 'assistant', group: 'Team', label: 'Built-in assistant', hint: 'Ask AI (Ctrl+J) for owners, admins and managers' },

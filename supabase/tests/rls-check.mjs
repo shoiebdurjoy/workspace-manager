@@ -2969,6 +2969,94 @@ console.log('\n== Personal layout ==');
   record('a layout must be an object', !!r.error);
 }
 
+console.log('\n== Recurring videos, dependencies, time tracking ==');
+{
+  const oR = await mkUser('rc-owner@tbb.test', {}, true);
+  const pmR = await mkUser('rc-pm@tbb.test', {}, true);
+  const edR = await mkUser('rc-editor@tbb.test', {}, true);
+  const ed2R = await mkUser('rc-editor2@tbb.test', {}, true);
+  const qcR = await mkUser('rc-qc@tbb.test', {}, true);
+  const clR = await mkUser('rc-client@tbb.test', {}, true);
+  const wsR = (await svc(`INSERT INTO public.workspaces (name, slug, owner_id) VALUES ('RC','rc-rec',$1) RETURNING id`, [oR]))[0].id;
+  await svc(`INSERT INTO public.workspace_members (workspace_id, user_id, role) VALUES ($1,$2,'PRODUCTION_MANAGER'), ($1,$3,'EDITOR'), ($1,$4,'EDITOR'), ($1,$5,'QC_SPECIALIST'), ($1,$6,'CLIENT_VIEWER') ON CONFLICT DO NOTHING`, [wsR, pmR, edR, ed2R, qcR, clR]);
+  const spR = (await as(oR, `INSERT INTO public.spaces (workspace_id, name, slug) VALUES ($1,'S','s') RETURNING id`, [wsR])).rows[0]?.id;
+  const lR = (await as(oR, `INSERT INTO public.lists (space_id, name) VALUES ($1,'Weekly client') RETURNING id`, [spR])).rows[0]?.id;
+  const tagR = (await as(oR, `INSERT INTO public.tags (workspace_id, name) VALUES ($1,'Weekly') RETURNING id`, [wsR])).rows[0]?.id;
+  const t1 = (await as(pmR, `INSERT INTO public.tasks (list_id, title, priority, due_date) VALUES ($1,'Weekly recap','HIGH', '2026-11-02T12:00:00Z') RETURNING id`, [lR])).rows[0]?.id;
+  await as(pmR, `SELECT public.set_task_assignee($1, 'EDITOR', $2)`, [t1, edR]);
+  await as(pmR, `INSERT INTO public.task_tags (task_id, tag_id) VALUES ($1,$2)`, [t1, tagR]);
+
+  // --- recurring
+  r = await as(edR, `INSERT INTO public.task_recurrence (task_id, every, unit) VALUES ($1, 1, 'week')`, [t1]);
+  record('an editor cannot make a video repeat', !!r.error);
+  r = await as(pmR, `INSERT INTO public.task_recurrence (task_id, every, unit) VALUES ($1, 1, 'week')`, [t1]);
+  record('a manager makes a video repeat every week', !r.error, r.error?.message);
+  await svc(`UPDATE public.tasks SET status = 'CLOSED' WHERE id = $1`, [t1]);
+  const next = await svc(`SELECT t.id, t.title, t.status, t.priority, t.due_date FROM public.tasks t WHERE t.list_id = $1 AND t.id <> $2`, [lR, t1]);
+  record('closing it creates the next one, a week later, at the starting status', next.length === 1 && next[0].title === 'Weekly recap' && next[0].status === 'TO_BE_EDITED' && next[0].priority === 'HIGH' && new Date(next[0].due_date).toISOString().startsWith('2026-11-09'), JSON.stringify(next));
+  const t2 = next[0]?.id;
+  record('...with the same editor and tag', (await svc(`SELECT user_id FROM public.task_assignees WHERE task_id = $1 AND role_type = 'EDITOR'`, [t2]))[0]?.user_id === edR && (await svc(`SELECT count(*)::int n FROM public.task_tags WHERE task_id = $1`, [t2]))[0].n === 1);
+  record('...and the repeat rule moves to the new video', (await svc(`SELECT count(*)::int n FROM public.task_recurrence WHERE task_id = $1`, [t2]))[0].n === 1);
+  await svc(`UPDATE public.tasks SET status = 'TO_BE_EDITED' WHERE id = $1`, [t1]);
+  await svc(`UPDATE public.tasks SET status = 'CLOSED' WHERE id = $1`, [t1]);
+  record('re-closing the old video does not create a second copy', (await svc(`SELECT count(*)::int n FROM public.tasks WHERE list_id = $1`, [lR]))[0].n === 2);
+  r = await as(pmR, `UPDATE public.task_recurrence SET spawned_task_id = NULL WHERE task_id = $1`, [t1]);
+  record('nobody can reset which video a rule created', !!r.error);
+  r = await as(pmR, `DELETE FROM public.task_recurrence WHERE task_id = $1 RETURNING task_id`, [t2]);
+  record('a manager stops the repeat', !r.error && r.rows.length === 1, r.error?.message);
+
+  // --- dependencies
+  const a = (await as(pmR, `INSERT INTO public.tasks (list_id, title) VALUES ($1,'Selects') RETURNING id`, [lR])).rows[0]?.id;
+  const b = (await as(pmR, `INSERT INTO public.tasks (list_id, title) VALUES ($1,'Long cut') RETURNING id`, [lR])).rows[0]?.id;
+  const c = (await as(pmR, `INSERT INTO public.tasks (list_id, title) VALUES ($1,'Shorts') RETURNING id`, [lR])).rows[0]?.id;
+  r = await as(edR, `INSERT INTO public.task_dependencies (task_id, depends_on_id) VALUES ($1,$2)`, [b, a]);
+  record('an editor cannot add dependencies', !!r.error);
+  r = await as(pmR, `INSERT INTO public.task_dependencies (task_id, depends_on_id) VALUES ($1,$2)`, [b, a]);
+  record('a manager makes the long cut wait on the selects', !r.error, r.error?.message);
+  await as(pmR, `INSERT INTO public.task_dependencies (task_id, depends_on_id) VALUES ($1,$2)`, [c, b]);
+  r = await as(pmR, `INSERT INTO public.task_dependencies (task_id, depends_on_id) VALUES ($1,$2)`, [a, c]);
+  record('a circle of waiting is refused', r.error?.code === '23514', r.error?.message ?? 'was allowed');
+  r = await as(pmR, `INSERT INTO public.task_dependencies (task_id, depends_on_id) VALUES ($1,$1)`, [a]);
+  record('a video cannot wait on itself', !!r.error);
+  const otherTask = (await svc(`SELECT id FROM public.tasks WHERE workspace_id = $1 LIMIT 1`, [wsB]))[0]?.id;
+  if (otherTask) {
+    r = await as(pmR, `INSERT INTO public.task_dependencies (task_id, depends_on_id) VALUES ($1,$2)`, [a, otherTask]);
+    record('a video cannot wait on another workspace\'s video', !!r.error);
+  }
+  r = await as(edR, `SELECT * FROM public.task_dependencies WHERE task_id = $1`, [b]);
+  record('the staff see dependencies', !r.error && r.rows.length === 1);
+  r = await as(clR, `SELECT * FROM public.task_dependencies`);
+  record('clients do not', !r.error && r.rows.length === 0);
+
+  // --- time tracking
+  r = await as(edR, `INSERT INTO public.time_entries (task_id, started_at) VALUES ($1, now() - interval '10 minutes') RETURNING user_id`, [a]);
+  record('an editor starts a timer (owner set by the database)', !r.error && r.rows[0]?.user_id === edR, r.error?.message);
+  r = await as(edR, `INSERT INTO public.time_entries (task_id, started_at) VALUES ($1, now())`, [b]);
+  record('only one timer runs at a time per person', !!r.error);
+  r = await as(edR, `UPDATE public.time_entries SET ended_at = now() WHERE user_id = $1 AND ended_at IS NULL RETURNING id`, [edR]);
+  record('...and stops it', !r.error && r.rows.length === 1, r.error?.message);
+  r = await as(edR, `INSERT INTO public.time_entries (task_id, started_at, ended_at, note) VALUES ($1, now() - interval '30 hours', now(), 'too long')`, [a]);
+  record('an entry longer than 24 hours is refused', !!r.error);
+  r = await as(edR, `INSERT INTO public.time_entries (task_id, started_at) VALUES ($1, now() + interval '1 day')`, [a]);
+  record('time cannot start in the future', !!r.error);
+  const entry = (await as(edR, `INSERT INTO public.time_entries (task_id, started_at, ended_at) VALUES ($1, now() - interval '2 hours', now() - interval '1 hour') RETURNING id`, [a])).rows[0]?.id;
+  r = await as(ed2R, `UPDATE public.time_entries SET note = 'mine' WHERE id = $1 RETURNING id`, [entry]);
+  record('another editor cannot change someone\'s time', !!r.error || r.rows.length === 0);
+  r = await as(ed2R, `DELETE FROM public.time_entries WHERE id = $1 RETURNING id`, [entry]);
+  record('...or delete it', !!r.error || r.rows.length === 0);
+  r = await as(qcR, `SELECT count(*)::int n FROM public.time_entries WHERE task_id = $1`, [a]);
+  record('the staff see the time on a video', !r.error && r.rows[0].n === 2);
+  r = await as(clR, `SELECT * FROM public.time_entries`);
+  record('clients see no time entries', !r.error && r.rows.length === 0);
+  r = await as(pmR, `DELETE FROM public.time_entries WHERE id = $1 RETURNING id`, [entry]);
+  record('a manager deletes a wrong entry', !r.error && r.rows.length === 1, r.error?.message);
+  r = await as(pmR, `UPDATE public.tasks SET time_estimate_minutes = 90 WHERE id = $1 RETURNING time_estimate_minutes`, [a]);
+  record('a manager sets a time estimate', !r.error && r.rows[0]?.time_estimate_minutes === 90, r.error?.message);
+  await svc(`INSERT INTO public.task_assignees (task_id, role_type, user_id) VALUES ($1,'EDITOR',$2) ON CONFLICT DO NOTHING`, [a, edR]);
+  r = await as(edR, `UPDATE public.tasks SET time_estimate_minutes = 5 WHERE id = $1`, [a]);
+  record('an editor cannot change the estimate', !!r.error);
+}
+
 console.log('\n== Customize: status editor ==');
 {
   const oS = await mkUser('se-owner@tbb.test', {}, true);
