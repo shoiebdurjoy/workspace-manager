@@ -57,6 +57,6 @@ describe('no mock data or fake auth in production source', () => {
       const text = fs.readFileSync(f, 'utf8');
       return [...text.matchAll(/(?:localStorage|sessionStorage)\.(?:set|get|remove)Item\(\s*([^,)]+)/g)].map((m) => `${path.relative(SRC, f)}: ${m[1].trim()}`);
     });
-    for (const use of uses) expect(use).toMatch(/SIDEBAR_COLLAPSED_STORAGE_KEY|SIDEBAR_WIDTH_STORAGE_KEY|SIDEBAR_EXPANDED_STORAGE_KEY|taskViewStorageKey|viewModeStorageKey|tableColumnsStorageKey|ASSISTANT_CHAT_STORAGE_KEY|'theme'|"theme"/);
+    for (const use of uses) expect(use).toMatch(/SIDEBAR_COLLAPSED_STORAGE_KEY|SIDEBAR_WIDTH_STORAGE_KEY|SIDEBAR_EXPANDED_STORAGE_KEY|taskViewStorageKey|viewModeStorageKey|tableColumnsStorageKey|ASSISTANT_CHAT_STORAGE_KEY|DESKTOP_NOTIFY_STORAGE_KEY|'theme'|"theme"/);
   });
 });

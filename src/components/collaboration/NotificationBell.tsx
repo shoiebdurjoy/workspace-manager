@@ -1,4 +1,5 @@
-import React, { useMemo, useState } from 'react';
+import { showDesktopNotice } from '@/lib/desktop-notify';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AtSign, Bell, CheckCheck, MessageSquare, MoreHorizontal, UserPlus, ArrowRightLeft } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -43,6 +44,13 @@ const NotificationBell: React.FC = () => {
   const lookup = useMemo(() => memberLookup(members), [members]);
 
   const count = unread.data ?? 0;
+  // a desktop notice when the unread count grows while the tab is in the background (if switched on)
+  const lastCount = useRef<number | null>(null);
+  useEffect(() => {
+    if (unread.data === undefined) return;
+    if (lastCount.current !== null && unread.data > lastCount.current) showDesktopNotice(unread.data - lastCount.current);
+    lastCount.current = unread.data;
+  }, [unread.data]);
   const lines = useMemo(
     () => (list.data?.pages.flatMap((p) => p.items) ?? []).map((n) => ({ n, line: describeNotification(n, lookup, workflow) })),
     [list.data, lookup, workflow]

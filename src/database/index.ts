@@ -20,6 +20,7 @@ export * from './tags';
 export * from './automations';
 export * from './savedViews';
 export * from './briefForms';
+export * from './notificationPrefs';
 export * from './production';
 export * from './home';
 export * from './availability';

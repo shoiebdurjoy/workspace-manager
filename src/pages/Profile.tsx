@@ -1,3 +1,4 @@
+import NotificationSettings from '@/components/settings/NotificationSettings';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -189,6 +190,8 @@ const Profile: React.FC = () => {
           Save changes
         </Button>
       </form>
+
+      <NotificationSettings />
 
       <form onSubmit={onChangePassword} noValidate className="space-y-4 surface-card p-4">
         <h2 className="section-label">Change password</h2>

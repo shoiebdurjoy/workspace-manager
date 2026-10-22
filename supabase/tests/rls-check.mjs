@@ -2915,6 +2915,40 @@ console.log('\n== Client brief forms ==');
   record('editors do not see submissions', !r.error && r.rows.length === 0);
 }
 
+console.log('\n== Notification settings ==');
+{
+  const oN = await mkUser('np-owner@tbb.test', {}, true);
+  const edN = await mkUser('np-editor@tbb.test', {}, true);
+  const ed2N = await mkUser('np-editor2@tbb.test', {}, true);
+  const wsN = (await svc(`INSERT INTO public.workspaces (name, slug, owner_id) VALUES ('NP','np-prefs',$1) RETURNING id`, [oN]))[0].id;
+  await svc(`INSERT INTO public.workspace_members (workspace_id, user_id, role) VALUES ($1,$2,'EDITOR'), ($1,$3,'EDITOR') ON CONFLICT DO NOTHING`, [wsN, edN, ed2N]);
+  const spN = (await as(oN, `INSERT INTO public.spaces (workspace_id, name, slug) VALUES ($1,'S','s') RETURNING id`, [wsN])).rows[0]?.id;
+  const lQuiet = (await as(oN, `INSERT INTO public.lists (space_id, name) VALUES ($1,'Quiet client') RETURNING id`, [spN])).rows[0]?.id;
+  const lLoud = (await as(oN, `INSERT INTO public.lists (space_id, name) VALUES ($1,'Loud client') RETURNING id`, [spN])).rows[0]?.id;
+  const assign = async (list, who) => {
+    const t = (await as(oN, `INSERT INTO public.tasks (list_id, title) VALUES ($1,'v') RETURNING id`, [list])).rows[0]?.id;
+    await as(oN, `SELECT public.set_task_assignee($1, 'EDITOR', $2)`, [t, who]);
+    return (await svc(`SELECT count(*)::int n FROM public.notifications WHERE task_id = $1 AND user_id = $2 AND kind = 'assigned'`, [t, who]))[0].n;
+  };
+  record('with no settings every assignment notifies', (await assign(lLoud, edN)) === 1);
+  r = await as(edN, `INSERT INTO public.notification_prefs (user_id, workspace_id, muted_list_ids) VALUES ($1,$2,ARRAY[$3]::uuid[])`, [edN, wsN, lQuiet]);
+  record('a person mutes one client', !r.error, r.error?.message);
+  record('...and hears nothing about it', (await assign(lQuiet, edN)) === 0);
+  record('...but still hears about other clients', (await assign(lLoud, edN)) === 1);
+  r = await as(edN, `UPDATE public.notification_prefs SET muted_kinds = ARRAY['assigned'] WHERE user_id = $1 RETURNING user_id`, [edN]);
+  record('they mute assignments', !r.error && r.rows.length === 1, r.error?.message);
+  record('...and get no assignment notices', (await assign(lLoud, edN)) === 0);
+  record('someone else\'s settings do not affect a teammate', (await assign(lLoud, ed2N)) === 1);
+  r = await as(ed2N, `UPDATE public.notification_prefs SET muted_kinds = '{}' WHERE user_id = $1 RETURNING user_id`, [edN]);
+  record('nobody can change another person\'s settings', !!r.error || r.rows.length === 0);
+  r = await as(ed2N, `SELECT * FROM public.notification_prefs`);
+  record('...or read them', !r.error && r.rows.length === 0);
+  r = await as(ed2N, `INSERT INTO public.notification_prefs (user_id, workspace_id) VALUES ($1,$2)`, [edN, wsN]);
+  record('...or create them for someone else', !!r.error);
+  r = await as(edN, `UPDATE public.notification_prefs SET muted_kinds = ARRAY['spam'] WHERE user_id = $1`, [edN]);
+  record('only known kinds can be muted', !!r.error);
+}
+
 console.log('\n== Customize: status editor ==');
 {
   const oS = await mkUser('se-owner@tbb.test', {}, true);
