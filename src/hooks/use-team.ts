@@ -3,6 +3,8 @@ import { toast } from 'sonner';
 import {
   addTeamMember,
   createInvitation,
+  sendInvitationEmail,
+  type InviteMailResult,
   createTeam,
   deleteTeam,
   getWorkspaceMembers,
@@ -109,14 +111,23 @@ export function useRemoveMember() {
   });
 }
 
+function describeMail(email: string, mail: InviteMailResult | null): string {
+  if (mail?.sent) return `Invitation e-mailed to ${email}`;
+  if (mail?.reason === 'already-registered') return `Invitation saved. ${email} already has an account: they just sign in with it.`;
+  return `Invitation saved for ${email}, but the e-mail could not be sent${mail?.detail ? ` (${mail.detail})` : ''}. Use the copy button to send the link yourself.`;
+}
+
 export function useInvite() {
   const ws = useWorkspaceId();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ email, role }: { email: string; role: TbbRole }) =>
-      createInvitation({ workspaceId: ws, email, role }),
-    onSuccess: (inv) => {
-      toast.success(inv.acceptedAt ? `${inv.email} already had an account and now has access` : `Invitation saved for ${inv.email}`);
+    mutationFn: async ({ email, role }: { email: string; role: TbbRole }) => {
+      const inv = await createInvitation({ workspaceId: ws, email, role });
+      // a person who already had an account has access at once; everyone else gets the invitation e-mail
+      return { inv, mail: inv.acceptedAt ? null : await sendInvitationEmail(ws, inv.email) };
+    },
+    onSuccess: ({ inv, mail }) => {
+      toast.success(inv.acceptedAt ? `${inv.email} already had an account and now has access` : describeMail(inv.email, mail));
       void qc.invalidateQueries({ queryKey: teamKeys.invitations(ws) });
       void qc.invalidateQueries({ queryKey: teamKeys.members(ws) });
     },

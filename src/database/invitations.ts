@@ -48,6 +48,21 @@ export async function listInvitations(workspaceId: string): Promise<WorkspaceInv
   return (data ?? []).map(mapInvitationRow);
 }
 
+export type InviteMailResult = { sent: true } | { sent: false; reason: 'already-registered' | 'mail-failed' | 'unavailable'; detail?: string };
+
+/** Asks the server to e-mail the invitation link. Never throws: the invitation is saved either way. */
+export async function sendInvitationEmail(workspaceId: string, email: string): Promise<InviteMailResult> {
+  try {
+    const { data, error } = await getSupabaseClient().functions.invoke('send-invite', {
+      body: { workspaceId, email: normaliseEmail(email), redirectTo: `${window.location.origin}/login` },
+    });
+    if (error) return { sent: false, reason: 'unavailable', detail: error.message };
+    return data as InviteMailResult;
+  } catch (e) {
+    return { sent: false, reason: 'unavailable', detail: e instanceof Error ? e.message : undefined };
+  }
+}
+
 export async function createInvitation(input: {
   workspaceId: string;
   email: string;

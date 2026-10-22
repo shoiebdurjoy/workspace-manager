@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
-import { Link2, Loader2, MailPlus, Trash2 } from 'lucide-react';
+import { Link2, Loader2, Mail, MailPlus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '@/hooks/use-auth';
 import { useInvitations, useInvite, useRevokeInvitation } from '@/hooks/use-team';
+import { sendInvitationEmail } from '@/database';
 import { invitableRoles, ROLE_DESCRIPTIONS, ROLE_LABELS } from '@/lib/permissions';
 import { validateEmail } from '@/lib/auth-errors';
 import type { TbbRole } from '@/types/database';
@@ -48,9 +49,8 @@ const InvitationsPanel: React.FC = () => {
         <div>
           <h3 className="section-label">Invite someone</h3>
           <p className="text-[11px] text-muted-foreground">
-            TBB does not send e-mails. Adding someone only gives <strong>that e-mail address</strong> permission to join with this role.
-            After you add them, press the link button beside their invitation to copy a ready message, and send it to them on
-            WhatsApp or e-mail.
+            They get an e-mail with a link to join with this role. If it does not arrive (check spam), press the envelope beside
+            their invitation to send it again, or the link button to copy a message you can send on WhatsApp.
           </p>
         </div>
         <div className="flex flex-col gap-2 sm:flex-row sm:items-start">
@@ -118,6 +118,20 @@ const InvitationsPanel: React.FC = () => {
                     </div>
                     <div className="flex items-center gap-2">
                       <RoleBadge role={inv.role} />
+                      <IconButton
+                        aria-label={`E-mail the invitation again to ${inv.email}`}
+                        tooltip="Send the invitation e-mail again"
+                        icon={<Mail className="h-3.5 w-3.5" />}
+                        variant="ghost"
+                        size="xs"
+                        onClick={() =>
+                          void sendInvitationEmail(inv.workspaceId, inv.email).then((r) =>
+                            r.sent
+                              ? toast.success(`Invitation e-mailed to ${inv.email}`)
+                              : toast.error(r.reason === 'already-registered' ? `${inv.email} already has an account: ask them to sign in.` : `The e-mail could not be sent${r.detail ? ` (${r.detail})` : ''}. Use the copy button instead.`)
+                          )
+                        }
+                      />
                       <IconButton
                         aria-label={`Copy sign-in link for ${inv.email}`}
                         tooltip="Copy sign-in link (send it on WhatsApp)"
