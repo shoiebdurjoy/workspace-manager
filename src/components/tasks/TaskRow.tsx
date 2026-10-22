@@ -1,3 +1,4 @@
+import { TaskTagChips } from '@/components/tags/Tags';
 import React, { memo, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
@@ -298,6 +299,7 @@ const TaskRow: React.FC<TaskRowProps> = ({
                 {task.title}
               </Link>
               <RevisionTag count={task.revisionCount} className="relative z-10" />
+              <span className="relative z-10 hidden md:inline-flex"><TaskTagChips taskId={task.id} max={2} /></span>
               {progress.total > 0 && (
                 <span
                   className="relative z-10 inline-flex shrink-0 items-center gap-0.5 rounded-full bg-muted/70 px-1.5 text-[11px] tabular-nums text-muted-foreground"

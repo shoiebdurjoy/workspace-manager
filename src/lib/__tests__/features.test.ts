@@ -12,6 +12,6 @@ describe('feature switches', () => {
   it('lists every switch the database accepts, once', () => {
     const keys = FEATURES.map((f) => f.key);
     expect(new Set(keys).size).toBe(keys.length);
-    expect(keys).toHaveLength(13);
+    expect(keys).toHaveLength(14);
   });
 });

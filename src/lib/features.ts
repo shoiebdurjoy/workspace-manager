@@ -18,7 +18,8 @@ export type FeatureKey =
   | 'calendar'
   | 'workload'
   | 'reports'
-  | 'production';
+  | 'production'
+  | 'tags';
 
 export const FEATURES: { key: FeatureKey; group: 'Tasks' | 'Team' | 'Pages'; label: string; hint: string }[] = [
   { key: 'priorities', group: 'Tasks', label: 'Priorities', hint: 'Urgent / High / Normal / Low on every video' },
@@ -27,6 +28,7 @@ export const FEATURES: { key: FeatureKey; group: 'Tasks' | 'Team' | 'Pages'; lab
   { key: 'production_links', group: 'Tasks', label: 'Production links', hint: 'Raw footage, project file, review link, final export' },
   { key: 'custom_fields', group: 'Tasks', label: 'Custom fields', hint: 'The Fields section on each video' },
   { key: 'subtasks', group: 'Tasks', label: 'Subtasks', hint: 'Checklist steps inside a video' },
+  { key: 'tags', group: 'Tasks', label: 'Tags', hint: 'Coloured tags such as Reshoot or Urgent client' },
   { key: 'batch_videos', group: 'Tasks', label: 'Batch videos', hint: 'Child videos under a batch task' },
   { key: 'availability', group: 'Team', label: 'Availability status', hint: 'Free / Working / Busy / On leave in the top bar' },
   { key: 'assistant', group: 'Team', label: 'Built-in assistant', hint: 'Ask AI (Ctrl+J) for owners, admins and managers' },

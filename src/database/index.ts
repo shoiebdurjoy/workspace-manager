@@ -16,6 +16,7 @@ export * from './collaboration';
 export * from './batches';
 export * from './customFields';
 export * from './workflow';
+export * from './tags';
 export * from './production';
 export * from './home';
 export * from './availability';

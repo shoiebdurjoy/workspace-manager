@@ -2696,6 +2696,43 @@ console.log('\n== Customize: feature switches ==');
   record('anon cannot switch features', !!r.error);
 }
 
+console.log('\n== Customize: tags ==');
+{
+  const oT = await mkUser('tg-owner@tbb.test', {}, true);
+  const pmT = await mkUser('tg-pm@tbb.test', {}, true);
+  const edT = await mkUser('tg-editor@tbb.test', {}, true);
+  const ed2 = await mkUser('tg-editor2@tbb.test', {}, true);
+  const clT = await mkUser('tg-client@tbb.test', {}, true);
+  const wsT = (await svc(`INSERT INTO public.workspaces (name, slug, owner_id) VALUES ('TG','tg-tags',$1) RETURNING id`, [oT]))[0].id;
+  await svc(`INSERT INTO public.workspace_members (workspace_id, user_id, role) VALUES ($1,$2,'PRODUCTION_MANAGER'), ($1,$3,'EDITOR'), ($1,$4,'EDITOR'), ($1,$5,'CLIENT_VIEWER') ON CONFLICT DO NOTHING`, [wsT, pmT, edT, ed2, clT]);
+  r = await as(pmT, `INSERT INTO public.tags (workspace_id, name, color) VALUES ($1,'  Reshoot ','#EF4444') RETURNING id, name`, [wsT]);
+  const tReshoot = r.rows[0]?.id;
+  record('a production manager creates a tag (name trimmed)', !r.error && r.rows[0]?.name === 'Reshoot', r.error?.message);
+  r = await as(pmT, `INSERT INTO public.tags (workspace_id, name) VALUES ($1,'reshoot')`, [wsT]);
+  record('tag names are unique per workspace, ignoring case', !!r.error);
+  r = await as(edT, `INSERT INTO public.tags (workspace_id, name) VALUES ($1,'Mine')`, [wsT]);
+  record('an editor cannot create tags', !!r.error);
+  const otherTag = (await svc(`INSERT INTO public.tags (workspace_id, name) VALUES ($1,'Elsewhere') RETURNING id`, [wsB]))[0].id;
+  const spT = (await as(oT, `INSERT INTO public.spaces (workspace_id, name, slug) VALUES ($1,'S','s') RETURNING id`, [wsT])).rows[0]?.id;
+  const lT = (await as(oT, `INSERT INTO public.lists (space_id, name) VALUES ($1,'L') RETURNING id`, [spT])).rows[0]?.id;
+  const task = (await as(oT, `INSERT INTO public.tasks (list_id, title) VALUES ($1,'v') RETURNING id`, [lT])).rows[0]?.id;
+  await svc(`INSERT INTO public.task_assignees (task_id, role_type, user_id) VALUES ($1,'EDITOR',$2)`, [task, edT]);
+  r = await as(edT, `INSERT INTO public.task_tags (task_id, tag_id) VALUES ($1,$2)`, [task, tReshoot]);
+  record('the assigned editor tags their video', !r.error, r.error?.message);
+  r = await as(ed2, `DELETE FROM public.task_tags WHERE task_id = $1 RETURNING tag_id`, [task]);
+  record('another editor cannot untag it', !!r.error || r.rows.length === 0);
+  r = await as(oT, `INSERT INTO public.task_tags (task_id, tag_id) VALUES ($1,$2)`, [task, otherTag]);
+  record('a tag of another workspace is refused', r.error?.code === '23514', r.error?.message ?? 'was allowed');
+  r = await as(clT, `SELECT * FROM public.tags WHERE workspace_id = $1`, [wsT]);
+  record('a client viewer sees no tags', !r.error && r.rows.length === 0);
+  r = await as(pmT, `UPDATE public.tags SET name = 'Re-shoot', color = '#F97316' WHERE id = $1 RETURNING name`, [tReshoot]);
+  record('a manager renames and recolours a tag', !r.error && r.rows[0]?.name === 'Re-shoot', r.error?.message);
+  r = await as(pmT, `DELETE FROM public.tags WHERE id = $1 RETURNING id`, [tReshoot]);
+  record('deleting a tag removes it from every video', !r.error && (await svc(`SELECT count(*)::int n FROM public.task_tags WHERE tag_id = $1`, [tReshoot]))[0].n === 0, r.error?.message);
+  r = await as(oT, `SELECT public.set_workspace_feature($1, 'tags', false) AS f`, [wsT]);
+  record('tags can be switched off as a feature', !r.error && r.rows[0]?.f?.tags === false, r.error?.message);
+}
+
 console.log('\n== Customize: status editor ==');
 {
   const oS = await mkUser('se-owner@tbb.test', {}, true);

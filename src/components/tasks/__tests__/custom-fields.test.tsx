@@ -236,10 +236,11 @@ describe('Settings page', () => {
     // tucked away until opened; Owner / Admin also get the status editor, so they pick the fields tab
     expect(screen.queryByRole('region', { name: 'Custom fields' })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /Customize workspace/ }));
-    const fieldsTab = screen.queryByRole('tab', { name: 'Custom fields' });
-    expect(!!fieldsTab).toBe(role !== 'PRODUCTION_MANAGER');
+    // everyone who manages fields also gets the Tags tab; only Owner / Admin get statuses and features
+    expect(screen.getByRole('tab', { name: 'Tags' })).toBeInTheDocument();
     expect(!!screen.queryByRole('tab', { name: 'Statuses & moves' })).toBe(role !== 'PRODUCTION_MANAGER');
-    if (fieldsTab) fireEvent.click(fieldsTab);
+    expect(!!screen.queryByRole('tab', { name: 'Features' })).toBe(role !== 'PRODUCTION_MANAGER');
+    fireEvent.click(screen.getByRole('tab', { name: 'Custom fields' }));
     expect(await screen.findByRole('region', { name: 'Custom fields' })).toBeInTheDocument();
   });
 

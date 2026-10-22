@@ -25,6 +25,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import type { TaskPatch } from '@/database';
 import { useAuth } from '@/hooks/use-auth';
 import { useFeatures } from '@/hooks/use-features';
+import { TaskTagsField } from '@/components/tags/Tags';
 import { useSaveIndicator } from '@/hooks/use-save-indicator';
 import { useListTasks, useSetAssignee, useTask, useUpdateTask } from '@/hooks/use-tasks';
 import { useWorkspaceMembers } from '@/hooks/use-team';
@@ -312,6 +313,12 @@ const TaskDetailSheet: React.FC<TaskDetailSheetProps> = ({ taskId, space, folder
               <PropertyRow label="Status">
                 <WorkflowPicker variant="field" task={task} members={members} />
               </PropertyRow>
+
+              {on('tags') && (
+                <PropertyRow label="Tags">
+                  <TaskTagsField taskId={task.id} isAssignedEditor={!!user && task.editorId === user.id} />
+                </PropertyRow>
+              )}
 
               {on('priorities') && (
               <PropertyRow label="Priority">

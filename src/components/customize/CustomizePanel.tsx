@@ -7,8 +7,9 @@ import { can } from '@/lib/permissions';
 import { cn } from '@/lib/utils';
 import StatusEditor from './StatusEditor';
 import FeatureSwitches from './FeatureSwitches';
+import { TagsEditor } from '@/components/tags/Tags';
 
-type Tab = 'statuses' | 'fields' | 'features';
+type Tab = 'statuses' | 'fields' | 'tags' | 'features';
 
 /**
  * "Customize workspace": tucked away until an admin opens it, so everyday screens stay clean. Statuses are
@@ -22,6 +23,7 @@ const CustomizePanel: React.FC = () => {
   const tabs: { id: Tab; label: string; show: boolean }[] = [
     { id: 'statuses', label: 'Statuses & moves', show: isAdmin },
     { id: 'fields', label: 'Custom fields', show: canFields },
+    { id: 'tags', label: 'Tags', show: canFields },
     { id: 'features', label: 'Features', show: isAdmin },
   ];
   const visible = tabs.filter((t) => t.show);
@@ -58,7 +60,7 @@ const CustomizePanel: React.FC = () => {
                   ))}
                 </div>
               )}
-              {tab === 'statuses' && isAdmin ? <StatusEditor /> : tab === 'features' && isAdmin ? <FeatureSwitches /> : <CustomFieldsManager />}
+              {tab === 'statuses' && isAdmin ? <StatusEditor /> : tab === 'features' && isAdmin ? <FeatureSwitches /> : tab === 'tags' ? <TagsEditor /> : <CustomFieldsManager />}
             </div>
           </motion.div>
         )}
