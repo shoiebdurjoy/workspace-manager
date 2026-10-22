@@ -1,5 +1,6 @@
 import { getSupabaseClient } from './client';
 import { toDatabaseError } from './errors';
+import { saveRow } from './save-row';
 
 /** Recurring videos, dependencies and time tracking (migrations 36-38). Calls run as the signed-in person. */
 export type RepeatUnit = 'day' | 'week' | 'month';
@@ -37,9 +38,7 @@ export async function setRepeat(taskId: string, rule: RepeatRule | null): Promis
     if (error) throw toDatabaseError('stop the repeat', error);
     return;
   }
-  const { error } = await db()
-    .from('task_recurrence')
-    .upsert({ task_id: taskId, every: rule.every, unit: rule.unit, copy_people: rule.copyPeople }, { onConflict: 'task_id' });
+  const error = await saveRow('task_recurrence', { task_id: taskId }, { every: rule.every, unit: rule.unit, copy_people: rule.copyPeople });
   if (error) throw toDatabaseError('save the repeat', error);
 }
 

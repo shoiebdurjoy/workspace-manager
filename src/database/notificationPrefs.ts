@@ -1,5 +1,6 @@
 import { getSupabaseClient } from './client';
 import { toDatabaseError } from './errors';
+import { saveRow } from './save-row';
 
 /** Profile > Notifications (migration 34): what notifies this person in this workspace. Missing row = everything. */
 export type MutableNotificationKind = 'mention' | 'comment' | 'assigned' | 'status' | 'automation';
@@ -20,8 +21,6 @@ export async function getNotificationPrefs(workspaceId: string, userId: string):
 }
 
 export async function saveNotificationPrefs(workspaceId: string, userId: string, prefs: NotificationPrefs): Promise<void> {
-  const { error } = await db()
-    .from('notification_prefs')
-    .upsert({ user_id: userId, workspace_id: workspaceId, muted_kinds: prefs.mutedKinds, muted_list_ids: prefs.mutedListIds }, { onConflict: 'user_id,workspace_id' });
+  const error = await saveRow('notification_prefs', { user_id: userId, workspace_id: workspaceId }, { muted_kinds: prefs.mutedKinds, muted_list_ids: prefs.mutedListIds });
   if (error) throw toDatabaseError('save your notification settings', error);
 }

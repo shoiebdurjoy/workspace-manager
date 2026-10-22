@@ -882,18 +882,18 @@ VALUES (gen_random_uuid(), '${u.id}', '${u.id}', jsonb_build_object('sub','${u.i
     const grantsBefore = grantRefusals;
     const tr = (who, p_task_id, p_to, extra = {}) => clients[who].rpc('transition_task', { p_task_id, p_to, ...extra });
     const statusOf = async (id) => (await clients.pm.from('tasks').select('status,revision_count').eq('id', id).single()).data;
-    const CANONICAL = ['TO BE EDITED', 'IN EDIT', 'ASSIGNED', 'STARTED EDITING', 'QC- FIRST APPROVAL', 'QC- REVISION NEEDED', 'QC- FINAL APPROVAL', 'QC- APPROVED (RTD)', 'SENT TO CLIENT', 'CLOSED'];
+    const CANONICAL = ['TO BE EDITED', 'IN EDIT', 'ASSIGNED', 'STARTED EDITING', 'QC- FIRST APPROVAL', 'QC- REVISION NEEDED', 'QC- FINAL APPROVAL', 'QC- APPROVED (RTD)', 'SENT TO CLIENT', 'CLIENT REVISION NEEDED', 'CLIENT APPROVED', 'PAUSED', 'CLOSED'];
 
-    // ---- configuration: seeded for the new workspace, readable by staff only, writable by nobody ----
+    // ---- configuration: seeded for the new workspace, readable by staff only, customised only by Owner / Admin (migration 27) ----
     res = await clients.editor.from('workflows').select('id, name, workflow_statuses!workflow_id(key, name, position), workflow_transitions!workflow_id(from_key, to_key)').eq('workspace_id', ws).eq('is_default', true).maybeSingle();
     rec('a new workspace gets the TBB workflow automatically', !res.error && !!res.data?.id, res.error?.message);
     const wf = res.data;
     const names = (wf?.workflow_statuses ?? []).sort((x, y) => x.position - y.position).map((st) => st.name);
-    rec('its ten stages are the canonical TBB stages, in order', JSON.stringify(names) === JSON.stringify(CANONICAL), JSON.stringify(names));
-    rec('it has the 20 defined moves', wf?.workflow_transitions?.length === 20, String(wf?.workflow_transitions?.length));
+    rec('its thirteen stages are the canonical TBB stages, in order', JSON.stringify(names) === JSON.stringify(CANONICAL), JSON.stringify(names));
+    rec('it has the 34 defined moves', wf?.workflow_transitions?.length === 34, String(wf?.workflow_transitions?.length));
     for (const who of ['owner', 'admin', 'pm', 'qc']) {
       res = await clients[who].from('workflow_statuses').select('key').eq('workflow_id', wf?.id);
-      rec(`${who} reads the workflow`, !res.error && res.data?.length === 10, res.error?.message);
+      rec(`${who} reads the workflow`, !res.error && res.data?.length === 13, res.error?.message);
     }
     for (const who of ['client', 'stranger']) {
       res = await clients[who].from('workflow_transitions').select('from_key').eq('workflow_id', wf?.id);
@@ -901,16 +901,16 @@ VALUES (gen_random_uuid(), '${u.id}', '${u.id}', jsonb_build_object('sub','${u.i
     }
     res = await anon.from('workflows').select('id');
     rec('anon cannot read workflows', !!res.error);
-    res = await clients.owner.from('workflow_statuses').insert({ workflow_id: wf?.id, key: 'HACK', name: 'HACK', category: 'IN_PROGRESS', color: '#000000', position: 99 });
-    rec('even the owner cannot add a stage through the API', !!res.error);
-    res = await clients.owner.from('workflow_transitions').update({ roles: ['EDITOR'] }).eq('workflow_id', wf?.id).select();
-    rec('even the owner cannot rewrite who may make a move', !!res.error || (res.data?.length ?? 0) === 0, JSON.stringify(res.error));
-    res = await clients.owner.from('workflow_transitions').delete().eq('workflow_id', wf?.id).select();
-    rec('even the owner cannot delete moves', !!res.error || (res.data?.length ?? 0) === 0);
+    res = await clients.pm.from('workflow_statuses').insert({ workflow_id: wf?.id, key: 'HACK', name: 'HACK', category: 'IN_PROGRESS', color: '#000000', position: 99 });
+    rec('a production manager cannot add a stage', !!res.error);
+    res = await clients.qc.from('workflow_transitions').update({ roles: ['EDITOR'] }).eq('workflow_id', wf?.id).select();
+    rec('QC cannot rewrite who may make a move', !!res.error || (res.data?.length ?? 0) === 0, JSON.stringify(res.error));
+    res = await clients.editor.from('workflow_transitions').delete().eq('workflow_id', wf?.id).select();
+    rec('an editor cannot delete moves', !!res.error || (res.data?.length ?? 0) === 0);
     res = await clients.owner.from('workflows').delete().eq('id', wf?.id).select();
     rec('even the owner cannot delete the workflow', !!res.error || (res.data?.length ?? 0) === 0);
     res = await clients.pm.from('workflow_transitions').select('from_key', { count: 'exact', head: true }).eq('workflow_id', wf?.id);
-    rec('...and the workflow is intact afterwards', res.count === 20, String(res.count));
+    rec('...and the workflow is intact afterwards', res.count === 34, String(res.count));
 
     // ---- a fresh list for the workflow checks ----
     res = await clients.pm.from('lists').insert({ space_id: space, folder_id: folder, name: 'P7 WORKFLOW' }).select().single();
@@ -1035,9 +1035,13 @@ VALUES (gen_random_uuid(), '${u.id}', '${u.id}', jsonb_build_object('sub','${u.i
       (SELECT count(*) FROM pg_proc WHERE proname = 'transition_task' AND prosecdef) AS definer,
       has_function_privilege('anon', 'public.transition_task(uuid,text,text,text,text,text)', 'EXECUTE')::int AS anon_exec,
       (SELECT count(*) FROM information_schema.role_table_grants WHERE grantee IN ('anon', 'authenticated')
-         AND table_name IN ('workflows', 'workflow_statuses', 'workflow_transitions', 'task_status_events')
-         AND privilege_type IN ('INSERT', 'UPDATE', 'DELETE', 'TRUNCATE')) AS write_grants;`);
-    rec('transition_task runs as the caller (RLS applies), anon cannot execute it, no write grants on workflow/history', posture.definer === 0 && posture.anon_exec === 0 && posture.write_grants === 0, JSON.stringify(posture));
+         AND table_name IN ('workflows', 'task_status_events')
+         AND privilege_type IN ('INSERT', 'UPDATE', 'DELETE', 'TRUNCATE')) AS write_grants,
+      (SELECT count(*) FROM information_schema.role_table_grants WHERE grantee = 'anon'
+         AND table_name IN ('workflow_statuses', 'workflow_transitions')
+         AND privilege_type IN ('INSERT', 'UPDATE', 'DELETE', 'TRUNCATE')) AS anon_workflow_writes;`);
+    // since migration 27 Owner / Admin customise statuses and moves (RLS-checked); history and the workflow record stay read-only
+    rec('transition_task runs as the caller (RLS applies), anon cannot execute it, no write grants on the workflow record/history, none for anon', posture.definer === 0 && posture.anon_exec === 0 && posture.write_grants === 0 && posture.anon_workflow_writes === 0, JSON.stringify(posture));
     grantRefusals = grantsBefore;
   }
 
@@ -1912,6 +1916,177 @@ VALUES (gen_random_uuid(), '${u.id}', '${u.id}', jsonb_build_object('sub','${u.i
     res = await clients.pm.from('tasks').select('id, parent_id').in('id', [v1, v2]);
     rec('...its videos survive as ordinary tasks', !res.error && res.data?.length === 2 && res.data.every((t) => t.parent_id === null), res.error?.message ?? JSON.stringify(res.data));
     grantRefusals = grantsBefore12b;
+  }
+
+  console.log('\n== A full team day: admin sets up, managers plan, editor edits, QC reviews, client watches ==');
+  {
+    const C = clients;
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    const notes = async (who, extra = {}) => {
+      let q = C[who].from('notifications').select('kind,data,task_id').eq('workspace_id', ws);
+      if (extra.task) q = q.eq('task_id', extra.task);
+      return (await q).data ?? [];
+    };
+
+    // --- ADMIN: customize the workspace
+    // the list may have been moved by an earlier check: use the folder it is in now
+    const listFolder = (await C.admin.from('lists').select('folder_id').eq('id', list).single()).data?.folder_id ?? folder;
+    res = await C.admin.from('folders').update({ default_qc_id: U.qc.id }).eq('id', listFolder).select();
+    rec('ADMIN: makes QC the default reviewer of the ZIM folder', !res.error && res.data?.length === 1, res.error?.message);
+    res = await C.admin.from('custom_fields').insert({ workspace_id: ws, name: `Platforms ${RUN}`, field_type: 'labels', options: ['TikTok', 'Reels', 'Shorts'] }).select().single();
+    const fPlatforms = res.data?.id;
+    rec('ADMIN: creates a labels field', !res.error && !!fPlatforms, res.error?.message);
+    res = await C.admin.from('custom_fields').insert({ workspace_id: ws, name: `Quality ${RUN}`, field_type: 'rating' }).select().single();
+    const fQuality = res.data?.id;
+    rec('ADMIN: creates a rating field', !res.error && !!fQuality, res.error?.message);
+    res = await C.admin.from('tags').insert({ workspace_id: ws, name: 'Reshoot', color: '#EF4444' }).select().single();
+    const tagReshoot = res.data?.id;
+    rec('ADMIN: creates a tag', !res.error && !!tagReshoot, res.error?.message);
+    res = await C.admin.from('automations').insert({
+      workspace_id: ws, name: 'Changes needed', trigger_type: 'status_changed', trigger_status: 'QC_REVISION_NEEDED',
+      actions: [{ type: 'set_priority', priority: 'URGENT' }, { type: 'notify', to: 'editor', message: 'QC asked for changes' }],
+    }).select().single();
+    rec('ADMIN: creates an automation (revision -> urgent + tell the editor)', !res.error, res.error?.message);
+    res = await C.admin.rpc('set_workspace_feature', { p_workspace_id: ws, p_feature: 'reports', p_enabled: false });
+    rec('ADMIN: switches a feature off', !res.error && res.data?.reports === false, res.error?.message);
+    res = await C.admin.rpc('set_workspace_feature', { p_workspace_id: ws, p_feature: 'reports', p_enabled: true });
+    rec('ADMIN: ...and back on', !res.error && !('reports' in (res.data ?? {})), res.error?.message);
+    res = await C.pm.rpc('set_workspace_feature', { p_workspace_id: ws, p_feature: 'reports', p_enabled: false });
+    rec('PRODUCTION MANAGER: cannot switch features', !!res.error);
+    const wf = (await C.admin.from('workflows').select('id').eq('workspace_id', ws).eq('is_default', true).single()).data?.id;
+    res = await C.admin.from('workflow_statuses').update({ name: 'EDITING NOW' }).eq('workflow_id', wf).eq('key', 'STARTED_EDITING').select();
+    rec('ADMIN: renames a status', !res.error && res.data?.length === 1, res.error?.message);
+    await C.admin.from('workflow_statuses').update({ name: 'STARTED EDITING' }).eq('workflow_id', wf).eq('key', 'STARTED_EDITING');
+    res = await C.editor.from('workflow_statuses').update({ name: 'X' }).eq('workflow_id', wf).eq('key', 'IN_EDIT').select();
+    rec('EDITOR: cannot rename statuses', !!res.error || res.data?.length === 0);
+
+    // --- PRODUCTION MANAGER: plans a video
+    res = await C.pm.rpc('create_task', { p_list_id: list, p_title: `Team day video ${RUN}`, p_description: 'Hook in 2s', p_priority: 'MEDIUM', p_aspect_ratio: '9:16' });
+    const vid = res.data?.id;
+    rec('PRODUCTION MANAGER: creates a video', !res.error && !!vid, res.error?.message);
+    res = await C.pm.rpc('set_task_assignee', { p_task_id: vid, p_role_type: 'EDITOR', p_user_id: U.editor.id });
+    rec('PRODUCTION MANAGER: assigns the editor', !res.error, res.error?.message);
+    res = await C.pm.from('task_tags').insert({ task_id: vid, tag_id: tagReshoot });
+    rec('PRODUCTION MANAGER: tags it', !res.error, res.error?.message);
+    res = await C.pm.from('custom_field_values').insert({ task_id: vid, field_id: fPlatforms, value: ['TikTok', 'Reels'] });
+    rec('PRODUCTION MANAGER: fills a labels field', !res.error, res.error?.message);
+    res = await C.pm.from('tasks').update({ time_estimate_minutes: 120 }).eq('id', vid).select();
+    rec('PRODUCTION MANAGER: sets a time estimate (saved)', !res.error && res.data?.[0]?.time_estimate_minutes === 120, res.error?.message);
+    res = await C.pm.from('saved_views').insert({ workspace_id: ws, scope: list, name: 'Waiting for QC', query: 'status=QC_FIRST_APPROVAL', mode: 'board', is_shared: true });
+    rec('PRODUCTION MANAGER: shares a saved view', !res.error, res.error?.message);
+    await wait(300);
+    rec('EDITOR: is notified of the assignment', (await notes('editor', { task: vid })).some((n) => n.kind === 'assigned'));
+    res = await C.editor.from('saved_views').select('name').eq('scope', list);
+    rec('EDITOR: sees the shared view', res.data?.some((v) => v.name === 'Waiting for QC'), res.error?.message);
+
+    // an earlier part of this run left the QC on leave: back to work
+    runSql(`UPDATE public.member_availability SET status = 'AVAILABLE' WHERE workspace_id = '${ws}' AND user_id = '${U.qc.id}'`);
+
+    // --- EDITOR: works the video
+    for (const step of ['IN_EDIT', 'ASSIGNED']) await C.pm.rpc('transition_task', { p_task_id: vid, p_to: step, p_note: null, p_review_link: null, p_final_export_link: null, p_expected_from: null });
+    res = await C.editor.rpc('transition_task', { p_task_id: vid, p_to: 'STARTED_EDITING', p_note: null, p_review_link: null, p_final_export_link: null, p_expected_from: null });
+    rec('EDITOR: starts editing', !res.error, res.error?.message);
+    res = await C.editor.from('time_entries').insert({ task_id: vid, started_at: new Date(Date.now() - 50 * 60_000).toISOString(), ended_at: new Date().toISOString(), note: 'first cut' });
+    rec('EDITOR: logs 50 minutes', !res.error, res.error?.message);
+    res = await C.editor.from('custom_field_values').insert({ task_id: vid, field_id: fQuality, value: 4 });
+    rec('EDITOR: rates the cut (field saved on their own video)', !res.error, res.error?.message);
+    res = await C.editor.from('tags').insert({ workspace_id: ws, name: 'Mine' });
+    rec('EDITOR: cannot create tags', !!res.error);
+    res = await C.editor.rpc('transition_task', { p_task_id: vid, p_to: 'QC_FIRST_APPROVAL', p_note: null, p_review_link: 'https://frame.io/r/e2e', p_final_export_link: null, p_expected_from: null });
+    rec('EDITOR: sends it to QC with the review link', !res.error, res.error?.message);
+    res = await C.pm.from('task_assignees').select('user_id').eq('task_id', vid).eq('role_type', 'QC_REVIEWER');
+    rec('QC is auto-assigned from the folder default', res.data?.[0]?.user_id === U.qc.id, JSON.stringify(res.data));
+    await wait(300);
+    rec('QC: is notified of the assignment', (await notes('qc', { task: vid })).some((n) => n.kind === 'assigned'));
+
+    // --- QC: reviews
+    res = await C.qc.from('task_comments').insert({ task_id: vid, workspace_id: ws, author_id: U.qc.id, body: `@[Editor](${U.editor.id}) the intro is too slow` });
+    rec('QC: comments and mentions the editor', !res.error, res.error?.message);
+    res = await C.qc.rpc('transition_task', { p_task_id: vid, p_to: 'QC_REVISION_NEEDED', p_note: 'Tighten the intro', p_review_link: null, p_final_export_link: null, p_expected_from: null });
+    rec('QC: requests a revision', !res.error, res.error?.message);
+    await wait(300);
+    res = await C.pm.from('tasks').select('priority,revision_count').eq('id', vid).single();
+    rec('the automation made it URGENT', res.data?.priority === 'URGENT', JSON.stringify(res.data));
+    const en = await notes('editor', { task: vid });
+    rec('EDITOR: got the mention', en.some((n) => n.kind === 'mention'), JSON.stringify(en.map((n) => n.kind)));
+    rec('EDITOR: got the automation message', en.some((n) => n.data?.automation === 'Changes needed' && n.data?.message === 'QC asked for changes'));
+
+    // --- notification settings save and apply
+    res = await C.editor.from('notification_prefs').insert({ user_id: U.editor.id, workspace_id: ws, muted_kinds: ['comment', 'mention'], muted_list_ids: [] });
+    rec('EDITOR: mutes comments and mentions (saved)', !res.error, res.error?.message);
+    const before = (await notes('editor', { task: vid })).length;
+    await C.qc.from('task_comments').insert({ task_id: vid, workspace_id: ws, author_id: U.qc.id, body: `@[Editor](${U.editor.id}) also the music` });
+    await wait(300);
+    rec('EDITOR: muted mentions no longer arrive', (await notes('editor', { task: vid })).length === before);
+    res = await C.editor.from('user_layouts').insert({ user_id: U.editor.id, workspace_id: ws, layout: { favorites: [list], home: { hidden: ['insights'] } } });
+    rec('EDITOR: saves favorites and Home layout (first time)', !res.error, res.error?.message);
+    res = await C.editor.from('user_layouts').update({ layout: { favorites: [], home: {} } }).eq('user_id', U.editor.id).eq('workspace_id', ws).select();
+    rec('EDITOR: saves favorites and Home layout', !res.error, res.error?.message);
+    res = await C.qc.from('user_layouts').select('layout');
+    rec('QC: cannot see the editor\'s layout', !res.error && res.data.length === 0);
+
+    // --- CLIENT VIEWER: sees nothing internal
+    for (const [t, label] of [['tags', 'tags'], ['custom_field_values', 'field values'], ['time_entries', 'time'], ['trash_items', 'the trash'], ['automations', 'automations']]) {
+      res = await C.client.from(t).select('*').eq('workspace_id', ws);
+      rec(`CLIENT: sees no ${label}`, !!res.error || res.data.length === 0, res.error?.message);
+    }
+
+    // --- brief form: a client sends a brief without an account
+    res = await C.pm.from('brief_forms').insert({ workspace_id: ws, list_id: list, title: 'New video request', fields: [fPlatforms] }).select('id,token').single();
+    rec('PRODUCTION MANAGER: creates a brief form', !res.error && /^[0-9a-f]{64}$/.test(res.data?.token ?? ''), res.error?.message);
+    const form = res.data;
+    const pub = createClient(URL_, KEY, { auth: { persistSession: false, autoRefreshToken: false }, global: { headers: { 'x-brief-token': form.token } } });
+    res = await pub.from('brief_forms').select('id,title,fields');
+    rec('PUBLIC: opens the form with its link', !res.error && res.data?.length === 1, res.error?.message);
+    res = await pub.from('brief_submissions').insert({ form_id: form.id, title: `Brief ${RUN}`, brief: 'Launch teaser', contact_name: 'Jane', contact_email: 'jane@tbb-e2e.invalid', answers: { [fPlatforms]: ['Shorts'] } });
+    rec('PUBLIC: sends a brief', !res.error, res.error?.message);
+    res = await C.pm.from('tasks').select('id,title').eq('list_id', list).eq('title', `Brief ${RUN}`);
+    rec('...it became a video in the client list', res.data?.length === 1, res.error?.message);
+    const anonOther = mk();
+    res = await anonOther.from('brief_forms').select('id');
+    rec('PUBLIC: without the link nothing is visible', !!res.error || res.data.length === 0);
+
+    // --- recurring + dependencies
+    const v2 = (await C.pm.rpc('create_task', { p_list_id: list, p_title: `Weekly ${RUN}`, p_description: null, p_priority: 'LOW', p_aspect_ratio: null })).data?.id;
+    res = await C.pm.from('task_dependencies').insert({ task_id: v2, depends_on_id: vid });
+    rec('PRODUCTION MANAGER: makes the weekly video wait on the first', !res.error, res.error?.message);
+    res = await C.pm.from('task_recurrence').insert({ task_id: v2, every: 1, unit: 'week' });
+    rec('PRODUCTION MANAGER: makes it repeat weekly', !res.error, res.error?.message);
+    runSql(`UPDATE public.tasks SET status = 'CLOSED' WHERE id = '${v2}'`);
+    res = await C.pm.from('tasks').select('id').eq('list_id', list).eq('title', `Weekly ${RUN}`);
+    rec('closing it created next week\'s video', res.data?.length === 2, JSON.stringify(res.data));
+
+    // --- trash: a mistaken delete is traced and restored
+    // (a video that already earned a production credit cannot be deleted at all, so this uses a fresh one)
+    const vt = (await C.pm.rpc('create_task', { p_list_id: list, p_title: `Trash me ${RUN}`, p_description: 'keep me', p_priority: 'HIGH', p_aspect_ratio: '9:16' })).data?.id;
+    await C.pm.rpc('set_task_assignee', { p_task_id: vt, p_role_type: 'EDITOR', p_user_id: U.editor.id });
+    await C.pm.from('task_tags').insert({ task_id: vt, tag_id: tagReshoot });
+    await C.pm.from('custom_field_values').insert({ task_id: vt, field_id: fPlatforms, value: ['Reels'] });
+    await C.editor.from('task_comments').insert({ task_id: vt, workspace_id: ws, author_id: U.editor.id, body: 'notes for later' });
+    await C.editor.from('time_entries').insert({ task_id: vt, started_at: new Date(Date.now() - 20 * 60_000).toISOString(), ended_at: new Date().toISOString() });
+    await C.pm.from('task_dependencies').insert({ task_id: vid, depends_on_id: vt });
+    res = await C.admin.from('tasks').delete().eq('id', vt).select();
+    rec('ADMIN: deletes a video by mistake', !res.error && res.data?.length === 1, res.error?.message);
+    res = await C.pm.from('trash_items').select('batch,table_name,deleted_by').eq('workspace_id', ws).eq('item_id', vt).eq('table_name', 'tasks');
+    const tb = res.data?.[0];
+    rec('PRODUCTION MANAGER: sees it in the trash, with who deleted it', tb?.deleted_by === U.admin.id, JSON.stringify(res.data));
+    res = await C.editor.from('trash_items').select('id').eq('workspace_id', ws);
+    rec('EDITOR: cannot see the trash', !res.error && res.data.length === 0);
+    res = await C.pm.rpc('restore_trash_batch', { p_batch: tb?.batch, p_workspace_id: ws });
+    rec('PRODUCTION MANAGER: restores it', !res.error && res.data?.skipped === 0, res.error?.message ?? JSON.stringify(res.data));
+    res = await C.pm.from('tasks').select('title,description,priority').eq('id', vt).single();
+    rec('...back exactly as it was', res.data?.title === `Trash me ${RUN}` && res.data?.description === 'keep me' && res.data?.priority === 'HIGH', JSON.stringify(res.data));
+    const back = await Promise.all([
+      C.pm.from('task_tags').select('tag_id').eq('task_id', vt),
+      C.pm.from('custom_field_values').select('field_id').eq('task_id', vt),
+      C.pm.from('time_entries').select('id').eq('task_id', vt),
+      C.pm.from('task_comments').select('id').eq('task_id', vt),
+      C.pm.from('task_dependencies').select('task_id').eq('depends_on_id', vt),
+      C.pm.from('task_assignees').select('user_id').eq('task_id', vt),
+    ]);
+    rec('...with its editor, tag, field, time, comment and the video waiting on it', back.every((x) => x.data?.length === 1), JSON.stringify(back.map((x) => x.data?.length)));
+    res = await C.pm.from('tasks').delete().eq('id', vid).select();
+    rec('a video that earned a production credit still cannot be deleted', !!res.error);
   }
 
   console.log('\n== Deactivation (flag flipped by the service owner) ==');

@@ -4,6 +4,7 @@ import type { Database } from '@/types/database.types';
 import { DatabaseError, NotFoundError, toDatabaseError, ValidationError } from './errors';
 import { mapTaskError } from './tasks';
 import { mapTaskRow } from './task-mappers';
+import { saveRow } from './save-row';
 import { validateTaskUrl } from '@/lib/tasks';
 
 /**
@@ -228,10 +229,8 @@ export async function deleteWorkflowStatus(workflowId: string, key: string): Pro
 }
 
 export async function saveWorkflowTransition(workflowId: string, t: WorkflowTransition): Promise<void> {
-  const { error } = await writable()
-    .from('workflow_transitions')
-    .upsert({ workflow_id: workflowId, from_key: t.from, to_key: t.to, label: t.label.trim() || 'Move', kind: t.kind, roles: t.roles }, { onConflict: 'workflow_id,from_key,to_key' });
-  if (error) throw toDatabaseError('save the move', error);
+  const error = await saveRow('workflow_transitions', { workflow_id: workflowId, from_key: t.from, to_key: t.to }, { label: t.label.trim() || 'Move', kind: t.kind, roles: t.roles });
+  if (error) throw toDatabaseError('save the move', error as never);
 }
 
 export async function deleteWorkflowTransition(workflowId: string, from: string, to: string): Promise<void> {

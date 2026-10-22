@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { getSupabaseClient } from '@/database/client';
+import { saveRow } from '@/database/save-row';
 import { useAuth } from '@/hooks/use-auth';
 
 /** A person's own layout (migration 35): sidebar favourites and the Home cards' order and visibility. */
@@ -31,7 +32,7 @@ export function useLayout() {
   });
   const save = useMutation({
     mutationFn: async (next: UserLayout) => {
-      const { error } = await db().from('user_layouts').upsert({ user_id: me, workspace_id: ws, layout: next }, { onConflict: 'user_id,workspace_id' });
+      const error = await saveRow('user_layouts', { user_id: me, workspace_id: ws }, { layout: next });
       if (error) throw new Error(error.message);
     },
     // the layout changes on screen at once and is put back if saving fails
